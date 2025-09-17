@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .dist/
 build/
+.idea/
 
 # Venv
 .venv/
@@ -12,7 +13,10 @@ build/
 .vscode/
 .DS_Store
 
-# Entornos
+# Environment
 .env
 .env.*
 !.env.example
+
+# CSV Data
+/app/data/gtfs/

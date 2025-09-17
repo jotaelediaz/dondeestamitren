@@ -1,0 +1,2 @@
+nucleus_slug,nucleus_name,stations_csv,stop_id_col,extra_cols
+madrid,Madrid,app/data/custom/listado-estaciones-cercanias-madrid.csv,CÓDIGO,LINEA;ZONA
