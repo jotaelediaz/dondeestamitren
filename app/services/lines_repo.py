@@ -200,6 +200,10 @@ class LinesRepo:
                 return lv
         return None
 
+    def nucleus_for_route_id(self, route_id: str) -> str | None:
+        tup = self._nuclei_map.get(route_id)
+        return tup[0] if tup else None
+
 
 _repo: LinesRepo | None = None
 

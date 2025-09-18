@@ -1,8 +1,15 @@
 <!doctype html><meta charset="utf-8">
 <title>dondeestamitren — Núcleos</title>
-<h1>Núcleos disponibles</h1>
+<h1>Donde está mi tren - Alpha 0.2</h1>
+<hr/>
+<h2>Líneas por núcleos</h2>
 <ul>
 	{% for n in nuclei %}
 		<li><a href="/routes/{{ n.slug }}">{{ n.name }}</a></li>
 	{% endfor %}
+</ul>
+
+<h2>Trenes en directo</h2>
+<ul>
+	<li><a href="/trains">Listado de trenes</a></li>
 </ul>

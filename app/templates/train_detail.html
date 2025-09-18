@@ -1,0 +1,22 @@
+
+	<h1 class="h2">Tren {{ train.train_id }}</h1>
+	<p class="text-muted">Snapshot: {{ last_snapshot }}</p>
+	
+	<ul>
+		<li><strong>Línea:</strong> {{ train.route_short_name }}</li>
+		<li><strong>Estado:</strong> {{ train.status_human() }}</li>
+		<li><strong>Parada:</strong> {{ train.stop_id or "—" }}</li>
+		<li><strong>Posición:</strong>
+			{% if train.lat and train.lon %}
+				{{ train.lat }}, {{ train.lon }}
+			{% else %}—{% endif %}
+		</li>
+		<li><strong>Trip ID:</strong> {{ train.trip_id }}</li>
+	</ul>
+	
+	<p><a href="/trains/">← Volver al listado</a></p>
+	
+	<script>
+      setTimeout(() => location.reload(), 15000);
+	</script>
+
