@@ -52,3 +52,21 @@ def admin_refresh():
 def list_trains_by_nucleus(nucleus: str):
     items = get_cache().get_by_nucleus(nucleus)
     return {"nucleus": nucleus, "count": len(items), "items": [it.model_dump() for it in items]}
+
+
+@router.get("/api/routes/{nucleus}/{route_id}/positions")
+def trains_on_route(nucleus: str, route_id: str, direction_id: str | None = None):
+    repo = get_repo()
+    lv = repo.get_by_route_and_dir(route_id, direction_id or "")
+    if not lv:
+        raise HTTPException(404, f"Route {route_id} not found")
+    if repo.nucleus_for_route_id(route_id) != nucleus:
+        raise HTTPException(404, f"La ruta no pertenece al núcleo {nucleus}")
+
+    items = get_cache().get_by_nucleus_and_route(nucleus, route_id)
+    return dict(
+        route_id=route_id,
+        nucleus=nucleus,
+        count=len(items),
+        items=[it.model_dump() for it in items],
+    )

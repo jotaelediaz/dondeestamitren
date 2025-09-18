@@ -50,13 +50,17 @@ class LiveCache:
         ents = raw.get("entity") or []
         items: list[TrainPosition] = []
         if isinstance(ents, list):
+            trips_repo = get_trips_repo()
+            lines_repo = get_lines_repo()
             for ent in ents:
                 tp = parse_train_gtfs_json(ent, default_ts=header_ts)
                 if not tp:
                     continue
-                rid = get_trips_repo().route_id_for_trip(tp.trip_id) or ""
+                rid = trips_repo.route_id_for_trip(tp.trip_id) or ""
                 if rid:
-                    tp.nucleus_slug = get_lines_repo().nucleus_for_route_id(rid)
+                    tp.route_id = rid
+                    tp.nucleus_slug = lines_repo.nucleus_for_route_id(rid)
+
                 items.append(tp)
 
         if not items:
@@ -85,6 +89,41 @@ class LiveCache:
     def get_by_nucleus(self, nucleus_slug: str) -> list[TrainPosition]:
         s = nucleus_slug.strip().lower()
         return [tp for tp in self._items if (tp.nucleus_slug or "").lower() == s]
+
+    def get_by_route_short(self, short_name: str) -> list[TrainPosition]:
+        s = short_name.lower()
+        return sorted(
+            [t for t in self._items if t.route_short_name.lower() == s],
+            key=lambda t: (t.route_short_name, t.train_id),
+        )
+
+    def get_by_nucleus_and_short(self, nucleus_slug: str, short_name: str) -> list[TrainPosition]:
+        s = short_name.lower()
+        n = (nucleus_slug or "").lower()
+        return sorted(
+            [
+                t
+                for t in self._items
+                if (t.nucleus_slug or "").lower() == n and t.route_short_name.lower() == s
+            ],
+            key=lambda t: t.train_id,
+        )
+
+    def get_by_route_id(self, route_id: str) -> list[TrainPosition]:
+        r = (route_id or "").strip()
+        return sorted([t for t in self._items if (t.route_id or "") == r], key=lambda t: t.train_id)
+
+    def get_by_nucleus_and_route(self, nucleus_slug: str, route_id: str) -> list[TrainPosition]:
+        n = (nucleus_slug or "").lower()
+        r = (route_id or "").strip()
+        return sorted(
+            [
+                t
+                for t in self._items
+                if (t.nucleus_slug or "").lower() == n and (t.route_id or "") == r
+            ],
+            key=lambda t: t.train_id,
+        )
 
     def last_snapshot_iso(self) -> str:
         ts = self._last_snapshot_ts or int(self._last_fetch_s)

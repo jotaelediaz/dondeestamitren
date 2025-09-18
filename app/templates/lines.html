@@ -7,7 +7,7 @@
 			<strong>{{ l.route_short_name }}</strong> — {{ l.route_long_name }}
 			{% if l.directions %}
 				{% for d in l.directions %}
-					&nbsp;<a href="/routes/{{ nucleus }}/{{ l.route_short_name }}{% if d.id %}?direction_id={{ d.id }}{% endif %}">
+					&nbsp;<a href="/routes/{{ nucleus }}/{{ l.route_id }}{% if d.id %}?direction_id={{ d.id }}{% endif %}">
 					dir {{ d.id if d.id else "∅" }} ({{ d.stations }} est., {{ '%.1f' % d.length_km }} km)
 				</a>
 				{% endfor %}

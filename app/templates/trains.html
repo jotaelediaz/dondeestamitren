@@ -32,7 +32,7 @@
 					<td>{{ t.route_short_name }}</td>
 					<td><a href="/train/{{ t.train_id }}">{{ t.train_id }}</a></td>
 					<td>{{ t.status_human() }}</td>
-					<td>{{ t.stop_id or "—" }}</td>
+					<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
 					<td>
 						{% if t.lat and t.lon %}
 							{{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}

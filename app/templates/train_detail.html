@@ -5,13 +5,14 @@
 	<ul>
 		<li><strong>Línea:</strong> {{ train.route_short_name }}</li>
 		<li><strong>Estado:</strong> {{ train.status_human() }}</li>
-		<li><strong>Parada:</strong> {{ train.stop_id or "—" }}</li>
+		<li><strong>Parada:</strong> {{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id }})</i></li>
 		<li><strong>Posición:</strong>
 			{% if train.lat and train.lon %}
 				{{ train.lat }}, {{ train.lon }}
 			{% else %}—{% endif %}
 		</li>
 		<li><strong>Trip ID:</strong> {{ train.trip_id }}</li>
+		<li><strong>Núcleo:</strong> {{ repo.nucleus_name(train.nucleus_slug) or '—' }}</li>
 	</ul>
 	
 	<p><a href="/trains/">← Volver al listado</a></p>

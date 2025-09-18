@@ -21,6 +21,7 @@ class LinesRepo:
         self._nuclei_names: dict[str, str] = {}
         self._has_nuclei = nuclei_map is not None
         self._nuclei_map = nuclei_map or {}
+        self._stop_names: dict[str, str] = {}
 
     def _fnum(self, s: str | None, default="0") -> float:
         if s is None:
@@ -58,6 +59,7 @@ class LinesRepo:
         self._by_short_dir.clear()
         self._by_route_dir.clear()
         self._by_nucleus_short_dir.clear()
+        self._stop_names.clear()
 
         for (rid, did_raw), rows in by_key_rows.items():
             did = did_raw or ""  # normaliza direction
@@ -73,16 +75,22 @@ class LinesRepo:
 
             stations: list[StationOnLine] = []
             for r in rows:
-                stations.append(
-                    StationOnLine(
-                        seq=self._seq_safe(r),
-                        stop_id=(r.get("stop_id") or "").strip(),
-                        stop_name=(r.get("stop_name") or "").strip(),
-                        km=self._fnum(r.get("km")),
-                        lat=self._fnum(r.get("lat")),
-                        lon=self._fnum(r.get("lon")),
-                    )
+                stop_id = (r.get("stop_id") or "").strip()
+                stop_name = (r.get("stop_name") or "").strip()
+
+                st = StationOnLine(
+                    seq=self._seq_safe(r),
+                    stop_id=stop_id,
+                    stop_name=stop_name,
+                    km=self._fnum(r.get("km")),
+                    lat=self._fnum(r.get("lat")),
+                    lon=self._fnum(r.get("lon")),
                 )
+                stations.append(st)
+
+                # Index global stop_id -> stop_name (first match decides)
+                if stop_id and stop_name and stop_id not in self._stop_names:
+                    self._stop_names[stop_id] = stop_name
 
             lv = LineVariant(
                 route_id=rid,
@@ -152,7 +160,7 @@ class LinesRepo:
     def list_lines_grouped_by_route(self, nucleus_slug: str) -> list[dict]:
         if not self._has_nuclei:
             return []
-        grouped = {}
+        grouped: dict[str, dict] = {}
         for (rid, did), lv in self._by_route_dir.items():
             slug = self._nuclei_map.get(rid, (None, None))[0]
             if slug != nucleus_slug:
@@ -203,6 +211,18 @@ class LinesRepo:
     def nucleus_for_route_id(self, route_id: str) -> str | None:
         tup = self._nuclei_map.get(route_id)
         return tup[0] if tup else None
+
+    def nucleus_name(self, slug: str | None) -> str | None:
+        if not slug:
+            return None
+        return self._nuclei_names.get(slug, slug.capitalize())
+
+    def get_stop_name(self, stop_id: str) -> str | None:
+        return self._stop_names.get((stop_id or "").strip()) or None
+
+    def get_stop_name_or_id(self, stop_id: str) -> str:
+        sid = (stop_id or "").strip()
+        return self._stop_names.get(sid) or sid or "—"
 
 
 _repo: LinesRepo | None = None
