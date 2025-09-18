@@ -16,7 +16,6 @@ class TrainPosition(BaseModel):
     stop_id: str | None = None
     current_status: str | None = None  # STOPPED_AT / INCOMING_AT / etc.
     ts_unix: int = Field(0, description="epoch seconds (header/veh)")
-    nucleus_slug: str | None = None
     route_id: str | None = None
 
     def status_human(self) -> str:
@@ -58,7 +57,6 @@ def parse_train_gtfs_json(entity: dict, default_ts: int = 0) -> TrainPosition | 
     stop_id = (veh.get("stopId") or "").strip() or None
     current_status = (veh.get("currentStatus") or "").strip() or None
     ts = int(veh.get("timestamp") or 0) or int(default_ts or 0)
-    nucleus_slug: str | None = None
 
     if not (trip_id and route and train_id):
         return None

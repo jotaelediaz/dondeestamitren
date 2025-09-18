@@ -1,23 +1,35 @@
+<header>
+	{% if nucleus %}
+		<a href="/trains/{{ nucleus.slug }}">&larr; Volver a {{ nucleus.name }}</a>
+	{% else %}
+		<a href="/trains/">&larr; Volver a trenes</a>
+	{% endif %}
+	<h1>Tren {{ train.train_id }}</h1>
+	<p>Última actualización: {{ last_snapshot }}</p>
+</header>
 
-	<h1 class="h2">Tren {{ train.train_id }}</h1>
-	<p class="text-muted">Snapshot: {{ last_snapshot }}</p>
-	
-	<ul>
-		<li><strong>Línea:</strong> {{ train.route_short_name }}</li>
-		<li><strong>Estado:</strong> {{ train.status_human() }}</li>
-		<li><strong>Parada:</strong> {{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id }})</i></li>
-		<li><strong>Posición:</strong>
-			{% if train.lat and train.lon %}
-				{{ train.lat }}, {{ train.lon }}
-			{% else %}—{% endif %}
-		</li>
-		<li><strong>Trip ID:</strong> {{ train.trip_id }}</li>
-		<li><strong>Núcleo:</strong> {{ repo.nucleus_name(train.nucleus_slug) or '—' }}</li>
-	</ul>
-	
-	<p><a href="/trains/">← Volver al listado</a></p>
-	
-	<script>
-      setTimeout(() => location.reload(), 15000);
-	</script>
-
+<section>
+	<dl>
+		<dt>Núcleo</dt>
+		<dd>
+			{% if nucleus %}
+				<a href="/trains/{{ nucleus.slug }}">{{ nucleus.name }}</a>
+			{% else %}
+				{{ repo.nucleus_name(train.nucleus_slug) or (train.nucleus_slug or '—') }}
+			{% endif %}
+		</dd>
+		
+		<dt>Ruta</dt>
+		<dd>
+			{% if train.route_id %}
+				<a href="/routes/{{ train.nucleus_slug }}/{{ train.route_id }}">{{ train.route_short_name or train.route_id }}</a>
+			{% else %}
+				{{ train.route_short_name or '—' }}
+			{% endif %}
+		</dd>
+		
+		<dt>Velocidad</dt><dd>{{ (train.speed_kmh or 0)|round(0) }} km/h</dd>
+		<dt>Posición</dt><dd>{{ '%.5f'|format(train.lat or 0) }}, {{ '%.5f'|format(train.lon or 0) }}</dd>
+		<dt>Timestamp</dt><dd>{{ train.ts or '-' }}</dd>
+	</dl>
+</section>

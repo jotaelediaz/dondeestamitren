@@ -5,18 +5,16 @@ import csv
 import os
 
 from app.config import settings
-from app.domain.models import LineVariant, StationOnLine
+from app.domain.models import LineRoute, StationOnLine
 
 
 class LinesRepo:
     def __init__(self, csv_path: str, nuclei_map: dict[str, tuple[str, str]] | None = None):
         self.csv_path = csv_path
-        self._by_key: dict[tuple[str, str], LineVariant] = {}  # (route_id, direction_id)
-        self._by_short_dir: dict[tuple[str, str], LineVariant] = (
-            {}
-        )  # (short_name.lower(), direction_id)
-        self._by_route_dir: dict[tuple[str, str], LineVariant] = {}  # (route_id, direction_id)
-        self._by_nucleus_short_dir: dict[tuple[str, str, str], LineVariant] = {}
+        self._by_key: dict[tuple[str, str], LineRoute] = {}
+        self._by_short_dir: dict[tuple[str, str], LineRoute] = {}
+        self._by_route_dir: dict[tuple[str, str], LineRoute] = {}
+        self._by_nucleus_short_dir: dict[tuple[str, str, str], LineRoute] = {}
 
         self._nuclei_names: dict[str, str] = {}
         self._has_nuclei = nuclei_map is not None
@@ -92,26 +90,33 @@ class LinesRepo:
                 if stop_id and stop_name and stop_id not in self._stop_names:
                     self._stop_names[stop_id] = stop_name
 
-            lv = LineVariant(
+            nucleus_slug = ""
+            if self._has_nuclei:
+                nucleus_slug = (self._nuclei_map.get(rid, (None, None))[0] or "").strip().lower()
+                nucleus_name = (self._nuclei_map.get(rid, (None, None))[1] or "").strip()
+                if nucleus_slug and nucleus_slug not in self._nuclei_names:
+                    self._nuclei_names[nucleus_slug] = nucleus_name or nucleus_slug.capitalize()
+
+            lv = LineRoute(
                 route_id=rid,
                 route_short_name=short,
                 route_long_name=long_,
                 direction_id=did,
                 length_km=length_km,
                 stations=stations,
+                nucleus_id=nucleus_slug,
             )
 
             self._by_key[(rid, did)] = lv
             self._by_short_dir[(short.lower(), did)] = lv
             self._by_route_dir[(rid, did)] = lv
 
-            if self._has_nuclei:
-                slug = self._nuclei_map.get(rid, (None, None))[0]
-                if slug:
-                    self._by_nucleus_short_dir[(slug, short.lower(), did)] = lv
+            if nucleus_slug:
+                self._by_nucleus_short_dir[(nucleus_slug, short.lower(), did)] = lv
 
         for _rid, (slug, name) in self._nuclei_map.items():
-            self._nuclei_names[slug] = name
+            if slug and slug not in self._nuclei_names:
+                self._nuclei_names[slug] = name or slug.capitalize()
 
     def reload(self) -> None:
         self.load()
@@ -133,10 +138,10 @@ class LinesRepo:
             )
         return items
 
-    def get_by_route_and_dir(self, route_id: str, direction_id: str = "") -> LineVariant | None:
+    def get_by_route_and_dir(self, route_id: str, direction_id: str = "") -> LineRoute | None:
         return self._by_key.get((route_id, direction_id or ""))
 
-    def find_by_short_name(self, short_name: str, direction_id: str = "") -> LineVariant | None:
+    def find_by_short_name(self, short_name: str, direction_id: str = "") -> LineRoute | None:
         return self._by_short_dir.get((short_name.lower(), direction_id or ""))
 
     def directions_for_short_name(self, short_name: str) -> list[str]:
@@ -148,13 +153,7 @@ class LinesRepo:
     def list_nuclei(self) -> list[dict]:
         if not self._has_nuclei:
             return []
-        slugs = sorted(
-            {
-                self._nuclei_map.get(lv.route_id, (None, None))[0]
-                for (_rid, _did), lv in self._by_route_dir.items()
-                if self._nuclei_map.get(lv.route_id, (None, None))[0]
-            }
-        )
+        slugs = sorted(self._nuclei_names.keys())
         return [{"slug": s, "name": self._nuclei_names.get(s, s.capitalize())} for s in slugs]
 
     def list_lines_grouped_by_route(self, nucleus_slug: str) -> list[dict]:
@@ -190,7 +189,7 @@ class LinesRepo:
 
     def get_by_nucleus_and_short(
         self, nucleus_slug: str, short_name: str, direction_id: str = ""
-    ) -> LineVariant | None:
+    ) -> LineRoute | None:
         did = direction_id or ""
         s = short_name.lower()
         lv = self._by_nucleus_short_dir.get((nucleus_slug, s, did))
@@ -224,6 +223,10 @@ class LinesRepo:
         sid = (stop_id or "").strip()
         return self._stop_names.get(sid) or sid or "—"
 
+    @property
+    def nuclei_names(self):
+        return self._nuclei_names
+
 
 _repo: LinesRepo | None = None
 
@@ -243,6 +246,20 @@ def _load_nuclei_map_from_csv(path: str) -> dict[str, tuple[str, str]]:
     return m
 
 
+def _load_nuclei_from_data(path: str) -> dict[str, str]:
+    m: dict[str, str] = {}
+    if not path or not os.path.exists(path):
+        return m
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            slug = (row.get("nucleus_slug") or "").strip().lower()
+            name = (row.get("nucleus_name") or "").strip()
+            if slug:
+                m[slug] = name or slug.capitalize()
+    return m
+
+
 def get_repo() -> LinesRepo:
     global _repo
     if _repo is None:
@@ -251,6 +268,11 @@ def get_repo() -> LinesRepo:
             settings.ROUTE_STATIONS_CSV, nuclei_map=nuclei_map if nuclei_map else None
         )
         _repo.load()
+
+        nucleus_data_path = getattr(settings, "NUCLEI_DATA_CSV", "")
+        extra_names = _load_nuclei_from_data(nucleus_data_path)
+        if extra_names:
+            _repo.nuclei_names.update(extra_names)
     return _repo
 
 

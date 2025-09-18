@@ -21,7 +21,7 @@ def trains_on_line(nucleus: str, short: str, direction_id: str | None = None):
     )
     if not lv:
         raise HTTPException(404, f"Line {short} in Cercanías {nucleus} not found")
-    items = get_cache().by_route_short(short)
+    items = get_cache().get_by_nucleus_and_short(nucleus, short)
     return {
         "route": short,
         "nucleus": nucleus,

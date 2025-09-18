@@ -1,5 +1,5 @@
 
-	<h1 class="h2">Trenes en circulación{% if nucleus %} en {{ nucleus|capitalize }}{% endif %}</h1>
+	<h1 class="h2">Trenes en circulación{% if nucleus %} en {{ nucleus.name }}{% endif %}</h1>
 	<p class="text-muted">Snapshot: {{ last_snapshot }}</p>
 	<p class="text-muted">Trenes circulando: {{ trains | length }}</p>
 	

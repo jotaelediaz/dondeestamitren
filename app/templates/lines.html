@@ -1,18 +1,22 @@
 <!doctype html><meta charset="utf-8">
-<title>Líneas — {{ nucleus }}</title>
-<h1>Líneas — {{ nucleus }}</h1>
-<ul>
-	{% for l in lines %}
+<title>Líneas — {{ nucleus.name }}</title>
+<h1>Líneas · {{ nucleus.name }}</h1>
+
+<ul class="lines">
+	{% for ln in lines %}
 		<li>
-			<strong>{{ l.route_short_name }}</strong> — {{ l.route_long_name }}
-			{% if l.directions %}
-				{% for d in l.directions %}
-					&nbsp;<a href="/routes/{{ nucleus }}/{{ l.route_id }}{% if d.id %}?direction_id={{ d.id }}{% endif %}">
-					dir {{ d.id if d.id else "∅" }} ({{ d.stations }} est., {{ '%.1f' % d.length_km }} km)
-				</a>
-				{% endfor %}
+			<a href="/routes/{{ nucleus.slug }}/{{ ln.route_id }}">
+				<strong>{{ ln.route_short_name }}</strong>
+			</a>
+			{{ ln.route_long_name }}
+			{% if ln.directions %}
+
+					{% for d in ln.directions %}
+						<a href="/routes/{{ nucleus.slug }}/{{ ln.route_id }}?direction_id={{ d.id|urlencode }}">
+							Dir {{ d.id if d.id else "—" }} ({{ d.stations }} paradas · {{ d.length_km }} km)
+						</a>
+					{% endfor %}
 			{% endif %}
 		</li>
 	{% endfor %}
 </ul>
-<p><a href="/">← Volver</a></p>
