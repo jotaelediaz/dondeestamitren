@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8">
+<title>dondeestamitren — Núcleos</title>
+<h1>Núcleos disponibles</h1>
+<ul>
+	{% for n in nuclei %}
+		<li><a href="/routes/{{ n.slug }}">{{ n.name }}</a></li>
+	{% endfor %}
+</ul>

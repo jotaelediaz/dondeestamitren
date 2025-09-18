@@ -4,12 +4,14 @@ target-version = ["py311","py312"]
 
 [tool.ruff]
 line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
 select = ["E","F","I","UP","B","SIM"]
-ignore = ["E203"]  # compatible con Black
-target-version = "py311"
+ignore = ["E203"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_unused_ignores = true
 warn_redundant_casts = true
 warn_return_any = true

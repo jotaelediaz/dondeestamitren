@@ -19,4 +19,5 @@ build/
 !.env.example
 
 # CSV Data
-/app/data/gtfs/
+/app/data/gtfs/*
+!/app/data/gtfs/

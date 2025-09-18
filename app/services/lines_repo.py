@@ -2,108 +2,201 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+import os
 
 from app.config import settings
-
-
-@dataclass(frozen=True)
-class StationOnLine:
-    seq: int
-    stop_id: str
-    stop_name: str
-    km: float
-    lat: float
-    lon: float
-
-
-@dataclass(frozen=True)
-class LineVariant:
-    route_id: str
-    route_short_name: str
-    route_long_name: str
-    direction_id: str
-    length_km: float
-    stations: list[StationOnLine]
+from app.domain.models import LineVariant, StationOnLine
 
 
 class LinesRepo:
-    def __init__(self, csv_path: str):
+    def __init__(self, csv_path: str, nuclei_map: dict[str, tuple[str, str]] | None = None):
         self.csv_path = csv_path
-        self._by_key: dict[tuple[str, str], LineVariant] = {}
+        self._by_key: dict[tuple[str, str], LineVariant] = {}  # (route_id, direction_id)
+        self._by_short_dir: dict[tuple[str, str], LineVariant] = (
+            {}
+        )  # (short_name.lower(), direction_id)
+        self._by_route_dir: dict[tuple[str, str], LineVariant] = {}  # (route_id, direction_id)
+        self._by_nucleus_short_dir: dict[tuple[str, str, str], LineVariant] = {}
+
+        self._nuclei_names: dict[str, str] = {}
+        self._has_nuclei = nuclei_map is not None
+        self._nuclei_map = nuclei_map or {}
+
+    def _fnum(self, s: str | None, default="0") -> float:
+        if s is None:
+            s = default
+        s = s.replace(",", ".").strip()
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
+
+    def _seq_safe(self, row: dict) -> int:
+        raw = (row.get("seq") or "0").strip()
+        try:
+            return int(float(raw))
+        except Exception:
+            return 0
 
     def load(self) -> None:
+        if not os.path.exists(self.csv_path):
+            raise FileNotFoundError(f"Doesn't exist {self.csv_path}")
+
         by_key_rows: dict[tuple[str, str], list[dict]] = {}
         with open(self.csv_path, encoding="utf-8-sig", newline="") as f:
-            reader = csv.DictReader(f, delimiter=",")
-            if reader.fieldnames:
-                reader.fieldnames = [h.strip().lstrip("\ufeff") for h in reader.fieldnames]
-            for row in reader:
-                route_id = (row.get("route_id") or "").strip()
-                dir_id = (row.get("direction_id") or "").strip()
-                if not route_id:
+            r = csv.DictReader(f, delimiter=",")
+            if r.fieldnames:
+                r.fieldnames = [h.strip().lstrip("\ufeff") for h in r.fieldnames]
+            for row in r:
+                rid = (row.get("route_id") or "").strip()
+                did = (row.get("direction_id") or "").strip()
+                if not rid:
                     continue
-                by_key_rows.setdefault((route_id, dir_id), []).append(row)
+                by_key_rows.setdefault((rid, did), []).append(row)
 
-        for (route_id, dir_id), rows in by_key_rows.items():
-            rows.sort(key=lambda r: int(float((r.get("seq") or "0").strip())))
+        self._by_key.clear()
+        self._by_short_dir.clear()
+        self._by_route_dir.clear()
+        self._by_nucleus_short_dir.clear()
+
+        for (rid, did_raw), rows in by_key_rows.items():
+            did = did_raw or ""  # normaliza direction
+            rows.sort(key=self._seq_safe)
+
             short = (rows[0].get("route_short_name") or "").strip()
             long_ = (rows[0].get("route_long_name") or "").strip()
-
-            def fnum(x: str | None, default="0"):
-                s = (x or default).replace(",", ".").strip()
-                try:
-                    return float(s)
-                except ValueError:
-                    return 0.0
-
             length_km = (
-                fnum(rows[0].get("length_km"))
-                or fnum(rows[-1].get("length_km"))
-                or fnum(rows[-1].get("km"))
+                self._fnum(rows[0].get("length_km"))
+                or self._fnum(rows[-1].get("length_km"))
+                or self._fnum(rows[-1].get("km"))
             )
+
             stations: list[StationOnLine] = []
             for r in rows:
                 stations.append(
                     StationOnLine(
-                        seq=int(float((r.get("seq") or "0").strip())),
+                        seq=self._seq_safe(r),
                         stop_id=(r.get("stop_id") or "").strip(),
                         stop_name=(r.get("stop_name") or "").strip(),
-                        km=fnum(r.get("km")),
-                        lat=fnum(r.get("lat")),
-                        lon=fnum(r.get("lon")),
+                        km=self._fnum(r.get("km")),
+                        lat=self._fnum(r.get("lat")),
+                        lon=self._fnum(r.get("lon")),
                     )
                 )
-            self._by_key[(route_id, dir_id or "")] = LineVariant(
-                route_id=route_id,
+
+            lv = LineVariant(
+                route_id=rid,
                 route_short_name=short,
                 route_long_name=long_,
-                direction_id=dir_id or "",
+                direction_id=did,
                 length_km=length_km,
                 stations=stations,
             )
 
+            self._by_key[(rid, did)] = lv
+            self._by_short_dir[(short.lower(), did)] = lv
+            self._by_route_dir[(rid, did)] = lv
+
+            if self._has_nuclei:
+                slug = self._nuclei_map.get(rid, (None, None))[0]
+                if slug:
+                    self._by_nucleus_short_dir[(slug, short.lower(), did)] = lv
+
+        for _rid, (slug, name) in self._nuclei_map.items():
+            self._nuclei_names[slug] = name
+
+    def reload(self) -> None:
+        self.load()
+
     def list_lines(self) -> list[dict]:
-        out = []
-        for (route_id, dir_id), lv in sorted(self._by_key.items()):
-            out.append(
+        items = []
+        for (rid, did), lv in sorted(
+            self._by_key.items(), key=lambda kv: (kv[1].route_short_name.lower(), kv[0][1])
+        ):
+            items.append(
                 {
-                    "route_id": route_id,
+                    "route_id": rid,
                     "route_short_name": lv.route_short_name,
                     "route_long_name": lv.route_long_name,
-                    "direction_id": dir_id,
+                    "direction_id": did,
                     "length_km": round(lv.length_km, 3),
                     "stations": len(lv.stations),
                 }
             )
-        return out
+        return items
 
     def get_by_route_and_dir(self, route_id: str, direction_id: str = "") -> LineVariant | None:
-        return self._by_key.get((route_id, direction_id))
+        return self._by_key.get((route_id, direction_id or ""))
 
-    def find_by_short_name(self, short: str, direction_id: str = "") -> LineVariant | None:
-        for (_, dir_id), lv in self._by_key.items():
-            if lv.route_short_name.lower() == short.lower() and dir_id == (direction_id or ""):
+    def find_by_short_name(self, short_name: str, direction_id: str = "") -> LineVariant | None:
+        return self._by_short_dir.get((short_name.lower(), direction_id or ""))
+
+    def directions_for_short_name(self, short_name: str) -> list[str]:
+        s = short_name.lower()
+        out = [did for (short, did) in self._by_short_dir if short == s]
+        out.sort(key=lambda d: (d not in ("", "0"), d))
+        return out
+
+    def list_nuclei(self) -> list[dict]:
+        if not self._has_nuclei:
+            return []
+        slugs = sorted(
+            {
+                self._nuclei_map.get(lv.route_id, (None, None))[0]
+                for (_rid, _did), lv in self._by_route_dir.items()
+                if self._nuclei_map.get(lv.route_id, (None, None))[0]
+            }
+        )
+        return [{"slug": s, "name": self._nuclei_names.get(s, s.capitalize())} for s in slugs]
+
+    def list_lines_grouped_by_route(self, nucleus_slug: str) -> list[dict]:
+        if not self._has_nuclei:
+            return []
+        grouped = {}
+        for (rid, did), lv in self._by_route_dir.items():
+            slug = self._nuclei_map.get(rid, (None, None))[0]
+            if slug != nucleus_slug:
+                continue
+            g = grouped.setdefault(
+                rid,
+                {
+                    "route_id": rid,
+                    "route_short_name": lv.route_short_name,
+                    "route_long_name": lv.route_long_name,
+                    "nucleus_slug": slug or "",
+                    "directions": [],
+                },
+            )
+            g["directions"].append(
+                {
+                    "id": did,
+                    "stations": len(lv.stations),
+                    "length_km": round(lv.length_km, 1),
+                }
+            )
+        items = list(grouped.values())
+        items.sort(key=lambda x: x["route_short_name"].lower())
+        for x in items:
+            x["directions"].sort(key=lambda d: (d["id"] not in ("", "0"), d["id"]))
+        return items
+
+    def get_by_nucleus_and_short(
+        self, nucleus_slug: str, short_name: str, direction_id: str = ""
+    ) -> LineVariant | None:
+        did = direction_id or ""
+        s = short_name.lower()
+        lv = self._by_nucleus_short_dir.get((nucleus_slug, s, did))
+        if lv:
+            return lv
+        if not self._has_nuclei:
+            return None
+        if did:
+            lv = self._by_short_dir.get((s, did))
+            if lv and self._nuclei_map.get(lv.route_id, (None, None))[0] == nucleus_slug:
+                return lv
+            return None
+        for (short, _d), lv in self._by_short_dir.items():
+            if short == s and self._nuclei_map.get(lv.route_id, (None, None))[0] == nucleus_slug:
                 return lv
         return None
 
@@ -111,9 +204,33 @@ class LinesRepo:
 _repo: LinesRepo | None = None
 
 
+def _load_nuclei_map_from_csv(path: str) -> dict[str, tuple[str, str]]:
+    m: dict[str, tuple[str, str]] = {}
+    if not path or not os.path.exists(path):
+        return m
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            rid = (row.get("route_id") or "").strip()
+            slug = (row.get("nucleus_slug") or "").strip().lower()
+            name = (row.get("nucleus_name") or slug.capitalize()).strip()
+            if rid and slug:
+                m[rid] = (slug, name)
+    return m
+
+
 def get_repo() -> LinesRepo:
     global _repo
     if _repo is None:
-        _repo = LinesRepo(settings.ROUTE_STATIONS_CSV)
+        nuclei_map = _load_nuclei_map_from_csv(getattr(settings, "NUCLEI_MAP_CSV", ""))
+        _repo = LinesRepo(
+            settings.ROUTE_STATIONS_CSV, nuclei_map=nuclei_map if nuclei_map else None
+        )
         _repo.load()
     return _repo
+
+
+def reload_repo() -> None:
+    global _repo
+    if _repo is not None:
+        _repo.reload()
