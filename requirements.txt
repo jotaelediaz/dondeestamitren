@@ -6,3 +6,4 @@ pydantic-settings
 jinja2
 python-dotenv
 apscheduler
+asgiref
