@@ -73,7 +73,7 @@ def trains_list(request: Request):
         return HTMLResponse("No nuclei configuration", status_code=500)
 
     return templates.TemplateResponse(
-        "trains_list.html",
+        "trains.html",
         {
             "request": request,
             "trains": trains,
