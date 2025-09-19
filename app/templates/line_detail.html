@@ -1,84 +1,94 @@
-<!doctype html><meta charset="utf-8">
-<title>{{ line.route_short_name }} – {{ line.route_long_name }}</title>
+<!doctype html>
+<html lang="es">
+<head>
+	<meta charset="utf-8">
+	<title>Línea {{ line.short_name }} ({{ line.line_id }}) · {{ repo.nucleus_name(line.nucleus_id) or nucleus.name }}</title>
+</head>
+<body>
+<p>
+	<a href="/lines">&larr; Volver al listado</a>
+</p>
 
-<h1>
-	{{ line.route_short_name }} — {{ line.route_long_name }}
-	{% if line.direction_id %}<small class="muted">(dir {{ line.direction_id }})</small>{% endif %}
-</h1>
+<h1>Línea {{ line.short_name }} ({{ line.line_id }}) · {{ repo.nucleus_name(line.nucleus_id) or nucleus.name }}</h1>
 
-{% if directions and directions|length > 1 %}
-	<div class="dir">
-		Cambiar sentido:
-		{% for d in directions %}
-			{% if d == line.direction_id %}
-				<strong>[{{ d if d else "∅" }}]</strong>
-			{% else %}
-				<a href="/routes/{{ nucleus }}/{{ key }}{% if d %}?direction_id={{ d }}{% endif %}">
-					dir {{ d if d else "∅" }}
-				</a>
-			{% endif %}
-		{% endfor %}
-	</div>
-{% endif %}
-
-<table>
-	<thead>
-	<tr>
-		<th>Orden</th>
-		<th>Parada</th>
-		<th>KM</th>
-		<th>Coordenadas</th>
-		<th>% línea</th>
-	</tr>
-	</thead>
-	<tbody>
-	{% for s in line.stations %}
-		{% set pct = (s.km / (line.length_km or 1)) * 100 %}
-		<tr>
-			<td>{{ s.seq + 1 }}</td>
-			<td>
-				<a href="/routes/{{ nucleus.slug }}/{{ line.route_id }}/stops/{{ s.stop_id }}{% if line.direction_id %}?direction_id={{ line.direction_id }}{% endif %}">
-					{{ s.stop_name or repo.get_stop_name_or_id(s.stop_id) }}
-				</a>
-				<i>({{ s.stop_id }})</i>
-			</td>
-			<td>{{ '%.1f'|format(s.km) }}</td>
-			<td>{{ '%.5f'|format(s.lat) }}, {{ '%.5f'|format(s.lon) }}</td>
-			<td>{{ '%.0f'|format(pct) }}%</td>
-		</tr>
-	{% endfor %}
-	</tbody>
-</table>
-
-
-<hr>
-<h2 class="text-xl font-semibold mb-2">Trenes circulando en esta línea</h2>
-
-{% if not trains or trains|length == 0 %}
-	<p>No se encuentran trenes circulando en esta línea ahora mismo.</p>
+{% if not line.variants %}
+	<p>Esta línea no tiene variantes detectadas.</p>
 {% else %}
-	<table class="table" style="width:100%; max-width: 960px;">
+	<h2>Variantes</h2>
+	<table border="1" cellpadding="6" cellspacing="0">
 		<thead>
-			<tr>
-				<th>Tren</th>
-				<th>Estado</th>
-				<th>Parada</th>
-				<th>Posición</th>
-			</tr>
+		<tr>
+			<th>Canónica</th>
+			<th>Terminales (A ↔ B)</th>
+			<th>Dirección</th>
+			<th>Rutas (route_id)</th>
+			<th>Acciones</th>
+		</tr>
 		</thead>
 		<tbody>
-		{% for t in trains %}
-			<tr>
-				<td><a href="/train/{{ t.train_id }}">{{ t.train_id }}</a></td>
-				<td>{{ t.status_human() }}</td>
-				<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
-				<td>
-					{% if t.lat and t.lon %}
-						{{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}
-					{% else %}—{% endif %}
-				</td>
-			</tr>
+		{% for var in line.variants %}
+			{% set a = var.terminals_sorted[0] %}
+			{% set b = var.terminals_sorted[1] %}
+			{% set canon_mark = "✔" if var.is_canonical else "—" %}
+			{% set dir_keys = var.directions.keys()|list|sort %}
+			{% if dir_keys|length == 0 %}
+				<tr>
+					<td style="text-align:center">{{ canon_mark }}</td>
+					<td>
+						{% if a %}<a href="/stations/{{ nucleus.slug or line.nucleus_id }}/{{ a }}">{{ repo.get_stop_name_or_id(a) }}</a>{% else %}—{% endif %}
+						&nbsp;↔&nbsp;
+						{% if b %}<a href="/stations/{{ nucleus.slug or line.nucleus_id }}/{{ b }}">{{ repo.get_stop_name_or_id(b) }}</a>{% else %}—{% endif %}
+					</td>
+					<td>—</td>
+					<td>
+						{% for rid in var.route_ids %}
+							<div><a href="/routes/{{ nucleus.slug or line.nucleus_id }}/{{ rid }}">{{ rid }}</a></div>
+						{% endfor %}
+					</td>
+					<td>—</td>
+				</tr>
+			{% else %}
+				{% for did in dir_keys %}
+					{% set d = var.directions[did] %}
+					<tr>
+						{% if loop.first %}
+							<td style="text-align:center" rowspan="{{ dir_keys|length }}">{{ canon_mark }}</td>
+							<td rowspan="{{ dir_keys|length }}">
+								{% if a %}<a href="/stations/{{ nucleus.slug or line.nucleus_id }}/{{ a }}">{{ repo.get_stop_name_or_id(a) }}</a>{% else %}—{% endif %}
+								&nbsp;↔&nbsp;
+								{% if b %}<a href="/stations/{{ nucleus.slug or line.nucleus_id }}/{{ b }}">{{ repo.get_stop_name_or_id(b) }}</a>{% else %}—{% endif %}
+							</td>
+						{% endif %}
+						<td><strong>{{ did }}</strong></td>
+						<td>
+							{% if d.route_ids %}
+								<div>
+									{% for rid in d.route_ids %}
+										<div><a href="/routes/{{ nucleus.slug or line.nucleus_id }}/{{ rid }}">{{ rid }}</a></div>
+									{% endfor %}
+								</div>
+							{% else %}
+								—
+							{% endif %}
+						</td>
+						<td>
+							{% if d.route_ids and d.route_ids|length %}
+								<a href="/routes/{{ nucleus.slug or line.nucleus_id }}/{{ d.route_ids[0] }}/stops">Ver paradas</a>
+							{% else %}
+								—
+							{% endif %}
+						</td>
+					</tr>
+				{% endfor %}
+			{% endif %}
 		{% endfor %}
 		</tbody>
 	</table>
+	
+	<p style="margin-top:1rem">
+		<em>Nota:</em> una <strong>variante</strong> agrupa rutas que comparten los mismos terminales
+		(ignorando el sentido). La variante <strong>canónica</strong> es la que más estaciones cubre.
+	</p>
 {% endif %}
+</body>
+</html>

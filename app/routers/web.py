@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.services.lines_index import get_index as get_lines_index
 from app.services.lines_repo import get_repo
 from app.services.live_cache import get_cache
 from app.services.stations_repo import get_repo as get_stations_repo
@@ -42,7 +43,7 @@ def nucleus_lines(request: Request, nucleus: str):
         raise HTTPException(404, f"'{nucleus}' without lines.")
 
     return templates.TemplateResponse(
-        "lines.html",
+        "routes.html",
         {"request": request, "nucleus": mk_nucleus(nucleus, repo), "lines": lines, "repo": repo},
     )
 
@@ -68,7 +69,7 @@ def route_page_by_id(
     trains = get_cache().get_by_nucleus_and_route(nucleus, route_id)
 
     return templates.TemplateResponse(
-        "line_detail.html",
+        "route_detail.html",
         {
             "request": request,
             "line": lv,
@@ -76,6 +77,72 @@ def route_page_by_id(
             "key": route_id,
             "nucleus": mk_nucleus(nucleus, repo),
             "trains": trains,
+            "repo": repo,
+        },
+    )
+
+
+# --- LINES ---
+
+
+@router.get("/lines", response_class=HTMLResponse)
+def lines_list(request: Request):
+    repo = get_repo()
+    idx = get_lines_index()
+    items = idx.list_lines()
+    nuclei = repo.list_nuclei()
+    return templates.TemplateResponse(
+        "lines.html",
+        {
+            "request": request,
+            "lines": items,
+            "nucleus": None,
+            "nuclei": nuclei,
+            "repo": repo,
+        },
+    )
+
+
+@router.get("/lines/{nucleus}", response_class=HTMLResponse)
+def lines_by_nucleus(request: Request, nucleus: str):
+    repo = get_repo()
+    idx = get_lines_index()
+    nucleus = (nucleus or "").strip().lower()
+    nuclei = repo.list_nuclei()
+    if nucleus not in [n["slug"] for n in nuclei]:
+        raise HTTPException(404, "That nucleus doesn't exist.")
+    items = [ln for ln in idx.list_lines() if (ln.nucleus_id or "").lower() == nucleus]
+    return templates.TemplateResponse(
+        "lines.html",
+        {
+            "request": request,
+            "lines": items,
+            "nucleus": mk_nucleus(nucleus, repo),
+            "nuclei": nuclei,
+            "repo": repo,
+        },
+    )
+
+
+@router.get("/lines/{nucleus}/{line_id}", response_class=HTMLResponse)
+def line_detail_page(request: Request, nucleus: str, line_id: str):
+    repo = get_repo()
+    idx = get_lines_index()
+
+    nucleus = (nucleus or "").lower()
+    line = idx.get_line(line_id)
+    if not line:
+        raise HTTPException(404, f"Line '{line_id}' not found")
+
+    if (line.nucleus_id or "").lower() != nucleus:
+        raise HTTPException(404, f"That line doesn't belong to nucleus {nucleus}")
+
+    return templates.TemplateResponse(
+        "line_detail.html",
+        {
+            "request": request,
+            "nucleus": {"slug": nucleus, "name": repo.nucleus_name(nucleus)},
+            "line": line,
             "repo": repo,
         },
     )

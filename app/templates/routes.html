@@ -1,0 +1,22 @@
+<!doctype html><meta charset="utf-8">
+<title>Rutas</title>
+<h1>Rutas</h1>
+
+{% if nucleus %}
+	<h2>Núcleo: {{ nucleus.name }}</h2>
+{% endif %}
+
+<ul class="lines">
+	{% for ln in lines %}
+		<li>
+			<a href="/routes/{{ ln.nucleus_id }}/{{ ln.route_id }}">
+				<strong>{{ ln.route_short_name }}</strong>
+				{{ ln.route_long_name }}
+			</a>
+			{% if ln.directions %}
+				{% for d in ln.directions %}({{ d.stations }} paradas · {{ d.length_km }} km)
+				{% endfor %}
+			{% endif %}
+		</li>
+	{% endfor %}
+</ul>

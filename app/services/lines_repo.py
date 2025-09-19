@@ -282,6 +282,23 @@ class LinesRepo:
         sid = (stop_id or "").strip()
         return self._stop_names.get(sid) or sid or "—"
 
+    def km_for_stop_on_route(self, route_id: str, direction_id: str, stop_id: str) -> float | None:
+        lv = self._by_route_dir.get(((route_id or ""), (direction_id or "")))
+        if not lv:
+            return None
+        sid = (stop_id or "").strip()
+        for s in lv.stations:
+            if (s.stop_id or "").strip() == sid:
+                return float(s.km)
+        return None
+
+    def stations_order_set(self, route_id: str, direction_id: str) -> tuple[list[str], set[str]]:
+        lv = self._by_route_dir.get(((route_id or ""), (direction_id or "")))
+        if not lv:
+            return [], set()
+        ids = [s.stop_id for s in lv.stations if s.stop_id]
+        return ids, set(ids)
+
     @property
     def nuclei_names(self):
         return self._nuclei_names

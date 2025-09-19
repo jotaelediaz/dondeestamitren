@@ -1,20 +1,38 @@
-<!doctype html><meta charset="utf-8">
-<title>Líneas — {{ nucleus.name }}</title>
-<h1>Líneas · {{ nucleus.name }}</h1>
+<h1>Líneas</h1>
 
-<ul class="lines">
+<div style="margin-bottom:1rem">
+	<label>Filtrar por núcleo:</label>
+	<select onchange="if(this.value){window.location='/lines/'+this.value;}else{window.location='/lines';}">
+		<option value="">(todos)</option>
+		{% for n in nuclei %}
+			<option value="{{ n.slug }}" {% if nucleus and nucleus.slug == n.slug %}selected{% endif %}>
+				{{ n.name }}
+			</option>
+		{% endfor %}
+	</select>
+</div>
+
+<table>
+	<thead>
+	<tr>
+		<th>Line ID (shape)</th>
+		<th>Nombre corto</th>
+		<th>Núcleo</th>
+		<th>Direcciones</th>
+	</tr>
+	</thead>
+	<tbody>
 	{% for ln in lines %}
-		<li>
-			<a href="/routes/{{ nucleus.slug }}/{{ ln.route_id }}">
-				<strong>{{ ln.route_short_name }}</strong>
-				{{ ln.route_long_name }}
-			</a>
-			{% if ln.directions %}
-
-					{% for d in ln.directions %}
-							Dir {{ d.id if d.id else "—" }} ({{ d.stations }} paradas · {{ d.length_km }} km)
-					{% endfor %}
-			{% endif %}
-		</li>
+		<tr>
+			<td>
+				<a href="/lines/{{ ln.nucleus_id }}/{{ ln.line_id }}">{{ ln.line_id }}</a>
+			</td>
+			<td>{{ ln.short_name }}</td>
+			<td>{{ repo.nucleus_name(ln.nucleus_id) }}</td>
+			<td>{{ ln.directions|length }}</td>
+		</tr>
 	{% endfor %}
-</ul>
+	</tbody>
+</table>
+
+<p>➜ <a href="/routes/{{ nucleus.slug }}">Ver rutas (raw data)</a></p>
