@@ -21,14 +21,35 @@
 	</div>
 {% endif %}
 
-<div class="bar">
+<table>
+	<thead>
+	<tr>
+		<th>Orden</th>
+		<th>Parada</th>
+		<th>KM</th>
+		<th>Coordenadas</th>
+		<th>% línea</th>
+	</tr>
+	</thead>
+	<tbody>
 	{% for s in line.stations %}
 		{% set pct = (s.km / (line.length_km or 1)) * 100 %}
-		<div class="tick">
-			<span>{{ s.stop_name }} <i>({{s.stop_id}})</i></span>
-		</div>
+		<tr>
+			<td>{{ s.seq + 1 }}</td>
+			<td>
+				<a href="/routes/{{ nucleus.slug }}/{{ line.route_id }}/stops/{{ s.stop_id }}{% if line.direction_id %}?direction_id={{ line.direction_id }}{% endif %}">
+					{{ s.stop_name or repo.get_stop_name_or_id(s.stop_id) }}
+				</a>
+				<i>({{ s.stop_id }})</i>
+			</td>
+			<td>{{ '%.1f'|format(s.km) }}</td>
+			<td>{{ '%.5f'|format(s.lat) }}, {{ '%.5f'|format(s.lon) }}</td>
+			<td>{{ '%.0f'|format(pct) }}%</td>
+		</tr>
 	{% endfor %}
-</div>
+	</tbody>
+</table>
+
 
 <hr>
 <h2 class="text-xl font-semibold mb-2">Trenes circulando en esta línea</h2>

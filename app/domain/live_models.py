@@ -17,6 +17,7 @@ class TrainPosition(BaseModel):
     current_status: str | None = None  # STOPPED_AT / INCOMING_AT / etc.
     ts_unix: int = Field(0, description="epoch seconds (header/veh)")
     route_id: str | None = None
+    nucleus_slug: str | None = None
 
     def status_human(self) -> str:
         m = {

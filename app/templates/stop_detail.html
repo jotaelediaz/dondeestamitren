@@ -1,0 +1,41 @@
+<header>
+	<a href="/routes/{{ nucleus.slug }}/{{ line.route_id }}{% if line.direction_id %}?direction_id={{ line.direction_id }}{% endif %}">
+		&larr; Volver a línea
+	</a>
+	
+	<h1>Parada de la línea {{ line.route_short_name }}: {{ stop.name }}</h1>
+	<ul>
+		<li><strong>Secuencia de parada:</strong> {{ stop.seq + 1}} <i>(seq: {{ stop.seq }})</i> </li>
+		<li><strong>Núcleo:</strong> {{ nucleus.name }}</li>
+		<li><strong>Punto kilométrico:</strong> {{ '%.1f'|format(stop.km) }} km</li>
+		<li class="coords"><strong>Coordenadas:</strong> {{ '%.5f'|format(stop.lat) }}, {{ '%.5f'|format(stop.lon) }}</li>
+	</ul>
+	<p>➜ <a href="/stations/{{ nucleus.slug }}/{{ stop.station_id | urlencode }}">Ver ficha de estación</a></p>
+</header>
+
+<section>
+	<h2>Trenes {{ line.route_short_name }} más cercanos a la parada</h2>
+	{% if nearest_trains %}
+	<table>
+		<thead>
+		<tr>
+			<th>Tren</th><th>Ruta</th><th>Vel.</th><th>Lat</th><th>Lon</th><th>Hora</th>
+		</tr>
+		</thead>
+		<tbody>
+		{% for t in nearest_trains %}
+			<tr>
+				<td><a href="/train/{{ t.train_id }}">{{ t.train_id }}</a></td>
+				<td>{{ t.route_short_name or t.route_id }}</td>
+				<td>{{ (t.speed_kmh or 0)|round(0) }} km/h</td>
+				<td>{{ '%.5f'|format(t.lat or 0) }}</td>
+				<td>{{ '%.5f'|format(t.lon or 0) }}</td>
+				<td>{{ t.ts or '-' }}</td>
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	{% else %}
+		<p>No hay trenes cercanos ahora mismo.</p>
+	{% endif %}
+</section>

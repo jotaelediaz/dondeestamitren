@@ -4,7 +4,7 @@
 <ul class="stations">
 	{% for st in stations %}
 		<li>
-			<a href="/stations/{{ nucleus.slug }}/{{ st.slug }}">
+			<a href="/stations/{{ nucleus.slug }}/{{ st.station_id | urlencode }}">
 				{{ st.name }}
 			</a>
 			<small>({{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }})</small>

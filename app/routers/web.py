@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from app.services.lines_repo import get_repo
 from app.services.live_cache import get_cache
 from app.services.stations_repo import get_repo as get_stations_repo
+from app.services.stops_repo import get_repo as get_stops_repo
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -80,6 +81,94 @@ def route_page_by_id(
     )
 
 
+# --- STOPS IN ROUTES ---
+
+
+@router.get("/routes/{nucleus}/{route_id}/stops", response_class=HTMLResponse)
+def stops_for_route(
+    request: Request,
+    nucleus: str,
+    route_id: str,
+    direction_id: str = Query(default=""),
+):
+    repo = get_repo()
+    nucleus = (nucleus or "").lower()
+
+    lv = repo.get_by_route_and_dir(route_id, direction_id or "")
+    if not lv and direction_id == "":
+        for cand in ("", "0", "1"):
+            lv = repo.get_by_route_and_dir(route_id, cand)
+            if lv:
+                break
+    if not lv:
+        raise HTTPException(404, f"Route {route_id} not found")
+
+    if (lv.nucleus_id or "").lower() != nucleus:
+        raise HTTPException(404, f"That route doesn't belong to nucleus {nucleus}")
+
+    srepo = get_stops_repo()
+    stops = srepo.list_by_route(route_id, lv.direction_id)
+
+    return templates.TemplateResponse(
+        "stops.html",
+        {
+            "request": request,
+            "nucleus": {"slug": nucleus, "name": repo.nucleus_name(nucleus)},
+            "line": lv,
+            "stops": stops,
+            "repo": repo,
+        },
+    )
+
+
+@router.get("/routes/{nucleus}/{route_id}/stops/{station_id}", response_class=HTMLResponse)
+def stop_detail(
+    request: Request,
+    nucleus: str,
+    route_id: str,
+    station_id: str,
+    direction_id: str = Query(default=""),
+):
+    repo = get_repo()
+    nucleus = (nucleus or "").lower()
+
+    lv = repo.get_by_route_and_dir(route_id, direction_id or "")
+    if not lv and direction_id == "":
+        for cand in ("", "0", "1"):
+            lv = repo.get_by_route_and_dir(route_id, cand)
+            if lv:
+                break
+    if not lv:
+        raise HTTPException(404, f"Route {route_id} not found")
+
+    if (lv.nucleus_id or "").lower() != nucleus:
+        raise HTTPException(404, f"That route doesn't belong to nucleus {nucleus}")
+
+    srepo = get_stops_repo()
+    candidates = [
+        s
+        for s in srepo.list_by_station(nucleus, station_id)
+        if s.route_id == route_id and s.direction_id == lv.direction_id
+    ]
+    if not candidates:
+        raise HTTPException(404, f"Station {station_id} not found in route {route_id}")
+    stop = sorted(candidates, key=lambda x: x.seq)[0]
+
+    nearest = srepo.nearest_trains(route_id, stop, limit=6)
+
+    return templates.TemplateResponse(
+        "stop_detail.html",
+        {
+            "request": request,
+            "nucleus": {"slug": nucleus, "name": repo.nucleus_name(nucleus)},
+            "line": lv,
+            "stop": stop,
+            "nearest_trains": nearest,
+            "repo": repo,
+        },
+    )
+
+
 # --- STATIONS ---
 
 
@@ -105,15 +194,15 @@ def stations_by_nucleus(request: Request, nucleus: str):
     )
 
 
-@router.get("/stations/{nucleus}/{station_slug}", response_class=HTMLResponse)
-def station_detail(request: Request, nucleus: str, station_slug: str):
+@router.get("/stations/{nucleus}/{station_id}", response_class=HTMLResponse)
+def station_detail_by_id(request: Request, nucleus: str, station_id: str):
     repo = get_repo()
     nucleus = (nucleus or "").lower()
     srepo = get_stations_repo()
 
-    st = srepo.get_by_nucleus_and_slug(nucleus, station_slug)
+    st = srepo.get_by_nucleus_and_id(nucleus, station_id)
     if not st:
-        raise HTTPException(404, f"Station {station_slug} not found in {nucleus}")
+        raise HTTPException(404, f"Station {station_id} not found in {nucleus}")
 
     serving = repo.lines_serving_station(
         nucleus_slug=nucleus, station_id=st.station_id, stations_repo=srepo

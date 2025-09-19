@@ -7,14 +7,12 @@
 		<li>
 			<a href="/routes/{{ nucleus.slug }}/{{ ln.route_id }}">
 				<strong>{{ ln.route_short_name }}</strong>
+				{{ ln.route_long_name }}
 			</a>
-			{{ ln.route_long_name }}
 			{% if ln.directions %}
 
 					{% for d in ln.directions %}
-						<a href="/routes/{{ nucleus.slug }}/{{ ln.route_id }}?direction_id={{ d.id|urlencode }}">
 							Dir {{ d.id if d.id else "—" }} ({{ d.stations }} paradas · {{ d.length_km }} km)
-						</a>
 					{% endfor %}
 			{% endif %}
 		</li>
