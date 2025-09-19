@@ -1,0 +1,13 @@
+<h1>Estaciones · {{ nucleus.name }}</h1>
+<p><a href="/routes/{{ nucleus.slug }}">Ver líneas</a></p>
+
+<ul class="stations">
+	{% for st in stations %}
+		<li>
+			<a href="/stations/{{ nucleus.slug }}/{{ st.slug }}">
+				{{ st.name }}
+			</a>
+			<small>({{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }})</small>
+		</li>
+	{% endfor %}
+</ul>

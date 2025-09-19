@@ -13,10 +13,11 @@ class Nucleus:
 
 @dataclass(frozen=True)
 class Station:
-    station_id: str
+    station_id: str  # GTFS: parent_station or stop_id if not parent
     name: str
     lat: float
     lon: float
+    nucleus_id: str
     city: str | None = None
     address: str | None = None
     slug: str | None = None

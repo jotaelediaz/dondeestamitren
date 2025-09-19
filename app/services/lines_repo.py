@@ -216,6 +216,65 @@ class LinesRepo:
             return None
         return self._nuclei_names.get(slug, slug.capitalize())
 
+    def stop_ids_for_nucleus(self, nucleus_slug: str) -> set[str]:
+        n = (nucleus_slug or "").strip().lower()
+        if not n:
+            return set()
+
+        out: set[str] = set()
+        for lv in self._by_route_dir.values():
+            if (lv.nucleus_id or "").strip().lower() != n:
+                continue
+            for st in lv.stations:
+                sid = (st.stop_id or "").strip()
+                if sid:
+                    out.add(sid)
+        return out
+
+    def lines_serving_station(
+        self, nucleus_slug: str, station_id: str, stations_repo
+    ) -> list[dict]:
+        n = (nucleus_slug or "").strip().lower()
+        sid = (station_id or "").strip()
+        if not (n and sid):
+            return []
+
+        serving: dict[tuple[str, str], dict] = {}
+
+        for (rid, did), lv in self._by_route_dir.items():
+            if (lv.nucleus_id or "").strip().lower() != n:
+                continue
+
+            hits = []
+            for s in lv.stations:
+                stop_id = (s.stop_id or "").strip()
+                if not stop_id:
+                    continue
+                st = stations_repo.get_by_stop_id(n, stop_id)
+                if st and (st.station_id or "").strip() == sid:
+                    hits.append({"seq": s.seq, "stop_id": stop_id, "km": s.km})
+
+            if hits:
+                serving[(rid, did)] = {
+                    "route_id": rid,
+                    "route_short_name": lv.route_short_name,
+                    "route_long_name": lv.route_long_name,
+                    "direction_id": did,
+                    "nucleus_slug": n,
+                    "hits": hits,
+                    "hits_count": len(hits),
+                }
+
+        items = list(serving.values())
+        items.sort(
+            key=lambda x: (
+                x["route_short_name"].lower(),
+                x["direction_id"] not in ("", "0"),
+                x["direction_id"],
+            )
+        )
+        return items
+
     def get_stop_name(self, stop_id: str) -> str | None:
         return self._stop_names.get((stop_id or "").strip()) or None
 
@@ -226,6 +285,10 @@ class LinesRepo:
     @property
     def nuclei_names(self):
         return self._nuclei_names
+
+    @property
+    def by_route_dir(self):
+        return self._by_route_dir
 
 
 _repo: LinesRepo | None = None

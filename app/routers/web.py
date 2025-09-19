@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.services.lines_repo import get_repo
 from app.services.live_cache import get_cache
+from app.services.stations_repo import get_repo as get_stations_repo
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -74,6 +75,62 @@ def route_page_by_id(
             "key": route_id,
             "nucleus": mk_nucleus(nucleus, repo),
             "trains": trains,
+            "repo": repo,
+        },
+    )
+
+
+# --- STATIONS ---
+
+
+@router.get("/stations/{nucleus}", response_class=HTMLResponse)
+def stations_by_nucleus(request: Request, nucleus: str):
+    repo = get_repo()
+    nucleus = (nucleus or "").lower()
+
+    nuclei = repo.list_nuclei()
+    if nucleus not in [n["slug"] for n in nuclei]:
+        raise HTTPException(404, "That nucleus doesn't exist.")
+
+    srepo = get_stations_repo()
+    stations = srepo.list_by_nucleus(nucleus)
+    return templates.TemplateResponse(
+        "stations.html",
+        {
+            "request": request,
+            "nucleus": {"slug": nucleus, "name": repo.nucleus_name(nucleus)},
+            "stations": stations,
+            "repo": repo,
+        },
+    )
+
+
+@router.get("/stations/{nucleus}/{station_slug}", response_class=HTMLResponse)
+def station_detail(request: Request, nucleus: str, station_slug: str):
+    repo = get_repo()
+    nucleus = (nucleus or "").lower()
+    srepo = get_stations_repo()
+
+    st = srepo.get_by_nucleus_and_slug(nucleus, station_slug)
+    if not st:
+        raise HTTPException(404, f"Station {station_slug} not found in {nucleus}")
+
+    serving = repo.lines_serving_station(
+        nucleus_slug=nucleus, station_id=st.station_id, stations_repo=srepo
+    )
+
+    live = get_cache().get_by_nucleus(nucleus)
+    route_ids = {x["route_id"] for x in serving}
+    live_here = [t for t in live if t.route_id in route_ids]
+
+    return templates.TemplateResponse(
+        "station_detail.html",
+        {
+            "request": request,
+            "nucleus": {"slug": nucleus, "name": repo.nucleus_name(nucleus)},
+            "station": st,
+            "serving_lines": serving,
+            "live_trains": live_here,
             "repo": repo,
         },
     )
