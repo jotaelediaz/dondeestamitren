@@ -25,9 +25,17 @@ def mk_nucleus(slug: str, repo):
 def home(request: Request):
     repo = get_routes_repo()
     nuclei = repo.list_nuclei()
+    cache = get_live_trains_cache()
     if not nuclei:
         return HTMLResponse("No nuclei configuration", status_code=500)
-    return templates.TemplateResponse("home.html", {"request": request, "nuclei": nuclei})
+    return templates.TemplateResponse(
+        "home.html",
+        {
+            "request": request,
+            "nuclei": nuclei,
+            "last_snapshot": cache.last_snapshot_iso(),
+        },
+    )
 
 
 # --- ROUTES ---
