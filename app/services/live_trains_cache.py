@@ -1,16 +1,16 @@
-# app/services/live_cache.py
+# app/services/live_trains_cache.py
 from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
 
 from app.domain.live_models import TrainPosition, parse_train_gtfs_json
-from app.services.lines_repo import get_repo as get_lines_repo
 from app.services.renfe_client import get_client
+from app.services.routes_repo import get_repo as get_lines_repo
 from app.services.trips_repo import get_repo as get_trips_repo
 
 
-class LiveCache:
+class LiveTrainsCache:
     def __init__(self):
         self._items: list[TrainPosition] = []
         self._by_id: dict[str, TrainPosition] = {}
@@ -132,11 +132,11 @@ class LiveCache:
         return datetime.fromtimestamp(ts, tz=UTC).isoformat()
 
 
-_cache_singleton: LiveCache | None = None
+_cache_singleton: LiveTrainsCache | None = None
 
 
-def get_cache() -> LiveCache:
+def get_live_trains_cache() -> LiveTrainsCache:
     global _cache_singleton
     if _cache_singleton is None:
-        _cache_singleton = LiveCache()
+        _cache_singleton = LiveTrainsCache()
     return _cache_singleton

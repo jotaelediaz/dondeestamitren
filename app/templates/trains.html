@@ -30,7 +30,7 @@
 			{% for t in trains %}
 				<tr>
 					<td>{{ t.route_short_name }}</td>
-					<td><a href="/train/{{ t.train_id }}">{{ t.train_id }}</a></td>
+					<td><a href="/trains/{{ t.nucleus_slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
 					<td>{{ t.status_human() }}</td>
 					<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
 					<td>

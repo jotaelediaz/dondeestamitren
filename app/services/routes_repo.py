@@ -1,4 +1,4 @@
-# app/services/lines_repo.py
+# app/services/routes_repo.py
 from __future__ import annotations
 
 import csv
@@ -8,7 +8,7 @@ from app.config import settings
 from app.domain.models import LineRoute, StationOnLine
 
 
-class LinesRepo:
+class RoutesRepo:
     def __init__(self, csv_path: str, nuclei_map: dict[str, tuple[str, str]] | None = None):
         self.csv_path = csv_path
         self._by_key: dict[tuple[str, str], LineRoute] = {}
@@ -121,7 +121,7 @@ class LinesRepo:
     def reload(self) -> None:
         self.load()
 
-    def list_lines(self) -> list[dict]:
+    def list_routes(self) -> list[dict]:
         items = []
         for (rid, did), lv in sorted(
             self._by_key.items(), key=lambda kv: (kv[1].route_short_name.lower(), kv[0][1])
@@ -231,7 +231,7 @@ class LinesRepo:
                     out.add(sid)
         return out
 
-    def lines_serving_station(
+    def routes_serving_station(
         self, nucleus_slug: str, station_id: str, stations_repo
     ) -> list[dict]:
         n = (nucleus_slug or "").strip().lower()
@@ -299,6 +299,27 @@ class LinesRepo:
         ids = [s.stop_id for s in lv.stations if s.stop_id]
         return ids, set(ids)
 
+    def route_destination(self, route_id: str) -> str | None:
+        rid = (route_id or "").strip()
+        if not rid:
+            return None
+
+        lv = (
+            self.get_by_route_and_dir(rid, "")
+            or self.get_by_route_and_dir(rid, "0")
+            or self.get_by_route_and_dir(rid, "1")
+        )
+        if not lv or not lv.stations:
+            return None
+
+        try:
+            term = max(lv.stations, key=lambda s: int(getattr(s, "seq", 0) or 0))
+        except Exception:
+            term = lv.stations[-1]
+
+        sid = (term.stop_id or "").strip()
+        return sid or None
+
     @property
     def nuclei_names(self):
         return self._nuclei_names
@@ -308,7 +329,7 @@ class LinesRepo:
         return self._by_route_dir
 
 
-_repo: LinesRepo | None = None
+_repo: RoutesRepo | None = None
 
 
 def _load_nuclei_map_from_csv(path: str) -> dict[str, tuple[str, str]]:
@@ -340,11 +361,11 @@ def _load_nuclei_from_data(path: str) -> dict[str, str]:
     return m
 
 
-def get_repo() -> LinesRepo:
+def get_repo() -> RoutesRepo:
     global _repo
     if _repo is None:
         nuclei_map = _load_nuclei_map_from_csv(getattr(settings, "NUCLEI_MAP_CSV", ""))
-        _repo = LinesRepo(
+        _repo = RoutesRepo(
             settings.ROUTE_STATIONS_CSV, nuclei_map=nuclei_map if nuclei_map else None
         )
         _repo.load()

@@ -1,21 +1,9 @@
-<h1>Líneas</h1>
+<h1>Líneas {{ nucleus.name }}</h1>
 
-<div style="margin-bottom:1rem">
-	<label>Filtrar por núcleo:</label>
-	<select onchange="if(this.value){window.location='/lines/'+this.value;}else{window.location='/lines';}">
-		<option value="">(todos)</option>
-		{% for n in nuclei %}
-			<option value="{{ n.slug }}" {% if nucleus and nucleus.slug == n.slug %}selected{% endif %}>
-				{{ n.name }}
-			</option>
-		{% endfor %}
-	</select>
-</div>
-
-<table>
+<table border="1" cellpadding="6" cellspacing="0">
 	<thead>
 	<tr>
-		<th>Line ID (shape)</th>
+		<th>Line ID (Generada)</th>
 		<th>Nombre corto</th>
 		<th>Núcleo</th>
 		<th>Direcciones</th>

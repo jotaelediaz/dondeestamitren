@@ -8,28 +8,30 @@
 	<p>Última actualización: {{ last_snapshot }}</p>
 </header>
 
-<section>
-	<dl>
-		<dt>Núcleo</dt>
-		<dd>
-			{% if nucleus %}
-				<a href="/trains/{{ nucleus.slug }}">{{ nucleus.name }}</a>
-			{% else %}
-				{{ repo.nucleus_name(train.nucleus_slug) or (train.nucleus_slug or '—') }}
-			{% endif %}
-		</dd>
-		
-		<dt>Ruta</dt>
-		<dd>
-			{% if train.route_id %}
-				<a href="/routes/{{ train.nucleus_slug }}/{{ train.route_id }}">{{ train.route_short_name or train.route_id }}</a>
-			{% else %}
-				{{ train.route_short_name or '—' }}
-			{% endif %}
-		</dd>
-		
-		<dt>Velocidad</dt><dd>{{ (train.speed_kmh or 0)|round(0) }} km/h</dd>
-		<dt>Posición</dt><dd>{{ '%.5f'|format(train.lat or 0) }}, {{ '%.5f'|format(train.lon or 0) }}</dd>
-		<dt>Timestamp</dt><dd>{{ train.ts or '-' }}</dd>
-	</dl>
-</section>
+<table border="1" cellpadding="6" cellspacing="0">
+	<thead>
+	<tr>
+		<th>Ruta</th>
+		<th>Código de línea</th>
+		<th>Destino</th>
+		<th>Estado</th>
+		<th>Parada actual</th>
+		<th>Posición</th>
+	</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td><a href="/routes/{{ nucleus.slug }}/{{ train.route_id }}">{{ train.route_id }}</a></td>
+			<td>{{ train.route_short_name }}</td>
+			<td>→ {{repo.get_stop_name(repo.route_destination(train.route_id)) or '—' }}</td>
+			<td>{{ train.status_human() }}</td>
+			
+			<td>{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i></td>
+			<td>
+				{% if train.lat and train.lon %}
+					{{ '%.5f'|format(train.lat) }}, {{ '%.5f'|format(train.lon) }}
+				{% else %}—{% endif %}
+			</td>
+		</tr>
+	</tbody>
+</table>

@@ -1,4 +1,3 @@
-# app/services/lines_index.py
 from __future__ import annotations
 
 import csv
@@ -8,7 +7,7 @@ from collections import defaultdict
 
 from app.config import settings
 from app.domain.models import LineDirection, LineVariant, ServiceLine
-from app.services.lines_repo import get_repo as get_lines_repo
+from app.services.routes_repo import get_repo as get_lines_repo
 
 
 class LinesIndex:
@@ -140,7 +139,7 @@ class LinesIndex:
         for (nucleus, short), rids in grouped.items():
             route_terminals: dict[str, tuple[str | None, str | None]] = {}
             for rid in sorted(set(rids)):
-                a, b = self._terminals_for_route_from_linesrepo(rid, lrepo)
+                a, b = self._terminals_for_route_from_RoutesRepo(rid, lrepo)
                 route_terminals[rid] = (a, b)
 
             variants_map: dict[tuple[str | None, str | None], dict[str, list[str]]] = defaultdict(
@@ -278,9 +277,9 @@ class LinesIndex:
                 continue
             if tid in first_last:
                 return first_last[tid]
-        return self._terminals_for_route_from_linesrepo(route_id, lrepo)
+        return self._terminals_for_route_from_RoutesRepo(route_id, lrepo)
 
-    def _terminals_for_route_from_linesrepo(
+    def _terminals_for_route_from_RoutesRepo(
         self, route_id: str, lrepo
     ) -> tuple[str | None, str | None]:
         lv_any = None
@@ -346,6 +345,93 @@ class LinesIndex:
 
     def line_for_route(self, route_id: str) -> tuple[str | None, str | None]:
         return self._line_by_route.get((route_id or "").strip(), (None, None))
+
+    def route_ids_for_line(self, line_id: str) -> list[str]:
+        line = self.get_line(line_id)
+        if not line:
+            return []
+        rids: list[str] = []
+        for var in line.variants:
+            rids.extend(var.route_ids or [])
+        seen = set()
+        out = []
+        for r in rids:
+            if r and r not in seen:
+                seen.add(r)
+                out.append(r)
+        return out
+
+    def routes_directions_for_line(self, line_id: str) -> dict[str, str]:
+        line = self.get_line(line_id)
+        if not line:
+            return {}
+        pref = {"": 0, "0": 1, "1": 2}
+        out: dict[str, str] = {}
+        for var in line.variants:
+            for did, d in var.directions.items():
+                for rid in d.route_ids:
+                    cur = out.get(rid)
+                    if cur is None or pref.get(did, 9) < pref.get(cur, 9):
+                        out[rid] = did
+        return out
+
+    def terminals_for_line_route(
+        self, line_id: str, route_id: str
+    ) -> tuple[str | None, str | None]:
+        line = self.get_line(line_id)
+        if not line:
+            return None, None
+        did_map = self.routes_directions_for_line(line_id)
+        did = (did_map.get(route_id) or "").strip()
+
+        for var in line.variants:
+            if route_id not in (var.route_ids or []):
+                continue
+            a0, b0 = var.terminals_sorted
+            if not a0 or not b0:
+                return None, None
+            if did == "1":
+                return b0, a0
+            return a0, b0
+        return None, None
+
+    def destination_for_line_route_and_dir(
+        self, line_id: str, route_id: str, direction_id: str | None
+    ) -> str:
+        lrepo = get_lines_repo()
+        line = self.get_line(line_id)
+        if not line:
+            return ""
+
+        a0 = b0 = None
+        for var in line.variants:
+            if route_id in (var.route_ids or []):
+                a0, b0 = var.terminals_sorted
+                break
+
+        if not a0 or not b0:
+            return ""
+
+        did = (direction_id or "").strip()
+        dest_id = a0 if did == "1" else b0
+        return lrepo.get_stop_name(dest_id) or dest_id
+
+    def line_tuple_for_route_id(
+        self, route_id: str
+    ) -> tuple[str | None, ServiceLine | None, str | None]:
+        rid = (route_id or "").strip()
+        if not rid:
+            return None, None, None
+        line_id, did = self.line_for_route(rid)
+        if not line_id:
+            return None, None, None
+        return line_id, self.get_line(line_id), did
+
+    def line_tuple_for_route_item(
+        self, route_item: dict
+    ) -> tuple[str | None, ServiceLine | None, str | None]:
+        rid = (route_item or {}).get("route_id") or ""
+        return self.line_tuple_for_route_id(rid)
 
 
 _index: LinesIndex | None = None

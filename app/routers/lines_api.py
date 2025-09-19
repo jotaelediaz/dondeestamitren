@@ -1,7 +1,7 @@
 # app/routers/lines_api.py
 from fastapi import APIRouter, HTTPException, Query
 
-from app.services.lines_repo import get_repo
+from app.services.routes_repo import get_repo
 
 router = APIRouter(prefix="/api", tags=["lines"])
 

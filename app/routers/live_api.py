@@ -1,15 +1,15 @@
 # app/routers/live_api.py
 from fastapi import APIRouter, HTTPException
 
-from app.services.lines_repo import get_repo
-from app.services.live_cache import get_cache
+from app.services.live_trains_cache import get_live_trains_cache
+from app.services.routes_repo import get_repo
 
 router = APIRouter()
 
 
 @router.get("/api/trains")
 def list_trains():
-    items = get_cache().list_all()
+    items = get_live_trains_cache().list_all()
     return {"count": len(items), "items": [it.model_dump() for it in items]}
 
 
@@ -21,7 +21,7 @@ def trains_on_line(nucleus: str, short: str, direction_id: str | None = None):
     )
     if not lv:
         raise HTTPException(404, f"Line {short} in Cercanías {nucleus} not found")
-    items = get_cache().get_by_nucleus_and_short(nucleus, short)
+    items = get_live_trains_cache().get_by_nucleus_and_short(nucleus, short)
     return {
         "route": short,
         "nucleus": nucleus,
@@ -32,7 +32,7 @@ def trains_on_line(nucleus: str, short: str, direction_id: str | None = None):
 
 @router.get("/api/debug/live")
 def live_debug():
-    cache = get_cache()
+    cache = get_live_trains_cache()
     return {
         "count": len(cache.list_all()),
         "last_snapshot_ts": getattr(cache, "_last_snapshot_ts", 0),
@@ -44,13 +44,13 @@ def live_debug():
 
 @router.post("/api/admin/refresh")
 def admin_refresh():
-    n, ts = get_cache().refresh()
+    n, ts = get_live_trains_cache().refresh()
     return {"ok": True, "count": n, "ts": ts}
 
 
 @router.get("/api/trains/{nucleus}")
 def list_trains_by_nucleus(nucleus: str):
-    items = get_cache().get_by_nucleus(nucleus)
+    items = get_live_trains_cache().get_by_nucleus(nucleus)
     return {"nucleus": nucleus, "count": len(items), "items": [it.model_dump() for it in items]}
 
 
@@ -63,7 +63,7 @@ def trains_on_route(nucleus: str, route_id: str, direction_id: str | None = None
     if repo.nucleus_for_route_id(route_id) != nucleus:
         raise HTTPException(404, f"La ruta no pertenece al núcleo {nucleus}")
 
-    items = get_cache().get_by_nucleus_and_route(nucleus, route_id)
+    items = get_live_trains_cache().get_by_nucleus_and_route(nucleus, route_id)
     return dict(
         route_id=route_id,
         nucleus=nucleus,

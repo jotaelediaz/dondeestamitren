@@ -84,7 +84,7 @@ class StationsRepo:
         self._by_stop_id.clear()
         self._by_nucleus.clear()
 
-        from app.services.lines_repo import get_repo as get_lines_repo
+        from app.services.routes_repo import get_repo as get_lines_repo
 
         lrepo = get_lines_repo()
         nuclei = lrepo.list_nuclei()  # [{slug, name}, ...]

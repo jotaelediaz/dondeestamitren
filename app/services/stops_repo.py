@@ -4,8 +4,8 @@ from __future__ import annotations
 from collections import defaultdict
 
 from app.domain.models import Stop
-from app.services.lines_repo import get_repo as get_lines_repo
-from app.services.live_cache import get_cache
+from app.services.live_trains_cache import get_live_trains_cache
+from app.services.routes_repo import get_repo as get_lines_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 
 
@@ -101,7 +101,7 @@ class StopsRepo:
         )
 
     def nearest_trains(self, route_id: str, stop: Stop, limit: int = 5) -> list:
-        cache = get_cache()
+        cache = get_live_trains_cache()
         trains = cache.get_by_route_id(route_id)
 
         def dkm(t) -> float:

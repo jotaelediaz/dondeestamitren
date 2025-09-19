@@ -7,16 +7,18 @@
 {% endif %}
 
 <ul class="lines">
-	{% for ln in lines %}
+	{% for r in routes %}
 		<li>
-			<a href="/routes/{{ ln.nucleus_id }}/{{ ln.route_id }}">
-				<strong>{{ ln.route_short_name }}</strong>
-				{{ ln.route_long_name }}
-			</a>
-			{% if ln.directions %}
-				{% for d in ln.directions %}({{ d.stations }} paradas · {{ d.length_km }} km)
+			{% if nucleus %}<a href="/routes/{{ r.nucleus_slug }}/{{ r.route_id }}">{% endif %}
+				<strong>{{ r.route_short_name }}</strong>
+				{{ r.route_long_name }}
+			{% if nucleus %}</a>{% endif %}
+			{% if r.directions %}
+				{% for d in r.directions %}({{ d.stations }} paradas · {{ d.length_km }} km)
 				{% endfor %}
 			{% endif %}
 		</li>
 	{% endfor %}
 </ul>
+
+<p>➜ <a href="/lines/{{ nucleus.slug }}">Ver líneas</a></p>

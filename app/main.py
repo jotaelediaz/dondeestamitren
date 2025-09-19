@@ -10,20 +10,19 @@ from fastapi import FastAPI
 from app.config import settings
 from app.routers.lines_api import router as lines_api
 from app.routers.live_api import router as live_api_router
-from app.routers.live_debug_audit import router as audit_router
 from app.routers.web import router as web_router
-from app.services.live_cache import get_cache
+from app.services.live_trains_cache import get_live_trains_cache
 
 scheduler: BackgroundScheduler | None = None
 
 
 def build_scheduler() -> BackgroundScheduler:
     s = BackgroundScheduler(timezone="UTC")
-    get_cache().refresh()
+    get_live_trains_cache().refresh()
     base = int(settings.POLL_SECONDS)
 
     def job():
-        cache = get_cache()
+        cache = get_live_trains_cache()
         cache.refresh()
         return
 
@@ -57,4 +56,3 @@ app = FastAPI(title="dondeestamitren", lifespan=lifespan)
 app.include_router(lines_api)
 app.include_router(web_router)
 app.include_router(live_api_router)
-app.include_router(audit_router)
