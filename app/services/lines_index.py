@@ -1,3 +1,4 @@
+# app/services/lines_index.py
 from __future__ import annotations
 
 import csv
@@ -7,7 +8,7 @@ from collections import defaultdict
 
 from app.config import settings
 from app.domain.models import LineDirection, LineVariant, ServiceLine
-from app.services.routes_repo import get_repo as get_lines_repo
+from app.services.routes_repo import get_repo as get_routes_repo
 
 
 class LinesIndex:
@@ -45,7 +46,7 @@ class LinesIndex:
             if shape_id and route_id:
                 routes_by_shape[shape_id].add(route_id)
 
-        lrepo = get_lines_repo()
+        rrepo = get_routes_repo()
 
         def _suffix_short(route_id: str) -> str:
             m = re.search(r"([A-Za-z]+\d+)$", route_id or "")
@@ -55,11 +56,11 @@ class LinesIndex:
         if routes_by_shape:
             for shape_id, route_ids in routes_by_shape.items():
                 sample_route = next(iter(route_ids))
-                nucleus = (lrepo.nucleus_for_route_id(sample_route) or "").lower()
+                nucleus = (rrepo.nucleus_for_route_id(sample_route) or "").lower()
 
                 lv = None
                 for cand in ("", "0", "1"):
-                    lv = lrepo.get_by_route_and_dir(sample_route, cand)
+                    lv = rrepo.get_by_route_and_dir(sample_route, cand)
                     if lv:
                         break
                 short = (
@@ -70,8 +71,7 @@ class LinesIndex:
 
                 route_terminals: dict[str, tuple[str | None, str | None]] = {}
                 for rid in route_ids:
-                    pair = self._terminals_for_route(rid, first_last, trips, lrepo)
-                    route_terminals[rid] = pair
+                    route_terminals[rid] = self._terminals_for_route(rid, first_last, trips, rrepo)
 
                 variants_map: dict[tuple[str | None, str | None], dict[str, list[str]]] = (
                     defaultdict(lambda: {"0": [], "1": []})
@@ -97,7 +97,7 @@ class LinesIndex:
                         dirs["1"] = LineDirection("1", route_ids=sorted(set(routes_by_dir["1"])))
 
                     all_rids = sorted(set(routes_by_dir["0"] + routes_by_dir["1"]))
-                    canonical_rid = self._canonical_route_of_variant(all_rids, dirs, lrepo)
+                    canonical_rid = self._canonical_route_of_variant(all_rids, dirs, rrepo)
 
                     variants.append(
                         LineVariant(
@@ -110,14 +110,29 @@ class LinesIndex:
                         )
                     )
 
-                self._mark_canonical_variant(variants, lrepo)
+                self._mark_canonical_variant(variants, rrepo)
 
-                lines[shape_id] = ServiceLine(
+                bg, fg = None, None
+                canonical_rid_for_line = next(
+                    (
+                        v.canonical_route_id
+                        for v in variants
+                        if v.is_canonical and v.canonical_route_id
+                    ),
+                    None,
+                )
+                if canonical_rid_for_line:
+                    bg, fg = rrepo.route_colors(canonical_rid_for_line)
+
+                line_obj = ServiceLine(
                     line_id=shape_id,
                     short_name=short,
                     nucleus_id=nucleus,
                     variants=variants,
+                    color_bg=bg,
+                    color_fg=fg,
                 )
+                lines[shape_id] = line_obj
 
             self._lines = lines
             self._line_by_trip.clear()
@@ -130,7 +145,7 @@ class LinesIndex:
             return
 
         grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
-        for (rid, _did), lv in lrepo._by_route_dir.items():  # noqa: SLF001
+        for (rid, _did), lv in rrepo.by_route_dir.items():
             nucleus = (lv.nucleus_id or "").lower()
             short = lv.route_short_name or _suffix_short(rid)
             grouped[(nucleus, short)].append(rid)
@@ -139,8 +154,7 @@ class LinesIndex:
         for (nucleus, short), rids in grouped.items():
             route_terminals: dict[str, tuple[str | None, str | None]] = {}
             for rid in sorted(set(rids)):
-                a, b = self._terminals_for_route_from_RoutesRepo(rid, lrepo)
-                route_terminals[rid] = (a, b)
+                route_terminals[rid] = self._terminals_for_route_from_RoutesRepo(rid, rrepo)
 
             variants_map: dict[tuple[str | None, str | None], dict[str, list[str]]] = defaultdict(
                 lambda: {"0": [], "1": []}
@@ -165,7 +179,7 @@ class LinesIndex:
                     dirs["1"] = LineDirection("1", route_ids=sorted(set(routes_by_dir["1"])))
 
                 all_rids = sorted(set(routes_by_dir["0"] + routes_by_dir["1"]))
-                canonical_rid = self._canonical_route_of_variant(all_rids, dirs, lrepo)
+                canonical_rid = self._canonical_route_of_variant(all_rids, dirs, rrepo)
 
                 variants.append(
                     LineVariant(
@@ -178,15 +192,26 @@ class LinesIndex:
                     )
                 )
 
-            self._mark_canonical_variant(variants, lrepo)
+            self._mark_canonical_variant(variants, rrepo)
+
+            bg, fg = None, None
+            canonical_rid_for_line = next(
+                (v.canonical_route_id for v in variants if v.is_canonical and v.canonical_route_id),
+                None,
+            )
+            if canonical_rid_for_line:
+                bg, fg = rrepo.route_colors(canonical_rid_for_line)
 
             line_id = f"{nucleus}_{short}"
-            lines_fallback[line_id] = ServiceLine(
+            line_obj = ServiceLine(
                 line_id=line_id,
                 short_name=short,
                 nucleus_id=nucleus,
                 variants=variants,
+                color_bg=bg,
+                color_fg=fg,
             )
+            lines_fallback[line_id] = line_obj
 
         self._lines = lines_fallback
         self._line_by_trip.clear()
@@ -270,21 +295,21 @@ class LinesIndex:
         route_id: str,
         first_last: dict[str, tuple[str, str]],
         trips: dict[str, dict],
-        lrepo,
+        rrepo,
     ) -> tuple[str | None, str | None]:
         for tid, row in trips.items():
             if (row.get("route_id") or "").strip() != route_id:
                 continue
             if tid in first_last:
                 return first_last[tid]
-        return self._terminals_for_route_from_RoutesRepo(route_id, lrepo)
+        return self._terminals_for_route_from_RoutesRepo(route_id, rrepo)
 
     def _terminals_for_route_from_RoutesRepo(
-        self, route_id: str, lrepo
+        self, route_id: str, rrepo
     ) -> tuple[str | None, str | None]:
         lv_any = None
         for cand in ("", "0", "1"):
-            lv_any = lrepo.get_by_route_and_dir(route_id, cand)
+            lv_any = rrepo.get_by_route_and_dir(route_id, cand)
             if lv_any:
                 break
         if not lv_any or not lv_any.stations:
@@ -294,11 +319,11 @@ class LinesIndex:
         return (a or None), (b or None)
 
     def _canonical_route_of_variant(
-        self, route_ids: list[str], dirs: dict[str, LineDirection], lrepo
+        self, route_ids: list[str], dirs: dict[str, LineDirection], rrepo
     ) -> str | None:
         def _len_for_rid(rid: str) -> int:
             for did in ("0", "1", ""):
-                lv = lrepo.get_by_route_and_dir(rid, did)
+                lv = rrepo.get_by_route_and_dir(rid, did)
                 if lv:
                     return len(lv.stations)
             return 0
@@ -307,13 +332,13 @@ class LinesIndex:
             return None
         return sorted(route_ids, key=lambda r: (-_len_for_rid(r), r))[0]
 
-    def _mark_canonical_variant(self, variants: list[LineVariant], lrepo) -> None:
+    def _mark_canonical_variant(self, variants: list[LineVariant], rrepo) -> None:
         def _score(var: LineVariant) -> int:
             rid = var.canonical_route_id or (var.route_ids[0] if var.route_ids else "")
             if not rid:
                 return 0
             for did in ("0", "1", ""):
-                lv = lrepo.get_by_route_and_dir(rid, did)
+                lv = rrepo.get_by_route_and_dir(rid, did)
                 if lv:
                     return len(lv.stations)
             return 0
@@ -398,7 +423,7 @@ class LinesIndex:
     def destination_for_line_route_and_dir(
         self, line_id: str, route_id: str, direction_id: str | None
     ) -> str:
-        lrepo = get_lines_repo()
+        rrepo = get_routes_repo()
         line = self.get_line(line_id)
         if not line:
             return ""
@@ -414,7 +439,7 @@ class LinesIndex:
 
         did = (direction_id or "").strip()
         dest_id = a0 if did == "1" else b0
-        return lrepo.get_stop_name(dest_id) or dest_id
+        return rrepo.get_stop_name(dest_id) or dest_id
 
     def line_tuple_for_route_id(
         self, route_id: str
@@ -433,6 +458,12 @@ class LinesIndex:
         rid = (route_item or {}).get("route_id") or ""
         return self.line_tuple_for_route_id(rid)
 
+    def line_colors(self, line_id: str) -> tuple[str | None, str | None]:
+        ln = self.get_line(line_id)
+        if not ln:
+            return None, None
+        return getattr(ln, "color_bg", None), getattr(ln, "color_fg", None)
+
 
 _index: LinesIndex | None = None
 
@@ -449,3 +480,6 @@ def reload_index() -> None:
     global _index
     if _index is not None:
         _index.load()
+
+
+__all__ = ["LinesIndex", "get_index", "reload_index"]

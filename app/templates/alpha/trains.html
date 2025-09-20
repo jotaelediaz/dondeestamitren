@@ -1,0 +1,51 @@
+
+	<h1 class="h2">Trenes en circulación{% if nucleus %} en {{ nucleus.name }}{% endif %}</h1>
+	<p class="text-muted">Snapshot: {{ last_snapshot }}</p>
+	<p class="text-muted">Trenes circulando: {{ trains | length }}</p>
+	
+	{% if not nucleus %}
+		<h2>Trenes por núcleos</h2>
+		<ul>
+			{% for n in nuclei %}
+				<li><a href="/alpha/trains/{{ n.slug }}">{{ n.name }}</a></li>
+			{% endfor %}
+		</ul>
+		<hr>
+	{% endif %}
+	
+	{% if not trains %}
+		<p>No hay datos ahora mismo. No he obtenido datos de la API de Renfe.</p>
+	{% else %}
+		<table class="table" style="width:100%; max-width: 960px;">
+			<thead>
+			<tr>
+				<th>Línea</th>
+				<th>Tren</th>
+				<th>Estado</th>
+				<th>Parada</th>
+				<th>Posición</th>
+			</tr>
+			</thead>
+			<tbody>
+			{% for t in trains %}
+				<tr>
+					<td>{{ t.route_short_name }}</td>
+					<td><a href="/alpha/trains/{{ t.nucleus_slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
+					<td>{{ t.status_human() }}</td>
+					<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
+					<td>
+						{% if t.lat and t.lon %}
+							{{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}
+						{% else %}—{% endif %}
+					</td>
+				</tr>
+			{% endfor %}
+			</tbody>
+		</table>
+	{% endif %}
+	
+	<p><a href="/alpha/">← Volver</a></p>
+	
+	<script>
+      setTimeout(() => location.reload(), 200000);
+	</script>

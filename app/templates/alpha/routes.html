@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8">
+<title>Rutas</title>
+<h1>Rutas</h1>
+
+{% if nucleus %}
+	<h2>Núcleo: {{ nucleus.name }}</h2>
+{% endif %}
+
+<ul class="lines">
+	{% for r in routes %}
+		<li>
+			<span style="background: {{ r.color_bg }}; color: {{ r.color_fg }}; width: 10px; height: 10px; border-radius: 100%; display: inline-block;"> </span>
+			{% if nucleus %}<a href="/alpha/routes/{{ r.nucleus_slug }}/{{ r.route_id }}">{% endif %}
+				<strong>{{ r.route_short_name }}</strong>
+				{{ r.route_long_name }}
+			{% if nucleus %}</a>{% endif %}
+			{% if r.directions %}
+				{% for d in r.directions %}({{ d.stations }} paradas · {{ d.length_km }} km)
+				{% endfor %}
+			{% endif %}
+		</li>
+	{% endfor %}
+</ul>
+
+<p>➜ <a href="/alpha/lines/{{ nucleus.slug }}">Ver líneas</a></p>

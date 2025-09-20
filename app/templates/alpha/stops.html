@@ -1,0 +1,23 @@
+<header>
+	<a href="/alpha/routes/{{ nucleus.slug }}/{{ route.route_id }}{% if route.direction_id %}?direction_id={{ route.direction_id }}{% endif %}">
+		&larr; Volver a la línea {{ route.route_short_name }}
+	</a>
+	<h1>Paradas · {{ route.route_short_name }} · {{ nucleus.name }} · {{ route.route_long_name }}</h1>
+</header>
+
+<ol class="stops">
+	{% for s in stops %}
+		<li>
+			<a href="/alpha/routes/{{ nucleus.slug }}/{{ route.route_id }}/stops/{{ s.station_id }}{% if route.direction_id %}?direction_id={{ route.direction_id }}{% endif %}">
+				{{ s.name or s.stop_id }}
+			</a>
+			<small>
+				seq {{ s.seq }} · {{ '%.1f'|format(s.km) }} km
+				· {{ '%.5f'|format(s.lat) }}, {{ '%.5f'|format(s.lon) }}
+			</small>
+			{% if s.station_id %}
+				{# TODO: Necesitamos StationsRepo para resolver slug del enlace directo #}
+			{% endif %}
+		</li>
+	{% endfor %}
+</ol>

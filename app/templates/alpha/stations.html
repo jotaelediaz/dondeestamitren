@@ -1,0 +1,12 @@
+<h1>Lista de estaciones de {{ nucleus.name }}</h1>
+
+<ul class="stations">
+	{% for st in stations %}
+		<li>
+			<a href="/alpha/stations/{{ nucleus.slug }}/{{ st.station_id | urlencode }}">
+				{{ st.name }}
+			</a>
+			<small>({{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }})</small>
+		</li>
+	{% endfor %}
+</ul>

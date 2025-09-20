@@ -24,6 +24,8 @@ class LineRoute:
     length_km: float
     stations: list[StationOnLine]
     nucleus_id: str | None = None
+    color_bg: str | None = None
+    color_fg: str | None = None
 
     def station_count(self) -> int:
         return len(self.stations)
@@ -105,3 +107,5 @@ class ServiceLine:
     short_name: str
     nucleus_id: str
     variants: list[LineVariant]
+    color_bg: str | None = None
+    color_fg: str | None = None

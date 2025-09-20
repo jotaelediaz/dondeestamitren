@@ -1,0 +1,37 @@
+<header>
+	{% if nucleus %}
+		<a href="/alpha/trains/{{ nucleus.slug }}">&larr; Volver a {{ nucleus.name }}</a>
+	{% else %}
+		<a href="/alpha/trains/">&larr; Volver a trenes</a>
+	{% endif %}
+	<h1>Tren {{ train.train_id }}</h1>
+	<p>Última actualización: {{ last_snapshot }}</p>
+</header>
+
+<table border="1" cellpadding="6" cellspacing="0">
+	<thead>
+	<tr>
+		<th>Ruta</th>
+		<th>Código de línea</th>
+		<th>Destino</th>
+		<th>Estado</th>
+		<th>Parada actual</th>
+		<th>Posición</th>
+	</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td><a href="/alpha/routes/{{ nucleus.slug }}/{{ train.route_id }}">{{ train.route_id }}</a></td>
+			<td>{{ train.route_short_name }}</td>
+			<td>→ {{repo.get_stop_name(repo.route_destination(train.route_id)) or '—' }}</td>
+			<td>{{ train.status_human() }}</td>
+			
+			<td>{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i></td>
+			<td>
+				{% if train.lat and train.lon %}
+					{{ '%.5f'|format(train.lat) }}, {{ '%.5f'|format(train.lon) }}
+				{% else %}—{% endif %}
+			</td>
+		</tr>
+	</tbody>
+</table>

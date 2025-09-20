@@ -11,6 +11,7 @@ from app.config import settings
 from app.routers.lines_api import router as lines_api
 from app.routers.live_api import router as live_api_router
 from app.routers.web import router as web_router
+from app.routers.web_alpha import router as web_alpha_router
 from app.services.live_trains_cache import get_live_trains_cache
 
 scheduler: BackgroundScheduler | None = None
@@ -51,8 +52,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             scheduler.shutdown(wait=False)
 
 
+# App principal
 app = FastAPI(title="dondeestamitren", lifespan=lifespan)
 
+# Rutas "normales"
 app.include_router(lines_api)
 app.include_router(web_router)
 app.include_router(live_api_router)
+
+# --- Sub-app para /alpha (sandbox con plantillas antiguas) ---
+alpha_app = FastAPI(docs_url=None, redoc_url=None)
+alpha_app.include_router(web_alpha_router)  # reutiliza endpoints HTML pero con templates/alpha
+app.mount("/alpha", alpha_app)

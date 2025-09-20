@@ -1,0 +1,28 @@
+<h1>Líneas {{ nucleus.name }}</h1>
+
+<table border="1" cellpadding="6" cellspacing="0">
+	<thead>
+	<tr>
+		<th>Line ID (Generada)</th>
+		<th>Nombre corto</th>
+		<th>Núcleo</th>
+		<th>Variantes</th>
+		<th colspan="1">Color</th>
+	</tr>
+	</thead>
+	<tbody>
+	{% for ln in lines %}
+		<tr>
+			<td>
+				<a href="/alpha/lines/{{ ln.nucleus_id }}/{{ ln.line_id }}">{{ ln.line_id }}</a>
+			</td>
+			<td>{{ ln.short_name }}</td>
+			<td>{{ repo.nucleus_name(ln.nucleus_id) }}</td>
+			<td>{{ ln.variants|length }}</td>
+			<td style="background: {{ ln.color_bg }}; color: {{ ln.color_fg }}">{{ ln.color_bg }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+<p>➜ <a href="/alpha/routes/{{ nucleus.slug }}">Ver rutas (raw data)</a></p>

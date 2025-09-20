@@ -20,6 +20,8 @@ class RoutesRepo:
         self._has_nuclei = nuclei_map is not None
         self._nuclei_map = nuclei_map or {}
         self._stop_names: dict[str, str] = {}
+        self._route_colors_by_id: dict[str, tuple[str | None, str | None]] = {}
+        self._route_colors_by_short: dict[str, tuple[str | None, str | None]] = {}
 
     def _fnum(self, s: str | None, default="0") -> float:
         if s is None:
@@ -37,10 +39,60 @@ class RoutesRepo:
         except Exception:
             return 0
 
+    def _norm_hex(self, s: str | None) -> str | None:
+        if not s:
+            return None
+        s = str(s).strip()
+        if not s:
+            return None
+        return s if s.startswith("#") else f"#{s}"
+
+    def _load_gtfs_route_colors(self) -> None:
+        self._route_colors_by_id.clear()
+        self._route_colors_by_short.clear()
+
+        base_dir = getattr(settings, "GTFS_RAW_DIR", "") or ""
+        path = os.path.join(base_dir, "routes.txt")
+        if not path or not os.path.exists(path):
+            return
+
+        default_delim = getattr(settings, "GTFS_DELIMITER", ",") or ","
+        enc = getattr(settings, "GTFS_ENCODING", "utf-8") or "utf-8"
+
+        def _read_with(delim: str) -> list[dict]:
+            with open(path, encoding=enc, newline="") as f:
+                r = csv.DictReader(f, delimiter=delim)
+                if r.fieldnames:
+                    r.fieldnames = [h.strip() for h in r.fieldnames]
+                return list(r)
+
+        rows: list[dict] = []
+        try:
+            rows = _read_with(default_delim)
+            if rows and "route_id" not in rows[0]:
+                rows = _read_with("," if default_delim != "," else ";")
+        except Exception:
+            try:
+                rows = _read_with(",")
+            except Exception:
+                rows = _read_with(";")
+
+        for row in rows:
+            rid = (row.get("route_id") or "").strip()
+            rshort = (row.get("route_short_name") or "").strip().lower()
+            bg = self._norm_hex(row.get("route_color"))
+            fg = self._norm_hex(row.get("route_text_color"))
+
+            if rid:
+                self._route_colors_by_id[rid] = (bg, fg)
+            if rshort:
+                self._route_colors_by_short[rshort] = (bg, fg)
+
     def load(self) -> None:
         if not os.path.exists(self.csv_path):
             raise FileNotFoundError(f"Doesn't exist {self.csv_path}")
 
+        self._load_gtfs_route_colors()
         by_key_rows: dict[tuple[str, str], list[dict]] = {}
         with open(self.csv_path, encoding="utf-8-sig", newline="") as f:
             r = csv.DictReader(f, delimiter=",")
@@ -97,6 +149,8 @@ class RoutesRepo:
                 if nucleus_slug and nucleus_slug not in self._nuclei_names:
                     self._nuclei_names[nucleus_slug] = nucleus_name or nucleus_slug.capitalize()
 
+            bg, fg = self.route_colors(rid, short)
+
             lv = LineRoute(
                 route_id=rid,
                 route_short_name=short,
@@ -106,6 +160,12 @@ class RoutesRepo:
                 stations=stations,
                 nucleus_id=nucleus_slug,
             )
+
+            try:
+                lv.color_bg = bg
+                lv.color_fg = fg
+            except Exception:
+                pass
 
             self._by_key[(rid, did)] = lv
             self._by_short_dir[(short.lower(), did)] = lv
@@ -134,6 +194,8 @@ class RoutesRepo:
                     "direction_id": did,
                     "length_km": round(lv.length_km, 3),
                     "stations": len(lv.stations),
+                    "color_bg": getattr(lv, "color_bg", None),
+                    "color_fg": getattr(lv, "color_fg", None),
                 }
             )
         return items
@@ -164,6 +226,14 @@ class RoutesRepo:
             slug = self._nuclei_map.get(rid, (None, None))[0]
             if slug != nucleus_slug:
                 continue
+
+            bg = getattr(lv, "color_bg", None)
+            fg = getattr(lv, "color_fg", None)
+            if bg is None and fg is None:
+                alt_bg, alt_fg = self.route_colors(rid, lv.route_short_name)
+                bg = alt_bg if bg is None else bg
+                fg = alt_fg if fg is None else fg
+
             g = grouped.setdefault(
                 rid,
                 {
@@ -172,6 +242,8 @@ class RoutesRepo:
                     "route_long_name": lv.route_long_name,
                     "nucleus_slug": slug or "",
                     "directions": [],
+                    "color_bg": bg,
+                    "color_fg": fg,
                 },
             )
             g["directions"].append(
@@ -263,6 +335,8 @@ class RoutesRepo:
                     "nucleus_slug": n,
                     "hits": hits,
                     "hits_count": len(hits),
+                    "color_bg": getattr(lv, "color_bg", None),
+                    "color_fg": getattr(lv, "color_fg", None),
                 }
 
         items = list(serving.values())
@@ -319,6 +393,19 @@ class RoutesRepo:
 
         sid = (term.stop_id or "").strip()
         return sid or None
+
+    def route_colors(
+        self, route_id: str, route_short_name: str | None = None
+    ) -> tuple[str | None, str | None]:
+        rid = (route_id or "").strip()
+        if rid:
+            bg, fg = self._route_colors_by_id.get(rid, (None, None))
+            if bg or fg:
+                return bg, fg
+        s = (route_short_name or "").strip().lower()
+        if s:
+            return self._route_colors_by_short.get(s, (None, None))
+        return (None, None)
 
     @property
     def nuclei_names(self):
