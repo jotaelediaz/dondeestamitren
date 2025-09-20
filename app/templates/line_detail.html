@@ -1,9 +1,5 @@
-<!doctype html>
-<html lang="es">
-<head>
-	<meta charset="utf-8">
-	<title>Línea {{ line.short_name }} ({{ line.line_id }}) · {{ repo.nucleus_name(line.nucleus_id) or nucleus.name }}</title>
-</head>
+{%- extends "base-layout.html" %}
+{%- block app_content %}
 <body>
 <p>
 	<a href="/lines/{{ nucleus.slug }}">&larr; Volver al listado</a>
@@ -124,6 +120,4 @@
 		</table>
 	{% endif %}
 </section>
-
-</body>
-</html>
+{%- endblock %}

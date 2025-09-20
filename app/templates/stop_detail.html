@@ -1,3 +1,5 @@
+{%- extends "base-layout.html" %}
+{%- block app_content %}
 <header>
 	<a href="/routes/{{ nucleus.slug }}/{{ route.route_id }}">
 		&larr; Volver a línea
@@ -42,3 +44,4 @@
 		<p>No hay trenes cercanos ahora mismo.</p>
 	{% endif %}
 </section>
+{%- endblock %}

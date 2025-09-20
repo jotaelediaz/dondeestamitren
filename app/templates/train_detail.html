@@ -1,3 +1,5 @@
+{%- extends "base-layout.html" %}
+{%- block app_content %}
 <header>
 	{% if nucleus %}
 		<a href="/trains/{{ nucleus.slug }}">&larr; Volver a {{ nucleus.name }}</a>
@@ -35,3 +37,4 @@
 		</tr>
 	</tbody>
 </table>
+{%- endblock %}

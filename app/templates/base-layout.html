@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+	  <meta http-equiv="content-type" content="no-store" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+	  <link href="{{ request.url_for('static', path='img/favicon.svg') }}" rel="shortcut icon">
+	  <link href="{{ request.url_for('static', path='img/favicon.png') }}" rel="shortcut icon">
+	  <link rel="apple-touch-icon" sizes="144x144" href="{{ request.url_for('static', path='img/favicon_apple.png') }}">
+    <title hx-head="re-eval">{% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ request.url_for('static', path='css/mitren-common-style.css') }}">
+  </head>
+  <body>
+    <main id="main" class="tft-screen-size container-main">
+      {%- block app_content %}
+      {%- endblock %}
+    </main>
+    <script src="/static/js/htmx.js"></script>
+  </body>
+</html>

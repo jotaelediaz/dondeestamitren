@@ -1,0 +1,24 @@
+@font-face {
+    font-family: 'Sora';
+    src: url("/app/static/fonts/Sora-VariableFont_wght.ttf");
+    font-weight: 100 900;
+    font-stretch: 75% 125%;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Rubik';
+    src: url("/app/static/fonts/Rubik-VariableFont_wght.ttf");
+    font-weight: 100 900;
+    font-stretch: 75% 125%;
+    font-style: normal;
+}
+
+html,
+body {
+    padding: 0;
+    margin: 0;
+    font-family: Rubik, sans-serif;
+    font-weight: 300;
+    overflow: hidden;
+}

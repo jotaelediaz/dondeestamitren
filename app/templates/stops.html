@@ -1,3 +1,5 @@
+{%- extends "base-layout.html" %}
+{%- block app_content %}
 <header>
 	<a href="/routes/{{ nucleus.slug }}/{{ route.route_id }}{% if route.direction_id %}?direction_id={{ route.direction_id }}{% endif %}">
 		&larr; Volver a la línea {{ route.route_short_name }}
@@ -21,3 +23,4 @@
 		</li>
 	{% endfor %}
 </ol>
+{%- endblock %}

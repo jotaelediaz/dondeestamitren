@@ -1,3 +1,5 @@
+{%- extends "base-layout.html" %}
+{%- block app_content %}
 <h1>Líneas {{ nucleus.name }}</h1>
 
 <table border="1" cellpadding="6" cellspacing="0">
@@ -24,3 +26,4 @@
 </table>
 
 <p>➜ <a href="/routes/{{ nucleus.slug }}">Ver rutas (raw data)</a></p>
+{% endblock %}

@@ -1,5 +1,5 @@
-<!doctype html><meta charset="utf-8">
-<title>{{ route.route_short_name }} – {{ route.route_long_name }}</title>
+{%- extends "base-layout.html" %}
+{%- block app_content %}
 
 <h1>
 	Ruta {{ route.route_id }} ➜ {{ route.route_short_name }} · {{ route.route_long_name }}
@@ -72,3 +72,4 @@
 		</tbody>
 	</table>
 {% endif %}
+{% endblock %}

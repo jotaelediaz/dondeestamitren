@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.routers.lines_api import router as lines_api
@@ -52,15 +53,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             scheduler.shutdown(wait=False)
 
 
-# App principal
 app = FastAPI(title="dondeestamitren", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# Rutas "normales"
 app.include_router(lines_api)
 app.include_router(web_router)
 app.include_router(live_api_router)
 
-# --- Sub-app para /alpha (sandbox con plantillas antiguas) ---
+# --- Alpha endpoints ---
 alpha_app = FastAPI(docs_url=None, redoc_url=None)
-alpha_app.include_router(web_alpha_router)  # reutiliza endpoints HTML pero con templates/alpha
+alpha_app.include_router(web_alpha_router)
 app.mount("/alpha", alpha_app)
