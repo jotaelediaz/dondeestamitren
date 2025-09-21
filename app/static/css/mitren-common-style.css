@@ -14,6 +14,27 @@
     font-style: normal;
 }
 
+/* -- Colors and vars -- */
+
+:root{
+
+    --navbar-height: 35px;
+    --app-margin: 15px;
+
+    --jotaele-dark: #2a3b9b;
+    --jotaele-teal: #18aed7;
+    --jotaele-black: #33383c;
+    --jotaele-main-hover: #105365;
+    --jotaele-white: white;
+/*    --jotaele-background-grey: #e7e9f1;
+    --jotaele-text-grey: #6c757d;
+    --jotaele-text-grey-hover: #9ea4a9;
+    --jotaele-background-accent: #dff8ff96;
+    --jotaele-button-grey: #7a99b4;
+    --jotaele-button-grey-hover: #5a7e9e;
+    --jotaele-midnight: #001c38;*/
+}
+
 html,
 body {
     padding: 0;
@@ -21,4 +42,33 @@ body {
     font-family: Rubik, sans-serif;
     font-weight: 300;
     overflow: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: Sora, sans-serif;
+    font-weight: 700;
+}
+
+/* -- Navbar header -- */
+
+#app-navbar {
+    display: flex;
+    height: var(--navbar-height);
+    justify-content: space-between;
+    padding: var(--app-margin);
+}
+
+#app-navbar .navbar-link {
+    display: block;
+}
+
+#app-navbar .navbar-link img {
+    display: inline-block;
+    height: 100%;
+    width: auto;
+}
+
+
+#hero-home {
+    background: var(--jotaele-dark);
 }

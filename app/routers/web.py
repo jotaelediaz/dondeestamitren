@@ -1,4 +1,7 @@
 # app/routers/web.py
+import re
+import unicodedata
+
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -307,6 +310,82 @@ def station_detail_by_id(request: Request, nucleus: str, station_id: str):
             "live_trains": live_trains,
             "repo": routes_repo,
             "index": idx,
+        },
+    )
+
+
+# --- SEARCH STATIONS ---
+
+_ws_re = re.compile(r"\s+")
+_nonword_re = re.compile(r"[^\w]+")
+
+
+def _norm(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    s = _nonword_re.sub(" ", s)
+    s = _ws_re.sub(" ", s).strip()
+    return s
+
+
+def _tokens(q: str) -> list[str]:
+    return [t for t in _norm(q).split(" ") if t]
+
+
+def _score_match(name_norm: str, id_norm: str, query_terms: list[str]) -> tuple[int, int, int]:
+    missing = 0
+    penalty = 0
+    for t in query_terms:
+        in_name = t in name_norm
+        in_id = t in id_norm
+        if not (in_name or in_id):
+            missing += 1
+            continue
+        if in_name:
+            penalty += 0 if name_norm.startswith(t) else 1
+        if in_id:
+            penalty += 0 if id_norm.startswith(t) else 1
+    return (missing, penalty, len(name_norm))
+
+
+@router.get("/search/stations", response_class=HTMLResponse)
+def search_stations_page(
+    request: Request,
+    q: str | None = Query(default=None, description="nombre y/o código"),
+    nucleus: str | None = Query(default=None, description="slug de núcleo"),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    rrepo = get_routes_repo()
+    srepo = get_stations_repo()
+
+    q = (q or "").strip()
+    terms = _tokens(q) if q else []
+    nuclei = (
+        [(nucleus or "").strip().lower()]
+        if nucleus
+        else [n["slug"] for n in (rrepo.list_nuclei() or [])]
+    )
+
+    results = []
+    if terms and nuclei:
+        for n in nuclei:
+            for st in srepo.list_by_nucleus(n):
+                sid = getattr(st, "station_id", "") or getattr(st, "id", "")
+                name = getattr(st, "name", "") or getattr(st, "station_name", "")
+                score = _score_match(_norm(name), _norm(sid), terms)
+                if score[0] == 0:
+                    results.append({"nucleus": n, "station_id": sid, "name": name, "score": score})
+        results.sort(key=lambda x: (x["score"], x["name"].lower(), x["station_id"]))
+        results = results[:limit]
+
+    return templates.TemplateResponse(
+        "search_stations.html",
+        {
+            "request": request,
+            "q": q,
+            "nucleus": nucleus or "",
+            "results": results,
         },
     )
 

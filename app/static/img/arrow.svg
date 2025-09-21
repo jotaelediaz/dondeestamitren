@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   id="Capa_1"
+   version="1.1"
+   viewBox="0 0 523.3168163 419.2624628"
+   sodipodi:docname="arrow.svg"
+   inkscape:version="1.4.2 (2aeb623e1d, 2025-05-12)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="1.6815817"
+     inkscape:cx="308.93534"
+     inkscape:cy="109.12345"
+     inkscape:window-width="1854"
+     inkscape:window-height="1011"
+     inkscape:window-x="66"
+     inkscape:window-y="32"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="Capa_1" />
+  <!-- Generator: Adobe Illustrator 29.0.0, SVG Export Plug-In . SVG Version: 2.1.0 Build 186)  -->
+  <defs
+     id="defs1">
+    <style
+       id="style1">
+      .st0 {
+        fill: #fff;
+      }
+    </style>
+  </defs>
+  <path
+     class="st0"
+     d="m 12.070167,238.91591 168.799643,168.3533 c 16.04844,16.006 42.02841,15.9888 58.05564,-0.0384 l 0.0298,-0.0298 c 16.08688,-16.08689 16.03555,-42.18468 -0.1145,-58.20816 l -98.32395,-97.5534 h 341.30003 c 22.91979,0 41.49996,-18.58016 41.49996,-41.49996 v -8e-5 c 0,-22.91979 -18.58017,-41.49996 -41.49996,-41.49996 H 140.51683 L 238.17347,70.011374 C 254.1567,53.901895 254.0495,27.884137 237.93406,11.906915 l -6e-5,-5.7e-5 C 221.84419,-4.0449565 195.87674,-3.957489 179.89476,12.102354 L 11.961192,180.85402 c -15.9907064,16.06861 -15.9419362,42.05342 0.108975,58.06189 z"
+     id="path1" />
+</svg>

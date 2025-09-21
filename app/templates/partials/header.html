@@ -1,0 +1,10 @@
+{%- block app_header %}
+	<header id="app-navbar">
+		<a class="navbar-link" href="{{ back_url or '/' }}">
+			<img src="{{ request.url_for('static', path='img/arrow.svg') }}" alt="Atrás"/>
+		</a>
+		<a class="navbar-link" href="{{ back_url or '/' }}">
+			<img src="{{ request.url_for('static', path='img/ellipsis_vertical.svg') }}" alt="Ajustes"/>
+		</a>
+	</header>
+{%- endblock %}

@@ -1,0 +1,29 @@
+
+<h1>Buscar estaciones</h1>
+
+<!-- Form reutilizable (sin JS) -->
+<form class="search-box" action="/search/stations" method="get">
+	<input type="search" name="q" placeholder="Nombre o código…" value="{{ q or '' }}" required>
+	{% if nucleus %}<input type="hidden" name="nucleus" value="{{ nucleus }}">{% endif %}
+	<button type="submit">Buscar</button>
+</form>
+
+{% if not q %}
+	<p class="muted">Escribe un nombre o un código de estación y pulsa “Buscar”.</p>
+	{% elif results|length == 0 %}
+	<p>No hay resultados para <strong>{{ q }}</strong>.</p>
+{% else %}
+	<p class="muted">Resultados ({{ results|length }}):</p>
+	<ul class="results">
+		{% for r in results %}
+			<li>
+				<a href="/stations/{{ r.nucleus }}/{{ r.station_id }}">
+					{{ r.name }}
+				</a>
+				<small class="muted">
+					— id: {{ r.station_id }}{% if r.nucleus %}, núcleo: {{ r.nucleus }}{% endif %}
+				</small>
+			</li>
+		{% endfor %}
+	</ul>
+{% endif %}
