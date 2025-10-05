@@ -1,15 +1,36 @@
 {%- extends "base-layout.html" %}
+{%- from "partials/search_stations.html" import add_search_stations_form with context %}
 
 {%- block app_content %}
-	<div id="hero-home">
-		<img src="{{ request.url_for('static', path='img/mitren_neg.svg') }}" alt="Logo" style="height: 100px;"/>
-		<form action="/stations/{{ nuclei[0].slug }}" method="get" class="search-box" data-nucleus="{{ nuclei[0].slug }}">
-			<input type="search" name="q" placeholder="Buscar estación o código…" aria-label="Buscar estaciones" required>
-			<button type="submit">Buscar</button>
-			<button type="button" id="nearby-btn">Estación más cercana</button>
-		</form>
-	</div>
-	<p class="text-muted">Última actualización API: {{ last_snapshot }}</p>
+	<section id="hero-home">
+		<header class="hero-logo">
+			<img src="{{ request.url_for('static', path='img/mitren_neg.svg') }}" alt="¿Dónde está mi tren?"/>
+		</header>
+		{{ add_search_stations_form(nuclei[0].slug) }}
+	</section>
+	<section id="home-main" class="app-block-padding app-block-vertical-padding">
+		<div class="welcome-message">
+			<div class="welcome-message-title">
+			<span class="h2 txt-title">¡Hola! 👋</span>
+				<div class="by-jotaele">
+					<a href="https://www.jotaele.me" target="_blank">
+						<span class="txt-paragraph">Operado por:</span>
+						<img src="{{ request.url_for('static', path='img/jotaele.svg') }}" alt="JotaEle" />
+					</a>
+				</div>
+			</div>
+			<p class="txt-paragraph">Bienvenido a <strong>Dónde está mi tren</strong>: una herramienta que te permite consultar las <strong>líneas de Cercanías</strong> y seguir los <strong>trenes en tiempo real</strong>.</p>
+		</div>
+	</section>
+	<hr/>
+	<section id="nuclei-section" class="app-block-padding">
+		<div class="current-nuclei">
+			<span><strong>Núcleo actual:</strong> Madrid</span>
+			<a class="btn btn-sm btn-secondary" href="#">
+				Cambiar<i class="material-symbols-rounded">expand_more</i>
+			</a>
+		</div>
+	</section>
 	<hr/>
 	<h2>Núcleos de Cercanías</h2>
 	<ul>

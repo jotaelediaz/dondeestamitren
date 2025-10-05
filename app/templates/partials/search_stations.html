@@ -1,0 +1,9 @@
+{%- macro add_search_stations_form(nucleus_slug) -%}
+	<form action="/stations/{{ nucleus_slug }}" method="get" class="search-station-box" data-nucleus="{{ nucleus_slug }}">
+		<div class="search-box-wrapper">
+			<input class="search-input" type="search" name="q" placeholder="Buscar estación…" aria-label="Buscar estaciones" required>
+			<button type="submit" aria-label="Buscar" class="search-btn"><i class="navbar-icon material-symbols-rounded" aria-hidden="true">search</i></button>
+			<button type="button" aria-label="Buscar estaciones cerca de mi" class="nearby-btn"><i class="navbar-icon material-symbols-rounded" aria-hidden="true">near_me</i></button>
+		</div>
+	</form>
+{%- endmacro -%}
