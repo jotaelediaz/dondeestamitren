@@ -8,13 +8,82 @@
 	  <link href="{{ request.url_for('static', path='img/favicon.png') }}" rel="shortcut icon">
 	  <link rel="apple-touch-icon" sizes="144x144" href="{{ request.url_for('static', path='img/favicon_apple.png') }}">
     <title hx-head="re-eval">{% block title %}{% endblock %}</title>
-    <link rel="stylesheet" href="{{ request.url_for('static', path='css/mitren-common-style.css') }}">
+	  <link rel="preload" href="{{ request.url_for('static', path='fonts/MaterialSymbolsRoundedVF.ttf') }}" as="font" type="font/ttf" crossorigin>
+	  <link rel="stylesheet" href="{{ request.url_for('static', path='css/mitren-common-style.css') }}">
   </head>
   <body>
     <main id="main" class="tft-screen-size container-main">
+	    {%- block topbar -%}
+		    {% include "partials/topbar.html" %}
+	    {%- endblock -%}
+	    
       {%- block app_content %}
       {%- endblock %}
+	    
+	    {% block bottom_navbar %}
+		    {% include "partials/navbar.html" %}
+	    {% endblock %}
     </main>
-    <script src="/static/js/htmx.js"></script>
+    <script src="/static/js/htmx.min.js"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const btn = document.getElementById('nearby-btn');
+            const form = document.querySelector('form.search-box');
+            if (!form) return;
+
+            const nucleus = (form.dataset?.nucleus || 'madrid').toLowerCase();
+
+            let latEl = form.querySelector('#nearby-lat');
+            let lonEl = form.querySelector('#nearby-lon');
+            if (!latEl) { latEl = document.createElement('input'); latEl.type='hidden'; latEl.id='nearby-lat'; form.appendChild(latEl); }
+            if (!lonEl) { lonEl = document.createElement('input'); lonEl.type='hidden'; lonEl.id='nearby-lon'; form.appendChild(lonEl); }
+
+            form.addEventListener('submit', function () {
+                if (latEl) latEl.removeAttribute('name');
+                if (lonEl) lonEl.removeAttribute('name');
+                form.action = `/stations/${encodeURIComponent(nucleus)}`;
+                form.method = 'get';
+            });
+
+            if (!btn) return;
+
+            btn.addEventListener('click', function () {
+                if (!('geolocation' in navigator)) {
+                    alert('Tu navegador no soporta geolocalización.');
+                    return;
+                }
+                btn.disabled = true; btn.textContent = 'Buscando ubicación…';
+
+                navigator.geolocation.getCurrentPosition(
+                    function (pos) {
+                        const { latitude, longitude } = pos.coords || {};
+                        if (latitude == null || longitude == null) {
+                            alert('No se pudo obtener la ubicación.');
+                            btn.disabled = false; btn.textContent = 'Estación más cercana';
+                            return;
+                        }
+
+                        latEl.name = 'lat';
+                        lonEl.name = 'lon';
+                        latEl.value = latitude;
+                        lonEl.value = longitude;
+
+                        form.action = `/stations/${encodeURIComponent(nucleus)}`;
+                        form.method = 'get';
+                        form.submit();
+                    },
+                    function (err) {
+                        console.error(err);
+                        alert('No se pudo obtener la ubicación (permiso denegado o error).');
+                        btn.disabled = false; btn.textContent = 'Estación más cercana';
+                    },
+                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                );
+            });
+        });
+    </script>
+
+  
   </body>
 </html>

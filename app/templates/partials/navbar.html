@@ -1,0 +1,18 @@
+<nav id="bottom-nav" role="navigation" aria-label="Menú">
+	<div class="nav-inner">
+		<div class="navbar-inner-wrapper">
+		<a href="{{ request.url_for('lines_list') }}" class="navbar-item {% if request.url.path.startswith('/lines') %}item-active{% endif %}">
+			<i class="navbar-icon material-symbols-rounded">route</i>
+			<span class="navbar-label">Líneas</span>
+		</a>
+		<a href="{{ request.url_for('stations_list', nucleus='madrid') }}" class="navbar-item {% if request.url.path.startswith('/stations') %}item-active{% endif %}">
+			<i class="navbar-icon material-symbols-rounded">nest_tag</i>
+			<span class="navbar-label">Estaciones</span>
+		</a>
+		<a href="{{ request.url_for('trains_list') }}" class="navbar-item {% if request.url.path.startswith('/trains') %}item-active{% endif %}">
+			<i class="navbar-icon material-symbols-rounded">train</i>
+			<span class="navbar-label">Trenes</span>
+		</a>
+		</div>
+	</div>
+</nav>

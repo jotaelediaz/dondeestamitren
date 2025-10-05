@@ -1,6 +1,6 @@
 @font-face {
     font-family: 'Sora';
-    src: url("/app/static/fonts/Sora-VariableFont_wght.ttf");
+    src: url("/static/fonts/Sora-VariableFont_wght.ttf");
     font-weight: 100 900;
     font-stretch: 75% 125%;
     font-style: normal;
@@ -8,9 +8,16 @@
 
 @font-face {
     font-family: 'Rubik';
-    src: url("/app/static/fonts/Rubik-VariableFont_wght.ttf");
+    src: url("/static/fonts/Rubik-VariableFont_wght.ttf");
     font-weight: 100 900;
     font-stretch: 75% 125%;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: "Material Symbols Rounded";
+    src: url("/static/fonts/MaterialSymbolsRoundedVF.ttf");
+    font-weight: 100 700;
     font-style: normal;
 }
 
@@ -18,21 +25,23 @@
 
 :root{
 
-    --navbar-height: 35px;
     --app-margin: 15px;
+    --topbar-height: 35px;
+    --bottom-nav-height: 67px;
 
     --jotaele-dark: #2a3b9b;
     --jotaele-teal: #18aed7;
     --jotaele-black: #33383c;
-    --jotaele-main-hover: #105365;
-    --jotaele-white: white;
-/*    --jotaele-background-grey: #e7e9f1;
+    --jotaele-white: #fff;
+    --jotaele-background: #e4f0f4;
+
     --jotaele-text-grey: #6c757d;
     --jotaele-text-grey-hover: #9ea4a9;
     --jotaele-background-accent: #dff8ff96;
     --jotaele-button-grey: #7a99b4;
     --jotaele-button-grey-hover: #5a7e9e;
-    --jotaele-midnight: #001c38;*/
+    --jotaele-midnight: #001c38;
+    --jotaele-main-hover: #105365;
 }
 
 html,
@@ -42,6 +51,7 @@ body {
     font-family: Rubik, sans-serif;
     font-weight: 300;
     overflow: hidden;
+    background: var(--jotaele-background);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -49,25 +59,160 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 700;
 }
 
-/* -- Navbar header -- */
-
-#app-navbar {
-    display: flex;
-    height: var(--navbar-height);
-    justify-content: space-between;
-    padding: var(--app-margin);
-}
-
-#app-navbar .navbar-link {
-    display: block;
-}
-
-#app-navbar .navbar-link img {
+.material-symbols-rounded {
+    font-family: "Material Symbols Rounded", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+    letter-spacing: normal;
+    text-transform: none;
     display: inline-block;
-    height: 100%;
+    white-space: nowrap;
+    word-wrap: normal;
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+/* -- Topbar navbar -- */
+
+#app-topbar {
+    position: relative;
+    display: flex;
+    width: 100%;
+    padding: var(--app-margin);
+    z-index: 999;
+    box-sizing: border-box;
+}
+
+#app-topbar .topbar-inner {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    height: var(--topbar-height);
+    max-height: var(--topbar-height);
+    align-items: center;
+}
+
+.topbar-btn {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: var(--topbar-height);
+    height: var(--topbar-height);
+    background: var(--jotaele-white);
+    border: 0;
+    border-radius: 100%;
+    color: var(--jotaele-black);
+    text-decoration: none;
+    transition: ease 0.3s;
+    font-size: 1.5rem;
+}
+
+.topbar-btn.nude-icon {
+    background: none;
+}
+
+.topbar-btn:hover,
+.topbar-btn:active {
+    background: var(--jotaele-teal);
+    color: var(--jotaele-white);
+}
+
+.topbar-btn.disabled,
+.topbar-title.disabled {
+    pointer-events: none;
+    opacity: 0;
+}
+
+#app-topbar .topbar-title {
+    width: 100%;
+    height: var(--topbar-height);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#app-topbar .topbar-title img {
+    height: calc(var(--topbar-height) * 0.9);
     width: auto;
 }
 
+/* -- Bottom navbar -- */
+
+#bottom-nav {
+    position: fixed;
+    padding: var(--app-margin);
+    left: 0;
+    bottom: 0;
+    z-index: 999;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    background: linear-gradient(
+        to bottom, transparent,
+        color-mix(in srgb, var(--jotaele-background) 50%, transparent),
+        var(--jotaele-background)
+    );
+}
+
+#bottom-nav .nav-inner {
+    display: flex;
+    width: 100%;
+    height: var(--bottom-nav-height);
+    max-height: var(--bottom-nav-height);
+    background: var(--jotaele-white);
+    border-radius: 99px;
+    backdrop-filter: blur(18px);
+    background: rgba(255,255,255,0.6);
+}
+
+#bottom-nav .navbar-inner-wrapper {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    padding: calc(var(--app-margin) / 2);
+}
+
+#bottom-nav .navbar-item {
+    font-family: Sora, sans-serif;
+    text-decoration: none;
+    color: var(--jotaele-black);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 0;
+    min-width: 0;
+    border-radius: 999px;
+    font-size: 1rem;
+    transition: ease 0.3s;
+}
+
+#bottom-nav .navbar-item i {
+    font-size: 23px;
+}
+
+#bottom-nav .navbar-item:not(.item-active):hover,
+#bottom-nav .navbar-item:not(.item-active):active {
+    color: var(--jotaele-teal);
+}
+
+#bottom-nav .navbar-item.item-active {
+    background: var(--jotaele-teal);
+    color: var(--jotaele-white);
+    font-weight: 600;
+}
+
+
+/* -- Home -- */
+
+#app-topbar.topbar-home {
+    background: var(--jotaele-dark);
+}
+
+#app-topbar.topbar-home .topbar-btn.nude-icon {
+    color: white;
+}
 
 #hero-home {
     background: var(--jotaele-dark);

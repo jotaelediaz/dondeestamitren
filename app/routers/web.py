@@ -1,6 +1,6 @@
 # app/routers/web.py
-import re
 import unicodedata
+from math import atan2, cos, radians, sin, sqrt
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
@@ -19,6 +19,54 @@ templates = Jinja2Templates(directory="app/templates")
 def mk_nucleus(slug: str, repo):
     s = (slug or "").strip().lower()
     return {"slug": s, "name": repo.nucleus_name(s) or (s.capitalize() if s else "")}
+
+
+def _norm(s: str) -> str:
+    s = (s or "").strip().lower()
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+
+def _matches_station(qnorm: str, st) -> bool:
+    return (qnorm in _norm(getattr(st, "name", ""))) or (
+        qnorm in _norm(getattr(st, "station_id", ""))
+    )
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2.0) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2.0) ** 2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return R * c
+
+
+def _filter_sort_stations(
+    stations: list,
+    q: str | None,
+    lat: float | None,
+    lon: float | None,
+    limit: int,
+) -> list:
+    if q:
+        qnorm = _norm(q)
+        stations = [st for st in stations if _matches_station(qnorm, st)]
+
+    if lat is not None and lon is not None:
+
+        def _dist(st):
+            try:
+                return _haversine_km(float(st.lat), float(st.lon), float(lat), float(lon))
+            except Exception:
+                return float("inf")
+
+        stations.sort(key=_dist)
+    else:
+        stations.sort(
+            key=lambda st: (_norm(getattr(st, "name", "")), getattr(st, "station_id", ""))
+        )
+
+    return stations[: max(1, int(limit or 50))]
 
 
 # --- HOME ---
@@ -249,143 +297,113 @@ def stop_detail(
 # --- STATIONS ---
 
 
-@router.get("/stations/{nucleus}", response_class=HTMLResponse)
-def stations_by_nucleus(request: Request, nucleus: str):
-    repo = get_routes_repo()
-    stations = get_stations_repo().list_by_nucleus(nucleus)
+@router.get("/stations", response_class=HTMLResponse)
+def stations_all_list(
+    request: Request,
+    q: str | None = Query(default=None, description="Búsqueda por nombre o código"),
+    lat: float | None = Query(default=None),
+    lon: float | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+):
+    routes_repo = get_routes_repo()
+    stations_repo = get_stations_repo()
+
+    all_stations: list = []
+    for n in routes_repo.list_nuclei():
+        slug = (n.get("slug") or "").strip().lower()
+        if slug:
+            all_stations.extend(stations_repo.list_by_nucleus(slug))
+
+    stations = _filter_sort_stations(all_stations, q=q, lat=lat, lon=lon, limit=limit)
+
     return templates.TemplateResponse(
         "stations.html",
         {
             "request": request,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": None,
             "stations": stations,
-            "repo": repo,
+            "repo": routes_repo,
+            "query": q or "",
+            "lat": lat,
+            "lon": lon,
         },
     )
 
 
-@router.get("/stations/{nucleus}/{station_id}", response_class=HTMLResponse)
-def station_detail_by_id(request: Request, nucleus: str, station_id: str):
+@router.get("/stations/{nucleus}", response_class=HTMLResponse)
+@router.get("/stations/{nucleus}", response_class=HTMLResponse)
+def stations_list(
+    request: Request,
+    nucleus: str,
+    station_id: str | None = Query(default=None, description="ID de estación para vista detalle"),
+    q: str | None = Query(default=None, description="Texto: nombre o código"),
+    lat: float | None = Query(default=None),
+    lon: float | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+):
     routes_repo = get_routes_repo()
+    stations_repo = get_stations_repo()
     idx = get_lines_index()
     nucleus = (nucleus or "").lower()
-    stations_repo = get_stations_repo()
 
-    st = stations_repo.get_by_nucleus_and_id(nucleus, station_id)
-    if not st:
-        raise HTTPException(404, f"Station {station_id} not found in {nucleus}")
+    # --- Details ---
+    if station_id:
+        st = stations_repo.get_by_nucleus_and_id(nucleus, station_id)
+        if not st:
+            raise HTTPException(404, f"Station {station_id} not found in {nucleus}")
 
-    serving_routes = routes_repo.routes_serving_station(
-        nucleus_slug=nucleus, station_id=st.station_id, stations_repo=stations_repo
-    )
-
-    lines_map: dict[str, dict] = {}
-    for r in serving_routes:
-        line_id, line_obj, dir_in_line = idx.line_tuple_for_route_item(r)
-        if not line_id:
-            continue
-        bucket = lines_map.setdefault(
-            line_id, {"line_id": line_id, "line": line_obj, "routes": [], "hits_total": 0}
+        serving_routes = routes_repo.routes_serving_station(
+            nucleus_slug=nucleus, station_id=st.station_id, stations_repo=stations_repo
         )
-        bucket["routes"].append({**r, "direction_in_line": dir_in_line})
-        bucket["hits_total"] += int(r.get("hits_count", 0) or 0)
 
-    serving_lines = sorted(
-        lines_map.values(), key=lambda x: ((x["line"].short_name or "").lower(), x["line_id"])
-    )
+        lines_map: dict[str, dict] = {}
+        for r in serving_routes:
+            line_id, line_obj, dir_in_line = idx.line_tuple_for_route_item(r)
+            if not line_id:
+                continue
+            bucket = lines_map.setdefault(
+                line_id, {"line_id": line_id, "line": line_obj, "routes": [], "hits_total": 0}
+            )
+            bucket["routes"].append({**r, "direction_in_line": dir_in_line})
+            bucket["hits_total"] += int(r.get("hits_count", 0) or 0)
 
-    route_ids_union = set()
-    for it in serving_lines:
-        route_ids_union.update(idx.route_ids_for_line(it["line_id"]))
-    live_all = get_live_trains_cache().get_by_nucleus(nucleus)
-    live_trains = [t for t in live_all if getattr(t, "route_id", None) in route_ids_union]
+        serving_lines = sorted(
+            lines_map.values(), key=lambda x: ((x["line"].short_name or "").lower(), x["line_id"])
+        )
+
+        route_ids_union = set()
+        for it in serving_lines:
+            route_ids_union.update(idx.route_ids_for_line(it["line_id"]))
+        live_all = get_live_trains_cache().get_by_nucleus(nucleus)
+        live_trains = [t for t in live_all if getattr(t, "route_id", None) in route_ids_union]
+
+        return templates.TemplateResponse(
+            "station_detail.html",
+            {
+                "request": request,
+                "nucleus": mk_nucleus(nucleus, routes_repo),
+                "station": st,
+                "serving_lines": serving_lines,
+                "live_trains": live_trains,
+                "repo": routes_repo,
+                "index": idx,
+            },
+        )
+
+    # --- List ---
+    stations = stations_repo.list_by_nucleus(nucleus)
+    stations = _filter_sort_stations(stations, q=q, lat=lat, lon=lon, limit=limit)
 
     return templates.TemplateResponse(
-        "station_detail.html",
+        "stations.html",
         {
             "request": request,
             "nucleus": mk_nucleus(nucleus, routes_repo),
-            "station": st,
-            "serving_lines": serving_lines,
-            "live_trains": live_trains,
+            "stations": stations,
             "repo": routes_repo,
-            "index": idx,
-        },
-    )
-
-
-# --- SEARCH STATIONS ---
-
-_ws_re = re.compile(r"\s+")
-_nonword_re = re.compile(r"[^\w]+")
-
-
-def _norm(s: str) -> str:
-    s = (s or "").strip().lower()
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
-    s = _nonword_re.sub(" ", s)
-    s = _ws_re.sub(" ", s).strip()
-    return s
-
-
-def _tokens(q: str) -> list[str]:
-    return [t for t in _norm(q).split(" ") if t]
-
-
-def _score_match(name_norm: str, id_norm: str, query_terms: list[str]) -> tuple[int, int, int]:
-    missing = 0
-    penalty = 0
-    for t in query_terms:
-        in_name = t in name_norm
-        in_id = t in id_norm
-        if not (in_name or in_id):
-            missing += 1
-            continue
-        if in_name:
-            penalty += 0 if name_norm.startswith(t) else 1
-        if in_id:
-            penalty += 0 if id_norm.startswith(t) else 1
-    return (missing, penalty, len(name_norm))
-
-
-@router.get("/search/stations", response_class=HTMLResponse)
-def search_stations_page(
-    request: Request,
-    q: str | None = Query(default=None, description="nombre y/o código"),
-    nucleus: str | None = Query(default=None, description="slug de núcleo"),
-    limit: int = Query(default=20, ge=1, le=100),
-):
-    rrepo = get_routes_repo()
-    srepo = get_stations_repo()
-
-    q = (q or "").strip()
-    terms = _tokens(q) if q else []
-    nuclei = (
-        [(nucleus or "").strip().lower()]
-        if nucleus
-        else [n["slug"] for n in (rrepo.list_nuclei() or [])]
-    )
-
-    results = []
-    if terms and nuclei:
-        for n in nuclei:
-            for st in srepo.list_by_nucleus(n):
-                sid = getattr(st, "station_id", "") or getattr(st, "id", "")
-                name = getattr(st, "name", "") or getattr(st, "station_name", "")
-                score = _score_match(_norm(name), _norm(sid), terms)
-                if score[0] == 0:
-                    results.append({"nucleus": n, "station_id": sid, "name": name, "score": score})
-        results.sort(key=lambda x: (x["score"], x["name"].lower(), x["station_id"]))
-        results = results[:limit]
-
-    return templates.TemplateResponse(
-        "search_stations.html",
-        {
-            "request": request,
-            "q": q,
-            "nucleus": nucleus or "",
-            "results": results,
+            "query": q or "",
+            "lat": lat,
+            "lon": lon,
         },
     )
 

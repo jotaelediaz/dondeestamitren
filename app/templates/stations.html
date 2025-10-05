@@ -1,15 +1,65 @@
 {%- extends "base-layout.html" %}
-{%- block app_content %}
-<h1>Lista de estaciones de {{ nucleus.name }}</h1>
 
-<ul class="stations">
-	{% for st in stations %}
-		<li>
-			<a href="/stations/{{ nucleus.slug }}/{{ st.station_id | urlencode }}">
-				{{ st.name }}
-			</a>
-			<small>({{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }})</small>
-		</li>
-	{% endfor %}
-</ul>
-{% endblock %}
+{%- block app_content %}
+	
+	{# ===== LISTA ===== #}
+	{% if not station %}
+		<h1>Estaciones de {{ nucleus.name }}</h1>
+		
+		<ul class="stations">
+			{% for st in stations %}
+				<li>
+					<a href="/stations/{{ nucleus.slug }}?station_id={{ st.station_id | urlencode }}">
+						{{ st.name }}
+					</a>
+					<small>
+						({{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }})
+					</small>
+				</li>
+			{% endfor %}
+		</ul>
+		
+		{# ===== DETALLE ===== #}
+	{% else %}
+		<h1>{{ station.name }}</h1>
+		<p><small>ID: {{ station.station_id }}</small></p>
+		
+		{% if serving_lines %}
+			<h2>Líneas que pasan por aquí</h2>
+			<ul>
+				{% for bucket in serving_lines %}
+					<li>
+						<strong>{{ bucket.line.short_name }}</strong>
+						<ul>
+							{% for r in bucket.routes %}
+								<li>
+									Ruta {{ r.route_short_name }} (dir {{ r.direction_id or '—' }})
+									— paradas aquí: {{ r.hits_count }}
+								</li>
+							{% endfor %}
+						</ul>
+					</li>
+				{% endfor %}
+			</ul>
+		{% else %}
+			<p class="text-muted">No hay líneas asociadas.</p>
+		{% endif %}
+		
+		{% if live_trains %}
+			<h2>Trenes en directo</h2>
+			<ul>
+				{% for t in live_trains %}
+					<li>
+						<a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}">{{ t.train_id }}</a>
+						— ruta {{ t.route_id }}
+					</li>
+				{% endfor %}
+			</ul>
+		{% else %}
+			<p class="text-muted">No hay trenes en directo ahora mismo.</p>
+		{% endif %}
+		
+		<p><a href="/stations/{{ nucleus.slug }}">← Volver al listado</a></p>
+	{% endif %}
+
+{%- endblock %}

@@ -2,19 +2,11 @@
 
 {%- block app_content %}
 	<div id="hero-home">
-		{% include "partials/header.html" %}
 		<img src="{{ request.url_for('static', path='img/mitren_neg.svg') }}" alt="Logo" style="height: 100px;"/>
-		<form action="/search/stations" method="get" class="search-box">
-			<input
-				type="search"
-				name="q"
-				placeholder="Buscar estación o código…"
-				value="{{ request.query_params.get('q','') }}"
-				aria-label="Buscar estaciones"
-				required>
-			{# Opcional: restringir a un núcleo concreto #}
-			{# <input type="hidden" name="nucleus" value="madrid"> #}
+		<form action="/stations/{{ nuclei[0].slug }}" method="get" class="search-box" data-nucleus="{{ nuclei[0].slug }}">
+			<input type="search" name="q" placeholder="Buscar estación o código…" aria-label="Buscar estaciones" required>
 			<button type="submit">Buscar</button>
+			<button type="button" id="nearby-btn">Estación más cercana</button>
 		</form>
 	</div>
 	<p class="text-muted">Última actualización API: {{ last_snapshot }}</p>
