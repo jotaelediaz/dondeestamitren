@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.routers.lines_api import router as lines_api
 from app.routers.live_api import router as live_api_router
+from app.routers.prefs_api import router as prefs_router
 from app.routers.web import router as web_router
 from app.routers.web_alpha import router as web_alpha_router
 from app.services.live_trains_cache import get_live_trains_cache
@@ -59,6 +60,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(lines_api)
 app.include_router(web_router)
 app.include_router(live_api_router)
+app.include_router(prefs_router)
 
 # --- Alpha endpoints ---
 alpha_app = FastAPI(docs_url=None, redoc_url=None)

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core.user_prefs import get_current_nucleus  # <- NUEVO
 from app.services.lines_index import get_index as get_lines_index
 from app.services.live_trains_cache import get_live_trains_cache
 from app.services.routes_repo import get_repo as get_routes_repo
@@ -69,6 +70,18 @@ def _filter_sort_stations(
     return stations[: max(1, int(limit or 50))]
 
 
+# --- Helper to add current nucleus to templates ---
+
+
+def render(request: Request, template_name: str, ctx: dict):
+    repo = get_routes_repo()
+    slug = get_current_nucleus(request) or ""
+    current = mk_nucleus(slug, repo) if slug else None
+    base = {"request": request, "current_nucleus": current}
+    base.update(ctx or {})
+    return templates.TemplateResponse(template_name, base)
+
+
 # --- HOME ---
 
 
@@ -79,10 +92,10 @@ def home(request: Request):
     cache = get_live_trains_cache()
     if not nuclei:
         return HTMLResponse("No nuclei configuration", status_code=500)
-    return templates.TemplateResponse(
+    return render(
+        request,
         "home.html",
         {
-            "request": request,
             "nuclei": nuclei,
             "last_snapshot": cache.last_snapshot_iso(),
         },
@@ -100,10 +113,10 @@ def routes(request: Request):
     if not routes_list:
         raise HTTPException(404, "No routes")
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "routes.html",
         {
-            "request": request,
             "routes": routes_list,
             "repo": repo,
             "nucleus": None,
@@ -120,10 +133,10 @@ def nucleus_routes(request: Request, nucleus: str):
     if not routes_list:
         raise HTTPException(404, f"'{nucleus}' without routes.")
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "routes.html",
         {
-            "request": request,
             "nucleus": mk_nucleus(nucleus, repo),
             "routes": routes_list,
             "repo": repo,
@@ -145,10 +158,10 @@ def route_page_by_id(
 
     trains = get_live_trains_cache().get_by_nucleus_and_route(nucleus, route_id)
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "route_detail.html",
         {
-            "request": request,
             "route": route,
             "nucleus": mk_nucleus(nucleus, repo),
             "trains": trains,
@@ -164,10 +177,10 @@ def route_page_by_id(
 def lines_list(request: Request):
     repo = get_routes_repo()
     lines = get_lines_index().list_lines()
-    return templates.TemplateResponse(
+    return render(
+        request,
         "lines.html",
         {
-            "request": request,
             "lines": lines,
             "nucleus": None,
             "repo": repo,
@@ -182,10 +195,10 @@ def lines_by_nucleus(request: Request, nucleus: str):
     lines = [
         ln for ln in get_lines_index().list_lines() if (ln.nucleus_id or "").lower() == nucleus
     ]
-    return templates.TemplateResponse(
+    return render(
+        request,
         "lines.html",
         {
-            "request": request,
             "lines": lines,
             "nucleus": mk_nucleus(nucleus, repo),
             "repo": repo,
@@ -211,10 +224,10 @@ def line_detail_page(request: Request, nucleus: str, line_id: str):
         t for t in live_trains.get_by_nucleus(nucleus) if getattr(t, "route_id", None) in route_ids
     ]
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "line_detail.html",
         {
-            "request": request,
             "nucleus": mk_nucleus(nucleus, repo),
             "line": line,
             "repo": repo,
@@ -243,10 +256,10 @@ def stops_for_route(
 
     stops = get_stops_repo().list_by_route(route_id, route.direction_id)
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "stops.html",
         {
-            "request": request,
             "nucleus": mk_nucleus(nucleus, repo),
             "route": route,
             "stops": stops,
@@ -281,10 +294,10 @@ def stop_detail(
     stop = sorted(candidates, key=lambda x: x.seq)[0]
     nearest = stops_repo.nearest_trains(route_id, stop, limit=6)
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "stop_detail.html",
         {
-            "request": request,
             "nucleus": mk_nucleus(nucleus, repo),
             "route": route,
             "stop": stop,
@@ -316,10 +329,10 @@ def stations_all_list(
 
     stations = _filter_sort_stations(all_stations, q=q, lat=lat, lon=lon, limit=limit)
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "stations.html",
         {
-            "request": request,
             "nucleus": None,
             "stations": stations,
             "repo": routes_repo,
@@ -377,10 +390,10 @@ def stations_list(
         live_all = get_live_trains_cache().get_by_nucleus(nucleus)
         live_trains = [t for t in live_all if getattr(t, "route_id", None) in route_ids_union]
 
-        return templates.TemplateResponse(
+        return render(
+            request,
             "station_detail.html",
             {
-                "request": request,
                 "nucleus": mk_nucleus(nucleus, routes_repo),
                 "station": st,
                 "serving_lines": serving_lines,
@@ -394,10 +407,10 @@ def stations_list(
     stations = stations_repo.list_by_nucleus(nucleus)
     stations = _filter_sort_stations(stations, q=q, lat=lat, lon=lon, limit=limit)
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "stations.html",
         {
-            "request": request,
             "nucleus": mk_nucleus(nucleus, routes_repo),
             "stations": stations,
             "repo": routes_repo,
@@ -422,10 +435,10 @@ def trains_list(request: Request):
     if not nuclei:
         return HTMLResponse("No nuclei configuration", status_code=500)
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "trains.html",
         {
-            "request": request,
             "trains": trains,
             "last_snapshot": cache.last_snapshot_iso(),
             "nuclei": nuclei,
@@ -444,10 +457,10 @@ def trains_by_nucleus(request: Request, nucleus: str):
         raise HTTPException(404, "That nucleus doesn't exist.")
     cache = get_live_trains_cache()
     trains = cache.get_by_nucleus(nucleus)
-    return templates.TemplateResponse(
+    return render(
+        request,
         "trains.html",
         {
-            "request": request,
             "trains": trains,
             "last_snapshot": cache.last_snapshot_iso(),
             "repo": repo,
@@ -465,10 +478,10 @@ def train_detail(request: Request, nucleus: str, train_id: str):
     if not train:
         raise HTTPException(404, f"Train {train_id} not found. :-(")
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "train_detail.html",
         {
-            "request": request,
             "train": train,
             "last_snapshot": cache.last_snapshot_iso(),
             "repo": repo,

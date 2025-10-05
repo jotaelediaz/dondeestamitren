@@ -98,6 +98,16 @@ p {
     box-sizing: border-box;
 }
 
+.app-block-navbar-padding {
+    padding-bottom: var(--bottom-nav-height) !important;
+}
+
+main {
+    display: flex;
+    flex-direction: column;
+    min-height: 100svh;
+}
+
 /* -- Topbar navbar -- */
 
 #app-topbar {
@@ -244,7 +254,7 @@ p {
 #hero-home {
     display: flex;
     flex-direction: column;
-    padding: 0 calc(var(--app-margin) * 1.5) calc(var(--app-margin) * 1.5);
+    padding: 0 calc(var(--app-margin) * 1) calc(var(--app-margin) * 1.5);
     background: var(--jotaele-dark);
 }
 
@@ -267,6 +277,21 @@ p {
 .hero-logo img {
     width: 100%;
     height: auto;
+}
+
+.main-content {
+    flex: 1 1 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.welcome-message {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    justify-content: center;
+    flex-direction: column;
 }
 
 .welcome-message .txt-title {
@@ -381,3 +406,125 @@ p {
     background: var(--jotaele-button-grey-hover);
 }
 
+.nuclei-picker {
+    background: var(--jotaele-background-accent);
+    padding: var(--app-margin);
+    margin-bottom: var(--app-margin);
+    border-radius: 15px;
+    position: relative;
+}
+
+.nuclei-picker .current-nuclei {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.nuclei-picker .current-nuclei .current-nucleus-label,
+.nuclei-picker .current-nuclei .current-nucleus-label strong {
+    font-size: 1.1rem;
+    color: var(--jotaele-black);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.nucleus-menu {
+    position: absolute;
+    z-index: 70;
+    right: 0;
+    bottom: 0;
+    margin-top: .5rem;
+    min-width: 260px;
+    max-height: 60vh;
+    overflow: auto;
+    backdrop-filter: blur(14px);
+    background: var(--jotaele-white);
+    border-radius: 15px;
+    box-shadow: 1px 1px 4px #0000003b;
+    padding: .5rem;
+    animation: np-fade-in .14s ease-out;
+}
+
+@keyframes np-fade-in { from { opacity: 0; transform: translateY(-4px); } }
+
+.nucleus-search {
+    padding: .25rem .25rem .5rem;
+}
+
+.nucleus-search input[type="search"] {
+    width: 100%;
+    padding: .55rem .7rem;
+    border: 1px solid rgba(0,0,0,.12);
+    border-radius: 9px;
+    background: var(--jotaele-white);
+    color: var(--jotaele-black);
+    font-size: 1.1rem;
+    font-family: 'Rubik', sans-serif;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.nucleus-search input[type="search"]:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--jotaele-background-accent) 55%, #000 0%);
+}
+
+.nucleus-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.nucleus-item {
+    width: 100%;
+    text-align: left;
+    padding: .6rem .7rem;
+    border-radius: 10px;
+    border: 0;
+    background: transparent;
+    color: var(--jotaele-black);
+    font-size: 1.1rem;
+    font-family: 'Rubik', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: background .12s ease, transform .06s ease, color .12s ease;
+}
+
+.nucleus-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nucleus-actions {
+    margin-top: .5rem;
+    padding-top: .5rem;
+    border-top: 1px solid rgba(0,0,0,.06);
+    display: flex;
+    justify-content: flex-end;
+    gap: .5rem;
+}
+
+.nucleus-actions .link-like {
+    background: none;
+    border: 0;
+    color: var(--jotaele-black);
+    padding: .35rem .55rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background .12s ease, transform .06s ease;
+}
+
+.nucleus-dropdown > summary {
+    list-style: none;
+    content: "";
+    display: flex;
+    align-items: center;
+}

@@ -1,5 +1,6 @@
 {%- extends "base-layout.html" %}
 {%- from "partials/search_stations.html" import add_search_stations_form with context %}
+{%- from "partials/nucleus_picker.html" import nucleus_picker with context %}
 
 {%- block app_content %}
 	<section id="hero-home">
@@ -16,33 +17,18 @@
 		</header>
 		{{ add_search_stations_form(nuclei[0].slug) }}
 	</section>
-	<section id="home-main" class="app-block-padding app-block-vertical-padding">
+	<section id="home-main" class="main-content app-block-padding app-block-vertical-padding app-block-navbar-padding">
 		<div class="welcome-message">
 			<div class="welcome-message-title">
 			<span class="h2 txt-title">¡Hola! 👋</span>
 			</div>
 			<p class="txt-paragraph">Esta herramienta te permite consultar las <strong>líneas de Cercanías</strong> y seguir el movimiento de los <strong>trenes en tiempo real</strong>.</p>
 		</div>
-	</section>
-	<hr/>
-	<section id="nuclei-section" class="app-block-padding">
-		<div class="current-nuclei">
-			<span><strong>Núcleo actual:</strong> Madrid</span>
-			<a class="btn btn-sm btn-secondary" href="#">
-				Cambiar<i class="material-symbols-rounded">expand_more</i>
-			</a>
+		
+		<div id="nuclei-picker">
+			{{ nucleus_picker(current_nucleus, nuclei) }}
 		</div>
 	</section>
 	<hr/>
-	<h2>Núcleos de Cercanías</h2>
-	<ul>
-		{% for n in nuclei %}
-			<li>
-				<strong>{{ n.name }}:</strong>
-				<a href="/lines/{{ n.slug }}">Líneas</a> |
-				<a href="/stations/{{ n.slug }}">Estaciones</a> |
-				<a href="/trains/{{ n.slug }}">Trenes en directo</a>
-			</li>
-		{% endfor %}
-	</ul>
+
 {%- endblock %}

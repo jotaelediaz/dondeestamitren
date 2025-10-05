@@ -1,18 +1,31 @@
 <nav id="bottom-nav" role="navigation" aria-label="Menú">
 	<div class="nav-inner">
 		<div class="navbar-inner-wrapper">
-		<a href="{{ request.url_for('lines_list') }}" class="navbar-item {% if request.url.path.startswith('/lines') %}item-active{% endif %}">
-			<i class="navbar-icon material-symbols-rounded">route</i>
-			<span class="navbar-label">Líneas</span>
-		</a>
-		<a href="{{ request.url_for('stations_list', nucleus='madrid') }}" class="navbar-item {% if request.url.path.startswith('/stations') %}item-active{% endif %}">
-			<i class="navbar-icon material-symbols-rounded">nest_tag</i>
-			<span class="navbar-label">Estaciones</span>
-		</a>
-		<a href="{{ request.url_for('trains_list') }}" class="navbar-item {% if request.url.path.startswith('/trains') %}item-active{% endif %}">
-			<i class="navbar-icon material-symbols-rounded">train</i>
-			<span class="navbar-label">Trenes</span>
-		</a>
+			{% set ns = current_nucleus.slug if current_nucleus else None %}
+			
+			{% set lines_href = request.url_for('lines_by_nucleus', nucleus=ns) if ns else request.url_for('lines_list') %}
+			<a href="{{ lines_href }}"
+			   class="navbar-item {% if request.url.path.startswith('/lines') %}item-active{% endif %}"
+			   {% if request.url.path.startswith('/lines') %}aria-current="page"{% endif %}>
+				<i class="navbar-icon material-symbols-rounded">route</i>
+				<span class="navbar-label">Líneas</span>
+			</a>
+			
+			{% set stations_href = request.url_for('stations_list', nucleus=ns) if ns else request.url_for('stations_all_list') %}
+			<a href="{{ stations_href }}"
+			   class="navbar-item {% if request.url.path.startswith('/stations') %}item-active{% endif %}"
+			   {% if request.url.path.startswith('/stations') %}aria-current="page"{% endif %}>
+				<i class="navbar-icon material-symbols-rounded">nest_tag</i>
+				<span class="navbar-label">Estaciones</span>
+			</a>
+			
+			{% set trains_href = request.url_for('trains_by_nucleus', nucleus=ns) if ns else request.url_for('trains_list') %}
+			<a href="{{ trains_href }}"
+			   class="navbar-item {% if request.url.path.startswith('/trains') %}item-active{% endif %}"
+			   {% if request.url.path.startswith('/trains') %}aria-current="page"{% endif %}>
+				<i class="navbar-icon material-symbols-rounded">train</i>
+				<span class="navbar-label">Trenes</span>
+			</a>
 		</div>
 	</div>
 </nav>
