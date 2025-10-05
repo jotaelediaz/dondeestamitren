@@ -72,7 +72,7 @@ p {
     font-weight: 300;
     color: var(--jotaele-black);
     line-height: 1.3em;
-    font-size: 1.3rem;
+    font-size: 1.2rem;
 }
 
 .material-symbols-rounded {
@@ -244,8 +244,17 @@ p {
 #hero-home {
     display: flex;
     flex-direction: column;
-    padding: calc(var(--app-margin) * 1.5) calc(var(--app-margin) * 1.5);
+    padding: 0 calc(var(--app-margin) * 1.5) calc(var(--app-margin) * 1.5);
     background: var(--jotaele-dark);
+}
+
+.hero-home-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .hero-logo {

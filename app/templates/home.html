@@ -3,8 +3,16 @@
 
 {%- block app_content %}
 	<section id="hero-home">
-		<header class="hero-logo">
-			<img src="{{ request.url_for('static', path='img/mitren_neg.svg') }}" alt="¿Dónde está mi tren?"/>
+		<header class="hero-home-header">
+			<div class="hero-logo">
+				<img src="{{ request.url_for('static', path='img/mitren_neg.svg') }}" alt="¿Dónde está mi tren?"/>
+			</div>
+			<div class="by-jotaele">
+				<a href="https://www.jotaele.me" target="_blank">
+					<span class="txt-paragraph">Operado por:</span>
+					<img src="{{ request.url_for('static', path='img/jotaele.svg') }}" alt="JotaEle" />
+				</a>
+			</div>
 		</header>
 		{{ add_search_stations_form(nuclei[0].slug) }}
 	</section>
@@ -12,14 +20,8 @@
 		<div class="welcome-message">
 			<div class="welcome-message-title">
 			<span class="h2 txt-title">¡Hola! 👋</span>
-				<div class="by-jotaele">
-					<a href="https://www.jotaele.me" target="_blank">
-						<span class="txt-paragraph">Operado por:</span>
-						<img src="{{ request.url_for('static', path='img/jotaele.svg') }}" alt="JotaEle" />
-					</a>
-				</div>
 			</div>
-			<p class="txt-paragraph">Bienvenido a <strong>Dónde está mi tren</strong>: una herramienta que te permite consultar las <strong>líneas de Cercanías</strong> y seguir los <strong>trenes en tiempo real</strong>.</p>
+			<p class="txt-paragraph">Esta herramienta te permite consultar las <strong>líneas de Cercanías</strong> y seguir el movimiento de los <strong>trenes en tiempo real</strong>.</p>
 		</div>
 	</section>
 	<hr/>
