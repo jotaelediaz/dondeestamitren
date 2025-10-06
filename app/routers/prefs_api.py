@@ -2,7 +2,7 @@
 import unicodedata
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import RedirectResponse, Response
 
 from app.core.user_prefs import clear_cookie, set_cookie
 from app.services.routes_repo import get_repo as get_routes_repo
@@ -54,10 +54,7 @@ async def set_nucleus(request: Request):
     valid_slugs = {_norm(n.get("slug") or ""): (n.get("slug") or "") for n in nuclei}
     valid_names = {_norm(n.get("name") or ""): (n.get("slug") or "") for n in nuclei}
 
-    slug = valid_slugs.get(v)
-
-    if not slug:
-        slug = valid_names.get(v)
+    slug = valid_slugs.get(v) or valid_names.get(v)
 
     if not slug:
         print(
@@ -67,15 +64,20 @@ async def set_nucleus(request: Request):
         )
         raise HTTPException(status_code=400, detail="Núcleo inválido")
 
-    resp = JSONResponse(
-        {"ok": True, "slug": slug, "label": (repo.nucleus_name(slug) or slug.capitalize())}
-    )
+    resp = Response(status_code=204)
     set_cookie(resp, slug)
+    resp.headers["HX-Refresh"] = "true"  # HTMX to reload current page
     return resp
 
 
 @router.delete("/nucleus")
 async def unset_nucleus():
-    resp = JSONResponse({"ok": True})
+    resp = Response(status_code=204)
     clear_cookie(resp)
+    resp.headers["HX-Refresh"] = "true"
     return resp
+
+
+@router.get("/nucleus")
+async def nucleus_get_redirect():
+    return RedirectResponse(url="/", status_code=303)

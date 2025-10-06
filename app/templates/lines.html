@@ -1,29 +1,46 @@
 {%- extends "base-layout.html" %}
 {%- block app_content %}
-<h1>Líneas {{ nucleus.name }}</h1>
+	
+	<div class="subsection-topbar">
+		<search id="stations-search" class="app-block-padding app-block-vertical-padding">
+			{# TODO FILTRO DE LINEAS #}
+		</search>
+	</div>
+	
+	<section id="line-list" class="line-list app-block-padding app-main-content" aria-label="Listado de líneas {{ 'de ' + nucleus.name if nucleus }}">
+		
+		{% if not lines %}
+			<div class="app-block-padding" style="opacity:.7;padding-top:1rem">
+				<p>No hay líneas que coincidan con los criterios introducidos.</p>
+			</div>
+		{% else %}
+			<ul class="station-list-ul chip-list">
+				{% for ln in lines | natural_sort('short_name') %}
+					{% set nu  = (ln.nucleus_id or '')|lower %}
+					{% set lid = ln.line_id or ln.id %}
+					{% set href = '/lines/' ~ nu ~ '/' ~ lid %}
+					
+					<li class="line-card chip-card" style="--line-color: {{ ln.color_bg }};">
+						<a class="line-link chip-link" href="{{ href }}">
+							<div class="line-main chip-main">
+								<div class="line-chip-icon chip-icon">
+									<i class="material-symbols-rounded" aria-hidden="true">directions_subway</i>
+								</div>
+								<div class="line-chip-content chip-content">
+									<h3 class="line-name chip-name">{{ ln.short_name }}</h3>
+									<div class="line-meta chip-subtitle" id="line-{{ lid }}-meta">
+										{{ repo.nucleus_name(ln.nucleus_id) }}
+									</div>
+								</div>
+								<div class="station-chip-more chip-more">
+									<i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i>
+								</div>
+							</div>
+						</a>
+					</li>
+				{% endfor %}
 
-<table border="1" cellpadding="6" cellspacing="0">
-	<thead>
-	<tr>
-		<th>Line ID (Generada)</th>
-		<th>Nombre corto</th>
-		<th>Núcleo</th>
-		<th>Direcciones</th>
-	</tr>
-	</thead>
-	<tbody>
-	{% for ln in lines %}
-		<tr>
-			<td>
-				<a href="/lines/{{ ln.nucleus_id }}/{{ ln.line_id }}">{{ ln.line_id }}</a>
-			</td>
-			<td>{{ ln.short_name }}</td>
-			<td>{{ repo.nucleus_name(ln.nucleus_id) }}</td>
-			<td>{{ ln.directions|length }}</td>
-		</tr>
-	{% endfor %}
-	</tbody>
-</table>
-
-<p>➜ <a href="/routes/{{ nucleus.slug }}">Ver rutas (raw data)</a></p>
-{% endblock %}
+			</ul>
+		{% endif %}
+	</section>
+{%- endblock %}

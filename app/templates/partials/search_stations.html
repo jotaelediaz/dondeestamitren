@@ -1,4 +1,4 @@
-{%- macro add_search_stations_form(nucleus_slug) -%}
+{%- macro search_stations_form(nucleus_slug) -%}
 	<form action="/stations/{{ nucleus_slug }}" method="get" class="search-station-box" data-nucleus="{{ nucleus_slug }}">
 		<div class="search-box-wrapper">
 			<input class="search-input" type="search" name="q" placeholder="Buscar estación…" aria-label="Buscar estaciones" required>

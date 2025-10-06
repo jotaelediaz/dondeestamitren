@@ -11,8 +11,8 @@
 	  <link rel="preload" href="{{ request.url_for('static', path='fonts/MaterialSymbolsRoundedVF.ttf') }}" as="font" type="font/ttf" crossorigin>
 	  <link rel="stylesheet" href="{{ request.url_for('static', path='css/mitren-common-style.css') }}">
   </head>
-  <body data-nucleus="{{ current_nucleus or '' }}">
-    <main id="main" class="tft-screen-size container-main">
+  <body data-nucleus="{{ current_nucleus or '' }}" hx-boost="true" hx-target="#main" hx-select="#main" hx-push-url="true">
+    <main id="main" class="tft-screen-size container-main" hx-swap="outerHTML transition:true">
 	    {%- block topbar -%}
 		    {% include "partials/topbar.html" %}
 	    {%- endblock -%}

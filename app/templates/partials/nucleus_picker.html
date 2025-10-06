@@ -1,9 +1,11 @@
 {% macro nucleus_picker(current_nucleus, nuclei) -%}
-	<div id="nuclei-section" class="nuclei-picker">
+	<div id="nuclei-section" class="nuclei-picker" hx-boost="false">
 		<div class="current-nuclei">
 			{% set cur = current_nucleus %}
 			<span class="current-nucleus-label">
-				<strong><i class="material-symbols-rounded">target</i> Mi núcleo:</strong> {{ (cur.name if cur else 'Todos') }}</span>
+        <strong><i class="material-symbols-rounded">target</i> Mi núcleo:</strong>
+        {{ (cur.name if cur else 'Todos') }}
+      </span>
 			
 			<details class="nucleus-dropdown">
 				<summary class="btn btn-sm btn-secondary">
@@ -13,11 +15,11 @@
 				<div class="nucleus-menu">
 					<div class="nucleus-search">
 						<input name="Buscar núcleo" type="search" placeholder="Buscar núcleo…" oninput="
-            const q=this.value.trim().toLowerCase();
-            for(const it of this.closest('.nucleus-menu').querySelectorAll('[data-nucleus-item]')){
-              const txt=it.getAttribute('data-label');
-              it.hidden = q && !txt.includes(q);
-            }">
+              const q=this.value.trim().toLowerCase();
+              for(const it of this.closest('.nucleus-menu').querySelectorAll('[data-nucleus-item]')){
+                const txt=it.getAttribute('data-label');
+                it.hidden = q && !txt.includes(q);
+              }">
 					</div>
 					
 					<ul class="nucleus-list">
@@ -26,28 +28,29 @@
 							{% set name = (n.name or n['name']) %}
 							<li data-nucleus-item data-label="{{ (name or slug)|lower }}">
 								<button
-									class="nucleus-item"
-									hx-post="/prefs/nucleus"
-									hx-vals='{"slug":"{{ slug }}"}'
-									hx-swap="none"
-									hx-on:htmx:after-request="location.reload()"
-									aria-pressed="{{ 'true' if current_nucleus and current_nucleus.slug==slug else 'false' }}"
+									type="button"
+								class="nucleus-item"
+								hx-post="/prefs/nucleus"
+								hx-vals='{"slug":"{{ slug }}"}'
+								hx-swap="none"
+								aria-pressed="{{ 'true' if current_nucleus and current_nucleus.slug==slug else 'false' }}"
 								>
-									<span class="nucleus-name">{{ name }}</span>
-									{% if current_nucleus and current_nucleus.slug == slug %}
-										<i class="material-symbols-rounded" aria-hidden="true">check</i>
-									{% endif %}
+								<span class="nucleus-name">{{ name }}</span>
+								{% if current_nucleus and current_nucleus.slug == slug %}
+									<i class="material-symbols-rounded" aria-hidden="true">check</i>
+								{% endif %}
 								</button>
 							</li>
 						{% endfor %}
 					</ul>
 					
 					<div class="nucleus-actions">
-						<button class="link-like"
-						        hx-delete="/prefs/nucleus"
-						        hx-swap="none"
-						        hx-on:htmx:after-request="location.reload()">
-							Quitar selección
+						<button
+							type="button"
+						class="link-like"
+						hx-delete="/prefs/nucleus"
+						hx-swap="none">
+						Quitar selección
 						</button>
 					</div>
 				</div>

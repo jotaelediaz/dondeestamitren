@@ -1,5 +1,5 @@
 {%- extends "base-layout.html" %}
-{%- from "partials/search_stations.html" import add_search_stations_form with context %}
+{%- from "partials/search_stations.html" import search_stations_form with context %}
 {%- from "partials/nucleus_picker.html" import nucleus_picker with context %}
 
 {%- block app_content %}
@@ -8,27 +8,20 @@
 			<div class="hero-logo">
 				<img src="{{ request.url_for('static', path='img/mitren_neg.svg') }}" alt="¿Dónde está mi tren?"/>
 			</div>
-			<div class="by-jotaele">
-				<a href="https://www.jotaele.me" target="_blank">
-					<span class="txt-paragraph">Operado por:</span>
-					<img src="{{ request.url_for('static', path='img/jotaele.svg') }}" alt="JotaEle" />
-				</a>
-			</div>
 		</header>
-		{{ add_search_stations_form(nuclei[0].slug) }}
+		{{ search_stations_form(nuclei[0].slug) }}
 	</section>
-	<section id="home-main" class="main-content app-block-padding app-block-vertical-padding app-block-navbar-padding">
+	<section id="home-main" class="app-main-content app-block-padding app-block-vertical-padding app-block-navbar-padding">
 		<div class="welcome-message">
 			<div class="welcome-message-title">
 			<span class="h2 txt-title">¡Hola! 👋</span>
 			</div>
-			<p class="txt-paragraph">Esta herramienta te permite consultar las <strong>líneas de Cercanías</strong> y seguir el movimiento de los <strong>trenes en tiempo real</strong>.</p>
+			<p class="txt-paragraph">Esta herramienta te permite consultar las <strong>líneas de Cercanías</strong> y seguir el movimiento de los <strong>trenes en tiempo real</strong>. Selecciona <strong>tu núcleo</strong> para comenzar.</p>
 		</div>
 		
 		<div id="nuclei-picker">
 			{{ nucleus_picker(current_nucleus, nuclei) }}
 		</div>
 	</section>
-	<hr/>
 
 {%- endblock %}

@@ -1,25 +1,19 @@
 # app/routers/web.py
 import unicodedata
+from collections import defaultdict
 from math import atan2, cos, radians, sin, sqrt
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
-from app.core.user_prefs import get_current_nucleus  # <- NUEVO
 from app.services.lines_index import get_index as get_lines_index
 from app.services.live_trains_cache import get_live_trains_cache
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
+from app.viewkit import mk_nucleus, render
 
 router = APIRouter(tags=["web"])
-templates = Jinja2Templates(directory="app/templates")
-
-
-def mk_nucleus(slug: str, repo):
-    s = (slug or "").strip().lower()
-    return {"slug": s, "name": repo.nucleus_name(s) or (s.capitalize() if s else "")}
 
 
 def _norm(s: str) -> str:
@@ -31,6 +25,27 @@ def _matches_station(qnorm: str, st) -> bool:
     return (qnorm in _norm(getattr(st, "name", ""))) or (
         qnorm in _norm(getattr(st, "station_id", ""))
     )
+
+
+def _attach_lines_to_stations_for_nucleus(
+    stations: list, nucleus_slug: str, stations_repo, max_lines: int = 6
+):
+    lines_map = stations_repo.get_lines_map_for_nucleus(nucleus_slug, max_lines=max_lines)
+    for st in stations:
+        st.lines = lines_map.get(st.station_id, [])
+
+
+def _attach_lines_to_mixed_nuclei(stations: list, stations_repo, max_lines: int = 6):
+    buckets: dict[str, list] = defaultdict(list)
+    for st in stations:
+        slug = (getattr(st, "nucleus_id", "") or "").strip().lower()
+        if slug:
+            buckets[slug].append(st)
+
+    for slug, items in buckets.items():
+        lines_map = stations_repo.get_lines_map_for_nucleus(slug, max_lines=max_lines)
+        for st in items:
+            st.lines = lines_map.get(st.station_id, [])
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -68,18 +83,6 @@ def _filter_sort_stations(
         )
 
     return stations[: max(1, int(limit or 50))]
-
-
-# --- Helper to add current nucleus to templates ---
-
-
-def render(request: Request, template_name: str, ctx: dict):
-    repo = get_routes_repo()
-    slug = get_current_nucleus(request) or ""
-    current = mk_nucleus(slug, repo) if slug else None
-    base = {"request": request, "current_nucleus": current}
-    base.update(ctx or {})
-    return templates.TemplateResponse(template_name, base)
 
 
 # --- HOME ---
@@ -137,7 +140,7 @@ def nucleus_routes(request: Request, nucleus: str):
         request,
         "routes.html",
         {
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "routes": routes_list,
             "repo": repo,
         },
@@ -163,7 +166,7 @@ def route_page_by_id(
         "route_detail.html",
         {
             "route": route,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "trains": trains,
             "repo": repo,
         },
@@ -200,7 +203,7 @@ def lines_by_nucleus(request: Request, nucleus: str):
         "lines.html",
         {
             "lines": lines,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "repo": repo,
         },
     )
@@ -228,7 +231,7 @@ def line_detail_page(request: Request, nucleus: str, line_id: str):
         request,
         "line_detail.html",
         {
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "line": line,
             "repo": repo,
             "trains": trains,
@@ -260,7 +263,7 @@ def stops_for_route(
         request,
         "stops.html",
         {
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "route": route,
             "stops": stops,
         },
@@ -298,7 +301,7 @@ def stop_detail(
         request,
         "stop_detail.html",
         {
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "route": route,
             "stop": stop,
             "nearest_trains": nearest,
@@ -322,28 +325,36 @@ def stations_all_list(
     stations_repo = get_stations_repo()
 
     all_stations: list = []
-    for n in routes_repo.list_nuclei():
+    nuclei = routes_repo.list_nuclei()
+    slugs = []
+    for n in nuclei:
         slug = (n.get("slug") or "").strip().lower()
         if slug:
+            slugs.append(slug)
             all_stations.extend(stations_repo.list_by_nucleus(slug))
 
     stations = _filter_sort_stations(all_stations, q=q, lat=lat, lon=lon, limit=limit)
+
+    station_lines_lookup: dict[str, dict[str, list]] = {}
+    for slug in slugs:
+        station_lines_lookup[slug] = stations_repo.get_lines_map_for_nucleus(slug, max_lines=6)
 
     return render(
         request,
         "stations.html",
         {
             "nucleus": None,
+            "nuclei": nuclei,
             "stations": stations,
             "repo": routes_repo,
             "query": q or "",
             "lat": lat,
             "lon": lon,
+            "station_lines_lookup": station_lines_lookup,
         },
     )
 
 
-@router.get("/stations/{nucleus}", response_class=HTMLResponse)
 @router.get("/stations/{nucleus}", response_class=HTMLResponse)
 def stations_list(
     request: Request,
@@ -358,6 +369,7 @@ def stations_list(
     stations_repo = get_stations_repo()
     idx = get_lines_index()
     nucleus = (nucleus or "").lower()
+    nuclei = routes_repo.list_nuclei()
 
     # --- Details ---
     if station_id:
@@ -394,7 +406,8 @@ def stations_list(
             request,
             "station_detail.html",
             {
-                "nucleus": mk_nucleus(nucleus, routes_repo),
+                "nucleus": mk_nucleus(nucleus),
+                "nuclei": nuclei,
                 "station": st,
                 "serving_lines": serving_lines,
                 "live_trains": live_trains,
@@ -407,16 +420,20 @@ def stations_list(
     stations = stations_repo.list_by_nucleus(nucleus)
     stations = _filter_sort_stations(stations, q=q, lat=lat, lon=lon, limit=limit)
 
+    station_lines_map = stations_repo.get_lines_map_for_nucleus(nucleus, max_lines=6)
+
     return render(
         request,
         "stations.html",
         {
-            "nucleus": mk_nucleus(nucleus, routes_repo),
+            "nucleus": mk_nucleus(nucleus),
+            "nuclei": nuclei,
             "stations": stations,
             "repo": routes_repo,
             "query": q or "",
             "lat": lat,
             "lon": lon,
+            "station_lines_map": station_lines_map,
         },
     )
 
@@ -464,7 +481,7 @@ def trains_by_nucleus(request: Request, nucleus: str):
             "trains": trains,
             "last_snapshot": cache.last_snapshot_iso(),
             "repo": repo,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
         },
     )
 
@@ -485,6 +502,6 @@ def train_detail(request: Request, nucleus: str, train_id: str):
             "train": train,
             "last_snapshot": cache.last_snapshot_iso(),
             "repo": repo,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
         },
     )

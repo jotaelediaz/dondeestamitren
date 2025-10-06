@@ -1,65 +1,52 @@
 {%- extends "base-layout.html" %}
-
+{%- from "partials/search_stations.html" import search_stations_form with context %}
 {%- block app_content %}
 	
-	{# ===== LISTA ===== #}
-	{% if not station %}
-		<h1>Estaciones de {{ nucleus.name }}</h1>
-		
-		<ul class="stations">
-			{% for st in stations %}
-				<li>
-					<a href="/stations/{{ nucleus.slug }}?station_id={{ st.station_id | urlencode }}">
-						{{ st.name }}
-					</a>
-					<small>
-						({{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }})
-					</small>
-				</li>
-			{% endfor %}
-		</ul>
-		
-		{# ===== DETALLE ===== #}
-	{% else %}
-		<h1>{{ station.name }}</h1>
-		<p><small>ID: {{ station.station_id }}</small></p>
-		
-		{% if serving_lines %}
-			<h2>Líneas que pasan por aquí</h2>
-			<ul>
-				{% for bucket in serving_lines %}
-					<li>
-						<strong>{{ bucket.line.short_name }}</strong>
-						<ul>
-							{% for r in bucket.routes %}
-								<li>
-									Ruta {{ r.route_short_name }} (dir {{ r.direction_id or '—' }})
-									— paradas aquí: {{ r.hits_count }}
-								</li>
-							{% endfor %}
-						</ul>
+	{% set base_url = url_for('stations_list', nucleus=nucleus.slug) if nucleus else url_for('stations_all_list') %}
+	
+	<div class="subsection-topbar">
+		<search id="stations-search" class="app-block-padding app-block-vertical-padding">
+			{{ search_stations_form(nucleus_slug) }}
+		</search>
+	</div>
+	
+	<section id="stations-list" class="station-list app-block-padding app-main-content" aria-label="Listado de estaciones {{ 'de ' + nucleus.name if nucleus }}">
+		{% if not stations %}
+			<div class="app-block-padding" style="opacity:.7;padding-top:1rem">
+				<p>No hay estaciones que coincidan con los criterios introducidos.</p>
+			</div>
+		{% else %}
+			<ul class="station-list-ul chip-list">
+				{% for st in stations %}
+					{% set nu = (nucleus.slug if nucleus else (st.nucleus_id or ''))|lower %}
+					{% if nu %}{% set href = url_for('stations_list', nucleus=nu) ~ ('?station_id=' ~ st.station_id) %}
+					{% else %}{% set href = url_for('stations_list', nucleus=(st.nucleus_id or '')) ~ ('?station_id=' ~ st.station_id) %}{% endif %}
+					
+					{% set has_cercanias_line = false %}
+					{% if station_lines_map is defined and station_lines_map %}
+						{% set has_cercanias_line = ((station_lines_map.get(st.station_id) | default([])) | length) > 0 %}
+						{% elif station_lines_lookup is defined and station_lines_lookup %}
+						{% set has_cercanias_line = ((station_lines_lookup.get(st.nucleus_id, {}).get(st.station_id) | default([])) | length) > 0 %}
+					{% endif %}
+					
+					<li class="station-card chip-card">
+						<a class="station-link chip-link" href="{{ href }}">
+							<div class="station-main chip-main">
+								<div class="station-chip-icon chip-icon"><i class="material-symbols-rounded" aria-hidden="true">directions_subway</i></div>
+								<div clasS="station-chip-content chip-content">
+										<h3 class="station-name chip-name">{{ st.name }}</h3>
+										<div class="station-meta chip-subtitle">
+											{% if not nucleus and st.nucleus_id %}<span class="station-nucleus">{{ (nuclei | selectattr('slug', 'equalto', st.nucleus_id) | first).name }}</span>{% endif %}
+											{% if has_cercanias_line %}<span class="station-lines"><img alt="Cercanías" src="/static/img/icon-cercanias.svg"></span>{% endif %}
+										</div>
+								</div>
+								<div class="station-chip-more chip-more"><i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i></div>
+							</div>
+						</a>
 					</li>
 				{% endfor %}
 			</ul>
-		{% else %}
-			<p class="text-muted">No hay líneas asociadas.</p>
 		{% endif %}
-		
-		{% if live_trains %}
-			<h2>Trenes en directo</h2>
-			<ul>
-				{% for t in live_trains %}
-					<li>
-						<a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}">{{ t.train_id }}</a>
-						— ruta {{ t.route_id }}
-					</li>
-				{% endfor %}
-			</ul>
-		{% else %}
-			<p class="text-muted">No hay trenes en directo ahora mismo.</p>
-		{% endif %}
-		
-		<p><a href="/stations/{{ nucleus.slug }}">← Volver al listado</a></p>
-	{% endif %}
+	</section>
 
 {%- endblock %}
