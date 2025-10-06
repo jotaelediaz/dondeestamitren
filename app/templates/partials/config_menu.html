@@ -1,0 +1,38 @@
+<dialog id="app-sheet" class="sheet" aria-labelledby="sheet-title">
+	<aside class="sheet-panel" role="document">
+		<header class="sheet-header">
+			<h2 id="sheet-title">Menú</h2>
+			<button class="sheet-close nude-icon" type="button" data-close-sheet aria-label="Cerrar">
+				<i class="material-symbols-rounded">close</i>
+			</button>
+		</header>
+		
+		<nav class="sheet-nav" aria-label="Opciones">
+			<a class="sheet-item" hx-boost="true" href="{{ url_for('home') }}">
+				<i class="material-symbols-rounded" aria-hidden="true">home</i><span>Inicio</span>
+			</a>
+			<a class="sheet-item" hx-boost="true" href="{{ url_for('lines_list') }}">
+				<i class="material-symbols-rounded" aria-hidden="true">route</i><span>Líneas</span>
+			</a>
+			<a class="sheet-item" hx-boost="true" href="{{ url_for('stations_all_list') }}">
+				<i class="material-symbols-rounded" aria-hidden="true">subway_walk</i><span>Estaciones</span>
+			</a>
+			<a class="sheet-item" hx-boost="true" href="{{ url_for('trains_list') }}">
+				<i class="material-symbols-rounded" aria-hidden="true">train</i><span>Trenes</span>
+			</a>
+			
+			<hr>
+			
+			<!-- Acción útil: limpiar núcleo seleccionado -->
+			<button class="sheet-item" type="button"
+			        hx-delete="/prefs/nucleus" hx-swap="none"
+			        hx-on:htmx:after-request="document.getElementById('app-sheet')?.close(); location.reload()">
+				<i class="material-symbols-rounded" aria-hidden="true">target</i><span>Quitar núcleo</span>
+			</button>
+			
+			<a class="sheet-item" href="/about">
+				<i class="material-symbols-rounded" aria-hidden="true">info</i><span>Acerca de</span>
+			</a>
+		</nav>
+	</aside>
+</dialog>

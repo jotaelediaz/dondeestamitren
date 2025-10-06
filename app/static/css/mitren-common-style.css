@@ -688,3 +688,97 @@ ul.chip-list {
 .line-chip-icon.chip-icon {
     background: var(--line-color, var(--jotaele-button-grey))
 }
+
+
+
+/* -- Config menu -- */
+
+.sheet {
+    width: auto;
+    max-width: none;
+    height: 100dvh;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    inset: 0;
+    z-index: 1001;
+}
+
+.sheet::backdrop {
+    background: rgba(0,0,0,.25);
+    opacity: 0;
+    transition: opacity 180ms var(--vt-ease);
+}
+
+.sheet[open]::backdrop { opacity: 1; }
+
+.sheet-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: min(420px, 92vw);
+    height: 100dvh;
+    background: var(--jotaele-white);
+    box-shadow: -10px 0 30px rgba(0,0,0,.15);
+    border-radius: 16px 0 0 16px;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 220ms var(--vt-ease);
+}
+
+.sheet[open] .sheet-panel { transform: translateX(0); }
+
+.sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(var(--app-margin) * 1.2);
+    border-bottom: 1px solid var(--jotaele-background-accent);
+}
+
+.sheet-header h2 {
+    font-family: Sora, sans-serif;
+    font-size: 1.2rem;
+    margin: 0;
+}
+
+.sheet-close {
+    background: none;
+    border: 0;
+    width: 40px; height: 40px;
+    display: grid; place-items: center;
+    border-radius: 999px;
+}
+
+.sheet-nav {
+    display: flex;
+    flex-direction: column;
+    padding: var(--app-margin);
+    gap: 4px;
+    overflow: auto;
+}
+
+.sheet-item {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    align-items: center;
+    gap: .75rem;
+    padding: .7rem .9rem;
+    border-radius: 12px;
+    text-decoration: none;
+    color: var(--jotaele-black);
+    background: transparent;
+    border: 0;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+}
+
+.sheet-item i { font-size: 22px; }
+
+.sheet-item:hover,
+.sheet-item:active {
+    background: color-mix(in srgb, var(--jotaele-background-accent) 55%, white 45%);
+}

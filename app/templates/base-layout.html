@@ -27,5 +27,8 @@
     <script src="{{ request.url_for('static', path='js/htmx.min.js') }}"></script>
     <script defer src="{{ request.url_for('static', path='js/scripts.js') }}"></script>
     <script defer src="{{ request.url_for('static', path='js/nucleus.js') }}"></script>
+    {% block config_menu %}
+	    {% include "partials/config_menu.html" %}
+    {% endblock %}
   </body>
 </html>
