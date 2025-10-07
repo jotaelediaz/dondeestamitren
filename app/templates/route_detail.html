@@ -10,44 +10,44 @@
 							</h2>
 						</div>
 						<div class="app-block-padding">
-							<ul class="grid-route-map" data-number-of-stations="{{ route.stations|length }}" style="--number-of-stations: {{ route.stations|length }};">
+							<ul class="grid-route-map" data-number-of-stations="{{ route.stations|length }}" style="--number-of-stations: {{ route.stations|length }}; --line-color: {{ route.color_bg }};">
 								{% for stop in route.stations %}
-									{{ print_station_route_map(stop) }}
+									<li class="grid-route-map-station {{ 'origin-station' if route.origin.stop_id == stop.stop_id else 'destination-station' if route.destination.stop_id == stop.stop_id else 'mid-station' }}">
+										{{ print_station_route_map(stop) }}
+									</li>
 								{% endfor %}
 							</ul>
 						</div>
-			</div>
-		
-		<h2 class="text-xl font-semibold mb-2">Trenes circulando en esta ruta hacia {{ repo.get_stop_name(repo.route_destination(route.route_id)) or '—' }} <i>({{ repo.route_destination(route.route_id) }})</i></h2>
-		
-		{% if not trains or trains|length == 0 %}
-		<p>No se encuentran trenes circulando en esta línea ahora mismo.</p>
-		{% else %}
-		<table border="1" cellpadding="6" cellspacing="0">
-			<thead>
-			<tr>
-				<th>Tren</th>
-				<th>Estado</th>
-				<th>Parada actual</th>
-				<th>Posición</th>
-			</tr>
-			</thead>
-			<tbody>
-			{% for t in trains %}
-				<tr>
-					<td><a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
-					<td>{{ t.status_human() }}</td>
-					<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
-					<td>
-						{% if t.lat and t.lon %}
-							{{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}
-						{% else %}—{% endif %}
-					</td>
-				</tr>
-			{% endfor %}
-			</tbody>
-		</table>
-	</section>
+				
+				
+						<h2 class="text-xl font-semibold mb-2">Trenes circulando en esta ruta</h2>
+
+						{% if not trains or trains|length == 0 %}
+						<p>No se encuentran trenes circulando en esta línea ahora mismo.</p>
+						{% else %}
+						<table border="1" cellpadding="6" cellspacing="0">
+							<thead>
+							<tr>
+								<th>Tren</th>
+								<th>Estado</th>
+								<th>Parada actual</th>
+							</tr>
+							</thead>
+							<tbody>
+							{% for t in trains %}
+								<tr>
+									<td><a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
+									<td>{{ t.status_human() }}</td>
+									<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
+								</tr>
+							{% endfor %}
+							</tbody>
+						</table>
+		</div>
 	{% endif %}
 	
+	
+	
+	
+	</section>
 {%- endblock %}

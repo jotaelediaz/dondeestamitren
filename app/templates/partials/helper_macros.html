@@ -18,7 +18,7 @@
 
 
 {%- macro print_station_route_map(station) %}
-	<li class="station-block" data-station-index="{{ station.seq + 1 }}" data-stop-id="{{ station.stop_id }}">
+	<div class="station-block" data-station-index="{{ station.seq + 1 }}" data-stop-id="{{ station.stop_id }}">
 		<div class="grid-route-line">
 			<div class="route-line-wrapper">
 				<i class="route-line-fragment"></i>
@@ -35,5 +35,5 @@
 		<div class="grid-route-train-position">
 			T
 		</div>
-	</li>
+	</div>
 {%- endmacro -%}

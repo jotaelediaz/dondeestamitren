@@ -112,7 +112,7 @@ class RoutesRepo:
         self._stop_names.clear()
 
         for (rid, did_raw), rows in by_key_rows.items():
-            did = did_raw or ""  # normaliza direction
+            did = did_raw or ""
             rows.sort(key=self._seq_safe)
 
             short = (rows[0].get("route_short_name") or "").strip()
@@ -138,7 +138,6 @@ class RoutesRepo:
                 )
                 stations.append(st)
 
-                # Index global stop_id -> stop_name (first match decides)
                 if stop_id and stop_name and stop_id not in self._stop_names:
                     self._stop_names[stop_id] = stop_name
 
@@ -159,13 +158,9 @@ class RoutesRepo:
                 length_km=length_km,
                 stations=stations,
                 nucleus_id=nucleus_slug,
+                color_bg=bg,
+                color_fg=fg,
             )
-
-            try:
-                lv.color_bg = bg
-                lv.color_fg = fg
-            except Exception:
-                pass
 
             self._by_key[(rid, did)] = lv
             self._by_short_dir[(short.lower(), did)] = lv

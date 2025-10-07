@@ -43,12 +43,10 @@ class LineRoute:
 
     @property
     def origin(self) -> StationOnLine | None:
-        """Primera estación según el orden de carga (seq)."""
         return self.stations[0] if self.stations else None
 
     @property
     def destination(self) -> StationOnLine | None:
-        """Última estación según el orden de carga (seq)."""
         return self.stations[-1] if self.stations else None
 
     @property
@@ -69,12 +67,10 @@ class LineRoute:
 
     @property
     def terminals(self) -> tuple[str | None, str | None]:
-        """Devuelve (stop_id_A, stop_id_B)."""
         return self.origin_id, self.destination_id
 
     @property
     def terminals_names(self) -> tuple[str | None, str | None]:
-        """Devuelve (nombre_A, nombre_B)."""
         return self.origin_name, self.destination_name
 
 

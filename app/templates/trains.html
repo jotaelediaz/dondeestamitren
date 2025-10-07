@@ -1,53 +1,75 @@
 {%- extends "base-layout.html" %}
 {%- block app_content %}
-	<h1 class="h2">Trenes en circulación{% if nucleus %} en {{ nucleus.name }}{% endif %}</h1>
-	<p class="text-muted">Snapshot: {{ last_snapshot }}</p>
-	<p class="text-muted">Trenes circulando: {{ trains | length }}</p>
 	
-	{% if not nucleus %}
-		<h2>Trenes por núcleos</h2>
-		<ul>
-			{% for n in nuclei %}
-				<li><a href="/trains/{{ n.slug }}">{{ n.name }}</a></li>
-			{% endfor %}
-		</ul>
-		<hr>
-	{% endif %}
-	
-	{% if not trains %}
-		<p>No hay datos ahora mismo. No he obtenido datos de la API de Renfe.</p>
-	{% else %}
-		<table class="table" style="width:100%; max-width: 960px;">
-			<thead>
-			<tr>
-				<th>Línea</th>
-				<th>Tren</th>
-				<th>Estado</th>
-				<th>Parada</th>
-				<th>Posición</th>
-			</tr>
-			</thead>
-			<tbody>
-			{% for t in trains %}
-				<tr>
-					<td>{{ t.route_short_name }}</td>
-					<td><a href="/trains/{{ t.nucleus_slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
-					<td>{{ t.status_human() }}</td>
-					<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
-					<td>
-						{% if t.lat and t.lon %}
-							{{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}
-						{% else %}—{% endif %}
-					</td>
-				</tr>
-			{% endfor %}
-			</tbody>
-		</table>
-	{% endif %}
-	
-	<p><a href="/">← Volver</a></p>
-	
-	<script>
-      setTimeout(() => location.reload(), 200000);
-	</script>
+	<section id="trains-list" class="train-list app-main-content" aria-label="Trenes en circulación{% if nucleus %} en {{ nucleus.name }}{% endif %}">
+		{% if not trains %}
+			<div class="app-block-padding" style="opacity:.7;padding-top:1rem">
+				<p>No se encuentran trenes circulando en este momento.</p>
+			</div>
+		{% else %}
+			
+			{% set trains_with_nucleus = trains | selectattr('nucleus_slug') | list %}
+			{% if trains_with_nucleus %}
+				{% set groups = (trains_with_nucleus | sort(attribute='nucleus_slug')) | groupby('nucleus_slug') %}
+				
+				<div class="grouped-lists-scroll">
+					{% for group in groups %}
+						{% set nuc_id = group.grouper %}
+						{% if nuc_id %}
+							{% set matched = (nuclei | selectattr('slug','equalto', nuc_id) | first) if nuclei is defined else None %}
+							{% set nuc_name = matched.name if matched else (nucleus.name if nucleus and nucleus.slug == nuc_id else nuc_id|capitalize) %}
+							
+							<div class="app-block-padding sticky-title">
+								<h2 class="app-block-title">Trenes en {{ nuc_name }}</h2>
+							</div>
+							
+							<div class="app-block-padding">
+								<ul class="station-list-ul chip-list grouped-chip-list">
+									{% for t in group.list %}
+										{% set href = '/trains/' ~ nuc_id ~ '/' ~ t.train_id %}
+										<li class="station-card chip-card">
+											<a class="station-link chip-link" href="{{ href }}">
+												<div class="station-main chip-main">
+													<div class="station-chip-icon chip-icon">
+														<i class="material-symbols-rounded" aria-hidden="true">directions_railway</i>
+													</div>
+													<div class="station-chip-content chip-content">
+														<h3 class="station-name chip-name">
+															{{ t.route_short_name or '—' }} · Tren {{ t.train_id }}
+														</h3>
+														<div class="station-meta chip-subtitle">
+															<span>{{ t.status_human() }}</span>
+															{% set stop_name = repo.get_stop_name(t.stop_id) %}
+															{% if stop_name %}
+																<span>· Próxima: {{ stop_name }}</span>
+															{% endif %}
+															{% if t.lat and t.lon %}
+																<span>· {{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}</span>
+															{% endif %}
+														</div>
+													</div>
+													<div class="station-chip-more chip-more">
+														<i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i>
+													</div>
+												</div>
+											</a>
+										</li>
+									{% endfor %}
+								</ul>
+							</div>
+						{% endif %}
+					{% endfor %}
+				</div>
+			{% else %}
+				<div class="app-block-padding" style="opacity:.7;padding-top:1rem">
+					<p>No se encuentran trenes circulando en este momento.</p>
+				</div>
+			{% endif %}
+		{% endif %}
+		
+		<script>
+        setTimeout(() => location.reload(), 200000);
+		</script>
+	</section>
+
 {%- endblock %}

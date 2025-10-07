@@ -897,7 +897,8 @@ ul.chip-list {
     margin: 0 0;
 }
 
-.station-block {
+.station-block,
+.grid-route-map-station {
     display: contents;
 }
 
@@ -906,7 +907,7 @@ ul.chip-list {
     height: 100%;
     width: var(--icon-dot-size);
     position: relative;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
 }
 
@@ -934,7 +935,7 @@ ul.chip-list {
 .grid-route-map .grid-route-station-info {
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 .grid-route-map .grid-route-station-name {
