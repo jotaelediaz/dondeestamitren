@@ -201,10 +201,34 @@ class RoutesRepo:
         return items
 
     def get_by_route_and_dir(self, route_id: str, direction_id: str = "") -> LineRoute | None:
-        return self._by_key.get((route_id, direction_id or ""))
+        rid = (route_id or "").strip()
+        did = (direction_id or "").strip()
+        if not rid:
+            return None
+        hit = self._by_key.get((rid, did))
+        if hit:
+            return hit
+        if did == "":
+            for alt in ("0", "1"):
+                hit = self._by_key.get((rid, alt))
+                if hit:
+                    return hit
+        return None
 
     def find_by_short_name(self, short_name: str, direction_id: str = "") -> LineRoute | None:
-        return self._by_short_dir.get((short_name.lower(), direction_id or ""))
+        s = (short_name or "").strip().lower()
+        did = (direction_id or "").strip()
+        if not s:
+            return None
+        hit = self._by_short_dir.get((s, did))
+        if hit:
+            return hit
+        if did == "":
+            for alt in ("0", "1"):
+                hit = self._by_short_dir.get((s, alt))
+                if hit:
+                    return hit
+        return None
 
     def directions_for_short_name(self, short_name: str) -> list[str]:
         s = short_name.lower()
