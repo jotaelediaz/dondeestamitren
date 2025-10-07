@@ -10,47 +10,65 @@
 		</search>
 	</div>
 	
-	<section id="stations-list" class="station-list app-block-padding app-main-content" aria-label="Listado de estaciones {{ 'de ' + nucleus.name if nucleus }}">
+	<section id="stations-list" class="station-list app-main-content" aria-label="Listado de estaciones {{ 'de ' + nucleus.name if nucleus }}">
 		{% if not stations %}
 			<div class="app-block-padding" style="opacity:.7;padding-top:1rem">
 				<p>No hay estaciones que coincidan con los criterios introducidos.</p>
 			</div>
 		{% else %}
-			<ul class="station-list-ul chip-list">
-				{% for st in stations %}
-					{% set nu = (nucleus.slug if nucleus else (st.nucleus_id or ''))|lower %}
-					{% if nu %}{% set href = url_for('stations_list', nucleus=nu) ~ ('?station_id=' ~ st.station_id) %}
-					{% else %}{% set href = url_for('stations_list', nucleus=(st.nucleus_id or '')) ~ ('?station_id=' ~ st.station_id) %}{% endif %}
-					
-					{% set has_cercanias_line = false %}
-					{% if station_lines_map is defined and station_lines_map %}
-						{% set has_cercanias_line = ((station_lines_map.get(st.station_id) | default([])) | length) > 0 %}
-						{% elif station_lines_lookup is defined and station_lines_lookup %}
-						{% set has_cercanias_line = ((station_lines_lookup.get(st.nucleus_id, {}).get(st.station_id) | default([])) | length) > 0 %}
+			
+			{% set groups = (stations | sort(attribute='nucleus_id')) | groupby('nucleus_id') %}
+			
+			<div class="grouped-lists-scroll">
+				{% for group in groups %}
+					{% set nuc_id = group.grouper %}
+					{% if nuc_id %}
+						{% set matched = nuclei | selectattr('slug','equalto', nuc_id) | first %}
+						{% set nuc_name = matched.name if matched else (group.list | first).nucleus_name %}
+						
+						<div class="app-block-padding sticky-title">
+							<h2 class="app-block-title">Estaciones de {{ nuc_name }}</h2>
+						</div>
+						
+						<div class="app-block-padding">
+							<ul class="station-list-ul chip-list grouped-chip-list">
+								{% for st in group.list %}
+									{% set href = url_for('stations_list', nucleus=nuc_id) ~ ('?station_id=' ~ st.station_id) %}
+									
+									{% set has_cercanias_line = false %}
+									{% if station_lines_map is defined and station_lines_map %}
+										{% set has_cercanias_line = ((station_lines_map.get(st.station_id) | default([])) | length) > 0 %}
+										{% elif station_lines_lookup is defined and station_lines_lookup %}
+										{% set has_cercanias_line = ((station_lines_lookup.get(st.nucleus_id, {}).get(st.station_id) | default([])) | length) > 0 %}
+									{% endif %}
+									
+									<li class="station-card chip-card">
+										<a class="station-link chip-link" href="{{ href }}">
+											<div class="station-main chip-main">
+												<div class="station-chip-icon chip-icon"><i class="material-symbols-rounded" aria-hidden="true">directions_subway</i></div>
+												<div clasS="station-chip-content chip-content">
+													<h3 class="station-name chip-name">{{ st.name }}</h3>
+													<div class="station-meta chip-subtitle">
+														{% if has_cercanias_line %}<span class="station-badge cercanias-badge"><img alt="Cercanías" src="/static/img/icon-cercanias.svg"></span>{% endif %}
+														{% if st.metro_lines %}<span class="station-badge metro-badge"><img alt="Metro" src="/static/img/icon-metro-madrid.svg"></span>{% endif %}
+														{% if st.metro_ligero_lines %}<span class="station-badge metro-ligero-badge"><img alt="Metro Ligero" src="/static/img/icon-metro-ligero-madrid.svg"></span>{% endif %}
+														{% if st.cor_tren_ld %}<span class="station-badge tren-badge"><img alt="Trenes de larga y media distancia" src="/static/img/icon-train-station-renfe.svg"></span>{% endif %}
+														{% if st.cor_bus %}<span class="station-badge bus-badge"><img alt="Estación de autobuses" src="/static/img/icon-bus-renfe.svg"></span>{% endif %}
+														{% if st.cor_aeropuerto %}<span class="station-badge aeropuerto-badge"><img alt="Aeropuerto" src="/static/img/icon-airport-renfe.svg"></span>{% endif %}
+														
+														{#<span class="station-id-badge">{{ st.station_id }}</span>#}
+													</div>
+												</div>
+												<div class="station-chip-more chip-more"><i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i></div>
+											</div>
+										</a>
+									</li>
+								{% endfor %}
+							</ul>
+						</div>
 					{% endif %}
-					
-					<li class="station-card chip-card">
-						<a class="station-link chip-link" href="{{ href }}">
-							<div class="station-main chip-main">
-								<div class="station-chip-icon chip-icon"><i class="material-symbols-rounded" aria-hidden="true">directions_subway</i></div>
-								<div clasS="station-chip-content chip-content">
-										<h3 class="station-name chip-name">{{ st.name }}</h3>
-										<div class="station-meta chip-subtitle">
-											{% if not nucleus and st.nucleus_id %}<span class="station-nucleus">{{ (nuclei | selectattr('slug', 'equalto', st.nucleus_id) | first).name }}</span>{% endif %}
-											{% if has_cercanias_line %}<span class="station-badge cercanias-badge"><img alt="Cercanías" src="/static/img/icon-cercanias.svg"></span>{% endif %}
-											{% if st.metro_lines %}<span class="station-badge metro-badge"><img alt="Metro" src="/static/img/icon-metro-madrid.svg"></span>{% endif %}
-											{% if st.metro_ligero_lines %}<span class="station-badge metro-ligero-badge"><img alt="Metro Ligero" src="/static/img/icon-metro-ligero-madrid.svg"></span>{% endif %}
-											{% if st.cor_tren_ld %}<span class="station-badge tren-badge"><img alt="Trenes de larga y media distancia" src="/static/img/icon-train-station-renfe.svg"></span>{% endif %}
-											{% if st.cor_bus %}<span class="station-badge bus-badge"><img alt="Estación de autobuses" src="/static/img/icon-bus-renfe.svg"></span>{% endif %}
-											{% if st.cor_aeropuerto %}<span class="station-badge aeropuerto-badge"><img alt="Aeropuerto" src="/static/img/icon-airport-renfe.svg"></span>{% endif %}
-										</div>
-								</div>
-								<div class="station-chip-more chip-more"><i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i></div>
-							</div>
-						</a>
-					</li>
 				{% endfor %}
-			</ul>
+			</div>
 		{% endif %}
 	</section>
 

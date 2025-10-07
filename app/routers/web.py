@@ -97,7 +97,7 @@ def _effective_station_limit(
     has_coords = (lat is not None) and (lon is not None)
     has_q = bool((q or "").strip())
     if has_coords and not has_q:
-        return 3
+        return 5
     if has_q and not has_coords:
         return 10
     if has_q and has_coords:
@@ -200,6 +200,12 @@ def route_page_by_id(
 def lines_list(request: Request):
     repo = get_routes_repo()
     lines = get_lines_index().list_lines()
+    nuclei = repo.list_nuclei()
+    nucleus_names_by_id = {
+        (n.get("slug") or "").strip().lower(): n.get("name")
+        for n in nuclei
+        if (n.get("slug") and n.get("name"))
+    }
     return render(
         request,
         "lines.html",
@@ -207,6 +213,7 @@ def lines_list(request: Request):
             "lines": lines,
             "nucleus": None,
             "repo": repo,
+            "nucleus_names_by_id": nucleus_names_by_id,
         },
     )
 
@@ -218,6 +225,12 @@ def lines_by_nucleus(request: Request, nucleus: str):
     lines = [
         ln for ln in get_lines_index().list_lines() if (ln.nucleus_id or "").lower() == nucleus
     ]
+    nuclei = repo.list_nuclei()
+    nucleus_names_by_id = {
+        (n.get("slug") or "").strip().lower(): n.get("name")
+        for n in nuclei
+        if (n.get("slug") and n.get("name"))
+    }
     return render(
         request,
         "lines.html",
@@ -225,6 +238,7 @@ def lines_by_nucleus(request: Request, nucleus: str):
             "lines": lines,
             "nucleus": mk_nucleus(nucleus),
             "repo": repo,
+            "nucleus_names_by_id": nucleus_names_by_id,
         },
     )
 

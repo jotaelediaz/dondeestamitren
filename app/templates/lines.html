@@ -2,41 +2,57 @@
 {%- from "partials/helper_macros.html" import get_cercanias_line_icon with context %}
 {%- block app_content %}
 	
-	<section id="line-list" class="line-list app-block-padding app-main-content" aria-label="Listado de líneas {{ 'de ' + nucleus.name if nucleus }}">
-		<div class="subsection-topbar">
-			<h2 class="subsection-title">Líneas {{ 'de ' + nucleus.name if nucleus }}</h2>
-		</div>
+	<section id="line-list" class="line-list app-main-content" aria-label="Listado de líneas {{ 'de ' + nucleus.name if nucleus }}">
 		{% if not lines %}
 			<div class="app-block-padding" style="opacity:.7;padding-top:1rem">
 				<p>No hay líneas que coincidan con los criterios introducidos.</p>
 			</div>
 		{% else %}
-			<ul class="station-list-ul chip-list">
-				{% for ln in lines | natural_sort('short_name') %}
-					{% set lid = ln.line_id or ln.id %}
-					{% set canon_route = ln.canonical_route %}
-					{% set href = '/routes/' ~ (ln.nucleus_id or '')|lower ~ '/' ~ canon_route.route_id if canon_route else '/lines/' ~ (ln.nucleus_id or '')|lower ~ '/' ~ lid %}
-					{% set origin_name, destination_name = canon_route.terminals_names if canon_route else (None, None) %}
-					
-					<li class="line-card chip-card" style="--line-color: {{ ln.color_bg }};">
-						<a class="line-link chip-link" href="{{ href }}">
-							<div class="line-main chip-main">
-								{{ get_cercanias_line_icon(ln.short_name, ln.nucleus_id, ln.color_bg) }}
-								<div class="line-chip-content chip-content">
-									<h3 class="line-name">
-										<span class="line-origin-station line-terminal-name">{{ origin_name }}</span>
-										<span class="line-destination-station line-terminal-name">{{ destination_name }}</span>
-									</h3>
-								</div>
-								<div class="station-chip-more chip-more">
-									<i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i>
-								</div>
-							</div>
-						</a>
-					</li>
+			
+			{% set groups = (lines | sort(attribute='nucleus_id')) | groupby('nucleus_id') %}
+			
+			<div class="grouped-lists-scroll">
+				{% for group in groups %}
+					{% set nuc_id = group.grouper %}
+					{% if nuc_id %}
+						{% set sample = group.list | first %}
+						{% set nuc_name = sample.nucleus_name or nucleus_names_by_id.get(nuc_id) %}
+						
+						<div class="app-block-padding sticky-title">
+							<h2 class="app-block-title">Cercanías {{ nuc_name }}
+								<span class="title-badge cercanias-badge"><img alt="Cercanías" src="/static/img/icon-cercanias.svg"></span>
+							</h2>
+						</div>
+						<div class="app-block-padding">
+							<ul class="station-list-ul chip-list grouped-chip-list">
+								{% for ln in group.list | natural_sort('short_name') %}
+									{% set lid = ln.line_id or ln.id %}
+									{% set canon_route = ln.canonical_route %}
+									{% set href = '/routes/' ~ (ln.nucleus_id or '')|lower ~ '/' ~ canon_route.route_id if canon_route else '/lines/' ~ (ln.nucleus_id or '')|lower ~ '/' ~ lid %}
+									{% set origin_name, destination_name = canon_route.terminals_names if canon_route else (None, None) %}
+									
+									<li class="line-card chip-card" style="--line-color: {{ ln.color_bg }};">
+										<a class="line-link chip-link" href="{{ href }}">
+											<div class="line-main chip-main">
+												{{ get_cercanias_line_icon(ln.short_name, ln.nucleus_id, ln.color_bg) }}
+												<div class="line-chip-content chip-content">
+													<h3 class="line-name">
+														<span class="line-origin-station line-terminal-name">{{ origin_name }}</span>
+														<span class="line-destination-station line-terminal-name">{{ destination_name }}</span>
+													</h3>
+												</div>
+												<div class="station-chip-more chip-more">
+													<i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i>
+												</div>
+											</div>
+										</a>
+									</li>
+								{% endfor %}
+							</ul>
+						</div>
+					{% endif %}
 				{% endfor %}
-
-			</ul>
+			</div>
 		{% endif %}
 	</section>
 {%- endblock %}

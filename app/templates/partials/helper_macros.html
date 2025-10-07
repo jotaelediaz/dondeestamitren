@@ -4,9 +4,36 @@
 		<div class="line-chip-icon image-line-icon">
 			<img src="/static/img/lines-madrid/{{ image_name }}.svg" alt="{{ line_code }}">
 		</div>
+	{% elif nucleus_slug == "zaragoza" and (line_code.lower() in ("c1")) %}
+		{% set image_name = "icon-cercanias-zaragoza-" + line_code.lower() %}
+		<div class="line-chip-icon image-line-icon">
+			<img src="/static/img/lines-zaragoza/{{ image_name }}.svg" alt="{{ line_code }}">
+		</div>
 	{%- else %}
 		<div class="line-chip-icon chip-icon generic-chip-icon">
 			<i class="material-symbols-rounded" aria-hidden="true">directions_subway</i>
 		</div>
 	{%- endif %}
+{%- endmacro -%}
+
+
+{%- macro print_station_route_map(station) %}
+	<li class="station-block" data-station-index="{{ station.seq + 1 }}" data-stop-id="{{ station.stop_id }}">
+		<div class="grid-route-line">
+			<div class="route-line-wrapper">
+				<i class="route-line-fragment"></i>
+				<i class="route-dot"></i>
+			</div>
+		</div>
+		<div class="grid-route-station-info">
+					<div class="grid-route-station-name">
+						<span class="station-name">{{ station.stop_name }}</span>
+					</div>
+				<div class="grid-route-connections">
+				</div>
+		</div>
+		<div class="grid-route-train-position">
+			T
+		</div>
+	</li>
 {%- endmacro -%}

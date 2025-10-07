@@ -1,75 +1,53 @@
 {%- extends "base-layout.html" %}
+{%- from "partials/helper_macros.html" import get_cercanias_line_icon, print_station_route_map with context %}
 {%- block app_content %}
-
-<h1>
-	Ruta {{ route.route_id }} ➜ {{ route.route_short_name }} · {{ route.route_long_name }}
-</h1>
-
-<table border="1" cellpadding="6" cellspacing="0">
-	<thead>
-	<tr>
-		<th>Orden</th>
-		<th>Parada</th>
-		<th>KM</th>
-		<th>Coordenadas</th>
-		<th>% línea</th>
-	</tr>
-	</thead>
-	<tbody>
-	{% for s in route.stations %}
-		{% set pct = (s.km / (route.length_km or 1)) * 100 %}
-		<tr>
-			<td>{{ s.seq + 1 }}</td>
-			<td>
-				<a href="/routes/{{ nucleus.slug }}/{{ route.route_id }}/stops/{{ s.stop_id }}{% if route.direction_id %}?direction_id={{ route.direction_id }}{% endif %}">
-					{{ s.stop_name or repo.get_stop_name_or_id(s.stop_id) }}
-				</a>
-				<i>({{ s.stop_id }})</i>
-			</td>
-			<td>{{ '%.1f'|format(s.km) }}</td>
-			<td>{{ '%.5f'|format(s.lat) }}, {{ '%.5f'|format(s.lon) }}</td>
-			<td>{{ '%.0f'|format(pct) }}%</td>
-		</tr>
-	{% endfor %}
-	</tbody>
-</table>
-
-<hr>
-
-<h2 class="text-xl font-semibold mb-2">Trenes circulando en esta ruta hacia {{ repo.get_stop_name(repo.route_destination(route.route_id)) or '—' }} <i>({{ repo.route_destination(route.route_id) }})</i></h2>
-
-{% if not trains or trains|length == 0 %}
-	<p>No se encuentran trenes circulando en esta línea ahora mismo.</p>
-{% else %}
-	<table border="1" cellpadding="6" cellspacing="0">
-		<thead>
-		<tr>
-			<th>Tren</th>
-			<th>Ruta</th>
-			<th>Destino</th>
-			<th>Estado</th>
-			<th>Parada actual</th>
-			<th>Posición</th>
-		</tr>
-		</thead>
-		<tbody>
-		{% for t in trains %}
+	
+	<section id="line-route" class="line-route app-main-content" aria-label="Ruta de la línea {{ route.route_long_name if route else '' }}">
+			<div class="grouped-lists-scroll">
+						<div class="app-block-padding sticky-title">
+							<h2 class="app-block-title">➜ {{ route.route_short_name }} · {{ route.route_long_name }}
+								<span class="title-badge cercanias-badge"><img alt="Cercanías" src="/static/img/icon-cercanias.svg"></span>
+							</h2>
+						</div>
+						<div class="app-block-padding">
+							<ul class="grid-route-map" data-number-of-stations="{{ route.stations|length }}" style="--number-of-stations: {{ route.stations|length }};">
+								{% for stop in route.stations %}
+									{{ print_station_route_map(stop) }}
+								{% endfor %}
+							</ul>
+						</div>
+			</div>
+		
+		<h2 class="text-xl font-semibold mb-2">Trenes circulando en esta ruta hacia {{ repo.get_stop_name(repo.route_destination(route.route_id)) or '—' }} <i>({{ repo.route_destination(route.route_id) }})</i></h2>
+		
+		{% if not trains or trains|length == 0 %}
+		<p>No se encuentran trenes circulando en esta línea ahora mismo.</p>
+		{% else %}
+		<table border="1" cellpadding="6" cellspacing="0">
+			<thead>
 			<tr>
-				<td><a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
-				<td>{{ t.route_id }}</td>
-				<td>→ {{repo.get_stop_name(repo.route_destination(t.route_id)) or '—' }}</td>
-				<td>{{ t.status_human() }}</td>
-				
-				
-				<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
-				<td>
-					{% if t.lat and t.lon %}
-						{{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}
-					{% else %}—{% endif %}
-				</td>
+				<th>Tren</th>
+				<th>Estado</th>
+				<th>Parada actual</th>
+				<th>Posición</th>
 			</tr>
-		{% endfor %}
-		</tbody>
-	</table>
-{% endif %}
-{% endblock %}
+			</thead>
+			<tbody>
+			{% for t in trains %}
+				<tr>
+					<td><a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
+					<td>{{ t.status_human() }}</td>
+					<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
+					<td>
+						{% if t.lat and t.lon %}
+							{{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}
+						{% else %}—{% endif %}
+					</td>
+				</tr>
+			{% endfor %}
+			</tbody>
+		</table>
+	</section>
+	{% endif %}
+	
+{%- endblock %}

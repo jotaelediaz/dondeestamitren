@@ -120,6 +120,7 @@ main {
     padding: var(--app-margin);
     z-index: 999;
     box-sizing: border-box;
+    background: var(--jotaele-background);
 }
 
 #app-topbar .topbar-inner {
@@ -180,7 +181,6 @@ main {
 
 .subsection-topbar {
     flex: 0 0 auto;
-    margin-bottom:var(--app-margin);
     padding-bottom: var(--app-margin);
     border-bottom: 1px solid var(--jotaele-background-accent);
 }
@@ -210,9 +210,9 @@ main {
     max-height: var(--bottom-nav-height);
     background: var(--jotaele-white);
     border-radius: 99px;
-    -webkit-backdrop-filter: blur(18px);
-    backdrop-filter: blur(18px);
     background: rgba(255,255,255,0.8);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
 }
 
 #bottom-nav .navbar-inner-wrapper {
@@ -477,7 +477,6 @@ main {
     min-width: 260px;
     max-height: 60vh;
     overflow: auto;
-    backdrop-filter: blur(14px);
     background: var(--jotaele-white);
     border-radius: 15px;
     box-shadow: 1px 1px 4px #0000003b;
@@ -605,7 +604,7 @@ ul.chip-list {
 .chip-card .chip-link {
     display: flex;
     width: 100%;
-    padding: calc(var(--app-margin) * 1.1) var(--app-margin);
+    padding: var(--app-margin);
     min-height: 4rem;
     min-width: 0;
 }
@@ -696,7 +695,7 @@ ul.chip-list {
 
 .line-chip-icon.image-line-icon {
     display: flex;
-    flex: 0 0 4rem;
+    flex: 0 0 3.5rem;
     position: relative;
 }
 
@@ -710,6 +709,8 @@ ul.chip-list {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    margin: 0 0;
+    font-size: 1.1rem;
 }
 
 .line-card .line-name .line-terminal-name {
@@ -721,6 +722,65 @@ ul.chip-list {
     overflow: hidden;
     text-overflow: ellipsis;
     display: block;
+}
+
+.grouped-lists-scroll {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-bottom: calc(var(--bottom-nav-height) + (var(--app-margin) * 1.5));
+    scroll-behavior: smooth;
+}
+
+.sticky-title {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--jotaele-background);
+    border-bottom: 1px solid var(--jotaele-background-accent);
+}
+
+.sticky-title .app-block-title {
+    margin: 0 0;
+    padding: var(--app-margin) 0;
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: var(--app-margin);
+}
+
+.app-block-title .title-badge {
+    height: 1.5rem;
+    display: inline-block;
+}
+
+.app-block-title .title-badge img {
+    height: 100%;
+    width: auto;
+    display: inline-block;
+}
+
+.grouped-chip-list {
+    flex: 0 0 auto;
+    overflow: visible;
+    margin: 0 0 var(--app-margin) 0;
+    padding: 0 0 0 0;
+    gap: var(--app-margin);
+}
+
+.grouped-chip-list + .sticky-title {
+    margin-top: calc(var(--app-margin) * 1.25);
+}
+
+.grouped-lists-scroll .chip-list {
+    flex: none;
+    min-height: 0;
+    overflow: visible;
+    margin: 0 0 var(--app-margin) 0;
+    padding: 0;
+    gap: var(--app-margin);
 }
 
 /* -- Config menu -- */
@@ -813,4 +873,74 @@ ul.chip-list {
 .sheet-item:hover,
 .sheet-item:active {
     background: color-mix(in srgb, var(--jotaele-background-accent) 55%, white 45%);
+}
+
+/* - Route Maps - */
+
+.grid-route-map {
+    --number-of-stations: 10;
+    --line-route-width: 10px;
+    --icon-dot-size: 20px;
+    --icon-border-dot-size: 4px;
+    --line-color: var(--jotaele-dark);
+
+    display: grid;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: repeat(var(--number-of-stations), 1fr);
+    grid-column-gap: calc(var(--app-margin) * 0.5);
+    grid-auto-flow: row dense;
+    box-sizing: border-box;
+    padding: 0 0;
+    margin: 0 0;
+}
+
+.station-block {
+    display: contents;
+}
+
+.grid-route-map .route-line-wrapper {
+    display: flex;
+    height: 100%;
+    width: var(--icon-dot-size);
+    position: relative;
+    align-items: center;
+    justify-content: center;
+}
+
+.grid-route-map .route-line-fragment {
+    display: block;
+    position: absolute;
+    width: var(--line-route-width);
+    height: calc(100% + 1px);
+    background: var(--line-color);
+}
+
+.grid-route-map .route-dot {
+    position: absolute;
+    content: "";
+    display: block;
+    border-radius: 100%;
+    z-index: 2;
+    width: var(--icon-dot-size);
+    height: var(--icon-dot-size);
+    background: var(--jotaele-white);
+    border: var(--icon-border-dot-size) solid var(--line-color);
+    box-sizing: border-box;
+}
+
+.grid-route-map .grid-route-station-info {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.grid-route-map .grid-route-station-name {
+    font-family: Sora, sans-serif;
+    font-weight: 700;
+    color: var(--jotaele-black);
+    font-size: 1.2rem;
+    line-height: 1.1em;
 }
