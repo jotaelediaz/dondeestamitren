@@ -210,8 +210,9 @@ main {
     max-height: var(--bottom-nav-height);
     background: var(--jotaele-white);
     border-radius: 99px;
+    -webkit-backdrop-filter: blur(18px);
     backdrop-filter: blur(18px);
-    background: rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.8);
 }
 
 #bottom-nav .navbar-inner-wrapper {
@@ -689,8 +690,20 @@ ul.chip-list {
 
 /* -- Lines list -- */
 
-.line-chip-icon.chip-icon {
+.line-chip-icon.generic-chip-icon {
     background: var(--line-color, var(--jotaele-button-grey))
+}
+
+.line-chip-icon.image-line-icon {
+    display: flex;
+    flex: 0 0 4rem;
+    position: relative;
+}
+
+.line-chip-icon.image-line-icon img {
+    display: block;
+    height: 100%;
+    width: auto;
 }
 
 .line-card .line-name {

@@ -1,14 +1,11 @@
 {%- extends "base-layout.html" %}
+{%- from "partials/helper_macros.html" import get_cercanias_line_icon with context %}
 {%- block app_content %}
 	
-	<div class="subsection-topbar">
-		<search id="stations-search" class="app-block-padding app-block-vertical-padding">
-			{# TODO FILTRO DE LINEAS #}
-		</search>
-	</div>
-	
 	<section id="line-list" class="line-list app-block-padding app-main-content" aria-label="Listado de líneas {{ 'de ' + nucleus.name if nucleus }}">
-		
+		<div class="subsection-topbar">
+			<h2 class="subsection-title">Líneas {{ 'de ' + nucleus.name if nucleus }}</h2>
+		</div>
 		{% if not lines %}
 			<div class="app-block-padding" style="opacity:.7;padding-top:1rem">
 				<p>No hay líneas que coincidan con los criterios introducidos.</p>
@@ -24,9 +21,7 @@
 					<li class="line-card chip-card" style="--line-color: {{ ln.color_bg }};">
 						<a class="line-link chip-link" href="{{ href }}">
 							<div class="line-main chip-main">
-								<div class="line-chip-icon chip-icon">
-									<i class="material-symbols-rounded" aria-hidden="true">directions_subway</i>
-								</div>
+								{{ get_cercanias_line_icon(ln.short_name, ln.nucleus_id, ln.color_bg) }}
 								<div class="line-chip-content chip-content">
 									<h3 class="line-name">
 										<span class="line-origin-station line-terminal-name">{{ origin_name }}</span>

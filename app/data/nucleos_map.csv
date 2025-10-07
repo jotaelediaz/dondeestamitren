@@ -19,6 +19,7 @@ route_id,route_short_name,nucleus_slug,nucleus_name
 10T0020C2,C2,madrid,Madrid
 10T0025C9,C9,madrid,Madrid
 10T0026C9,C9,madrid,Madrid
+10T0027C8a,C8a,madrid,Madrid
 10T0035C5,C5,madrid,Madrid
 10T0037C2,C2,madrid,Madrid
 10T0049C2,C2,madrid,Madrid
@@ -37,5 +38,15 @@ route_id,route_short_name,nucleus_slug,nucleus_name
 10T0072C10,C10,madrid,Madrid
 10T0075C10,C10,madrid,Madrid
 10T0076C10,C10,madrid,Madrid
+10T0083C2,C2,madrid,Madrid
 10T0087C8b,C8b,madrid,Madrid
 10T0088C8b,C8b,madrid,Madrid
+10T0092C8b,C8b,madrid,Madrid
+32T0001C1,C1,malaga,Málaga
+32T0002C1,C1,malaga,Málaga
+32T0003C2,C2,malaga,Málaga
+32T0004C2,C2,malaga,Málaga
+70T0001C1,C1,zaragoza,Zaragoza
+70T0002C1,C1,zaragoza,Zaragoza
+70T0005C1,C1,zaragoza,Zaragoza
+70T0006C1,C1,zaragoza,Zaragoza

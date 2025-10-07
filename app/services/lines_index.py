@@ -28,6 +28,153 @@ class LinesIndex:
             "stop_times_present": 0,
         }
 
+    # -------- helpers --------
+
+    def _variant_key(self, a: str | None, b: str | None) -> tuple[str | None, str | None]:
+        if a is None or b is None:
+            return (a, b)
+        return (a, b) if a <= b else (b, a)
+
+    def _did_from_repo(self, rid: str, rrepo) -> str:
+        rid = (rid or "").strip()
+        if not rid:
+            return ""
+        if rrepo.get_by_route_and_dir(rid, "0"):
+            return "0"
+        if rrepo.get_by_route_and_dir(rid, "1"):
+            return "1"
+        if rrepo.get_by_route_and_dir(rid, ""):
+            return ""
+        return ""
+
+    def _read_trips(self) -> tuple[dict, dict, dict, dict]:
+        trips: dict[str, dict] = {}
+        headsigns: dict[str, str] = {}
+        trips_by_route: dict[str, list[str]] = defaultdict(list)
+        shapes_by_route: dict[str, set[str]] = defaultdict(set)
+
+        path = self._trips_csv
+        if not os.path.exists(path):
+            print(f"[LinesIndex] trips.txt NOT FOUND at: {path}")
+            return trips, shapes_by_route, headsigns, trips_by_route
+
+        delim = settings.GTFS_DELIMITER
+        enc = settings.GTFS_ENCODING
+        with open(path, encoding=enc, newline="") as f:
+            r = csv.DictReader(f, delimiter=delim)
+            for row in r:
+                tid = (row.get("trip_id") or "").strip()
+                if not tid:
+                    continue
+                trips[tid] = row
+                rid = (row.get("route_id") or "").strip()
+                sid = (row.get("shape_id") or "").strip()
+                if rid:
+                    trips_by_route[rid].append(tid)
+                if rid and sid:
+                    shapes_by_route[rid].add(sid)
+                headsigns[tid] = (row.get("trip_headsign") or "").strip()
+        return trips, shapes_by_route, headsigns, trips_by_route
+
+    def _read_stop_times_first_last(self) -> dict[str, tuple[str, str]]:
+        first_last: dict[str, tuple[str, str]] = {}
+        path = self._stop_times_csv
+        if not os.path.exists(path):
+            return first_last
+        delim = settings.GTFS_DELIMITER
+        enc = settings.GTFS_ENCODING
+        with open(path, encoding=enc, newline="") as f:
+            r = csv.DictReader(f, delimiter=delim)
+            if not {"trip_id", "stop_id", "stop_sequence"} <= set(r.fieldnames or []):
+                return first_last
+            cur: dict[str, tuple[int, str, int, str]] = {}
+            for row in r:
+                tid = (row.get("trip_id") or "").strip()
+                sid = (row.get("stop_id") or "").strip()
+                try:
+                    seq = int(row.get("stop_sequence") or 0)
+                except ValueError:
+                    continue
+                if not tid or not sid:
+                    continue
+                if tid not in cur:
+                    cur[tid] = (seq, sid, seq, sid)
+                else:
+                    mn_seq, mn_sid, mx_seq, mx_sid = cur[tid]
+                    if seq < mn_seq:
+                        mn_seq, mn_sid = seq, sid
+                    if seq > mx_seq:
+                        mx_seq, mx_sid = seq, sid
+                    cur[tid] = (mn_seq, mn_sid, mx_seq, mx_sid)
+            for tid, (_a, a, _b, b) in cur.items():
+                first_last[tid] = (a, b)
+        return first_last
+
+    def _terminals_for_route(
+        self,
+        route_id: str,
+        first_last: dict[str, tuple[str, str]],
+        trips: dict[str, dict],
+        rrepo,
+    ) -> tuple[str | None, str | None]:
+        for tid, row in trips.items():
+            if (row.get("route_id") or "").strip() != route_id:
+                continue
+            if tid in first_last:
+                return first_last[tid]
+        return self._terminals_for_route_from_RoutesRepo(route_id, rrepo)
+
+    def _terminals_for_route_from_RoutesRepo(
+        self, route_id: str, rrepo
+    ) -> tuple[str | None, str | None]:
+        for cand in ("", "0", "1"):
+            lv_any = rrepo.get_by_route_and_dir(route_id, cand)
+            if lv_any and lv_any.stations:
+                a = (lv_any.stations[0].stop_id or "").strip()
+                b = (lv_any.stations[-1].stop_id or "").strip()
+                return (a or None), (b or None)
+        return None, None
+
+    def _canonical_route_of_variant(
+        self, route_ids: list[str], dirs: dict[str, LineDirection], rrepo
+    ) -> str | None:
+        def _len_for_rid(rid: str) -> int:
+            for did in ("0", "1", ""):
+                lv = rrepo.get_by_route_and_dir(rid, did)
+                if lv:
+                    return len(lv.stations)
+            return 0
+
+        if not route_ids:
+            return None
+        return sorted(route_ids, key=lambda r: (-_len_for_rid(r), r))[0]
+
+    def _mark_canonical_variant(self, variants: list[LineVariant], rrepo) -> None:
+        def _score(var: LineVariant) -> int:
+            rid = var.canonical_route_id or (var.route_ids[0] if var.route_ids else "")
+            if not rid:
+                return 0
+            for did in ("0", "1", ""):
+                lv = rrepo.get_by_route_and_dir(rid, did)
+                if lv:
+                    return len(lv.stations)
+            return 0
+
+        if not variants:
+            return
+        best = max(variants, key=_score)
+        for i, v in enumerate(list(variants)):
+            variants[i] = LineVariant(
+                variant_id=v.variant_id,
+                terminals_sorted=v.terminals_sorted,
+                directions=v.directions,
+                route_ids=v.route_ids,
+                is_canonical=(v is best),
+                canonical_route_id=v.canonical_route_id,
+            )
+
+    # -------- API  --------
+
     def load(self) -> None:
         trips, shapes_by_route, headsigns, trips_by_route = self._read_trips()
         first_last = self._read_stop_times_first_last()
@@ -76,9 +223,16 @@ class LinesIndex:
                 variants_map: dict[tuple[str | None, str | None], dict[str, list[str]]] = (
                     defaultdict(lambda: {"0": [], "1": []})
                 )
+
                 for rid in sorted(route_ids):
                     a, b = route_terminals.get(rid, (None, None))
                     key = self._variant_key(a, b)
+
+                    preferred_did = self._did_from_repo(rid, rrepo)  # "0"/"1"
+                    if preferred_did in ("0", "1"):
+                        variants_map[key][preferred_did].append(rid)
+                        continue
+
                     if a is None or b is None:
                         variants_map[key]["0"].append(rid)
                     else:
@@ -148,7 +302,9 @@ class LinesIndex:
                             self._line_by_route[rid] = (sid, did)
             return
 
-        grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+        from collections import defaultdict as _dd
+
+        grouped: dict[tuple[str, str], list[str]] = _dd(list)
         for (rid, _did), lv in rrepo.by_route_dir.items():
             nucleus = (lv.nucleus_id or "").lower()
             short = lv.route_short_name or _suffix_short(rid)
@@ -163,16 +319,22 @@ class LinesIndex:
             variants_map: dict[tuple[str | None, str | None], dict[str, list[str]]] = defaultdict(
                 lambda: {"0": [], "1": []}
             )
+
             for rid, (a, b) in route_terminals.items():
                 key = self._variant_key(a, b)
-                if a is None or b is None:
-                    variants_map[key]["0"].append(rid)
+
+                preferred_did = self._did_from_repo(rid, rrepo)
+                if preferred_did in ("0", "1"):
+                    variants_map[key][preferred_did].append(rid)
                 else:
-                    a0, b0 = key
-                    if a == a0 and b == b0:
+                    if a is None or b is None:
                         variants_map[key]["0"].append(rid)
                     else:
-                        variants_map[key]["1"].append(rid)
+                        a0, b0 = key
+                        if a == a0 and b == b0:
+                            variants_map[key]["0"].append(rid)
+                        else:
+                            variants_map[key]["1"].append(rid)
 
             variants: list[LineVariant] = []
             for (a0, b0), routes_by_dir in variants_map.items():
@@ -227,140 +389,6 @@ class LinesIndex:
                 for did, d in var.directions.items():
                     for rid in d.route_ids:
                         self._line_by_route[rid] = (lid, did)
-
-    def _read_trips(self) -> tuple[dict, dict, dict, dict]:
-        trips: dict[str, dict] = {}
-        headsigns: dict[str, str] = {}
-        trips_by_route: dict[str, list[str]] = defaultdict(list)
-        shapes_by_route: dict[str, set[str]] = defaultdict(set)
-
-        path = self._trips_csv
-        if not os.path.exists(path):
-            print(f"[LinesIndex] trips.txt NOT FOUND at: {path}")
-            return trips, shapes_by_route, headsigns, trips_by_route
-
-        delim = settings.GTFS_DELIMITER
-        enc = settings.GTFS_ENCODING
-        with open(path, encoding=enc, newline="") as f:
-            r = csv.DictReader(f, delimiter=delim)
-            for row in r:
-                tid = (row.get("trip_id") or "").strip()
-                if not tid:
-                    continue
-                trips[tid] = row
-                rid = (row.get("route_id") or "").strip()
-                sid = (row.get("shape_id") or "").strip()
-                if rid:
-                    trips_by_route[rid].append(tid)
-                if rid and sid:
-                    shapes_by_route[rid].add(sid)
-                headsigns[tid] = (row.get("trip_headsign") or "").strip()
-        return trips, shapes_by_route, headsigns, trips_by_route
-
-    def _read_stop_times_first_last(self) -> dict[str, tuple[str, str]]:
-        first_last: dict[str, tuple[str, str]] = {}
-        path = self._stop_times_csv
-        if not os.path.exists(path):
-            return first_last
-        delim = settings.GTFS_DELIMITER
-        enc = settings.GTFS_ENCODING
-        with open(path, encoding=enc, newline="") as f:
-            r = csv.DictReader(f, delimiter=delim)
-            if not {"trip_id", "stop_id", "stop_sequence"} <= set(r.fieldnames or []):
-                return first_last
-            cur: dict[str, tuple[int, str, int, str]] = {}
-            for row in r:
-                tid = (row.get("trip_id") or "").strip()
-                sid = (row.get("stop_id") or "").strip()
-                try:
-                    seq = int(row.get("stop_sequence") or 0)
-                except ValueError:
-                    continue
-                if not tid or not sid:
-                    continue
-                if tid not in cur:
-                    cur[tid] = (seq, sid, seq, sid)
-                else:
-                    mn_seq, mn_sid, mx_seq, mx_sid = cur[tid]
-                    if seq < mn_seq:
-                        mn_seq, mn_sid = seq, sid
-                    if seq > mx_seq:
-                        mx_seq, mx_sid = seq, sid
-                    cur[tid] = (mn_seq, mn_sid, mx_seq, mx_sid)
-            for tid, (_a, a, _b, b) in cur.items():
-                first_last[tid] = (a, b)
-        return first_last
-
-    def _variant_key(self, a: str | None, b: str | None) -> tuple[str | None, str | None]:
-        if a is None or b is None:
-            return (a, b)
-        return (a, b) if a <= b else (b, a)
-
-    def _terminals_for_route(
-        self,
-        route_id: str,
-        first_last: dict[str, tuple[str, str]],
-        trips: dict[str, dict],
-        rrepo,
-    ) -> tuple[str | None, str | None]:
-        for tid, row in trips.items():
-            if (row.get("route_id") or "").strip() != route_id:
-                continue
-            if tid in first_last:
-                return first_last[tid]
-        return self._terminals_for_route_from_RoutesRepo(route_id, rrepo)
-
-    def _terminals_for_route_from_RoutesRepo(
-        self, route_id: str, rrepo
-    ) -> tuple[str | None, str | None]:
-        lv_any = None
-        for cand in ("", "0", "1"):
-            lv_any = rrepo.get_by_route_and_dir(route_id, cand)
-            if lv_any:
-                break
-        if not lv_any or not lv_any.stations:
-            return None, None
-        a = (lv_any.stations[0].stop_id or "").strip()
-        b = (lv_any.stations[-1].stop_id or "").strip()
-        return (a or None), (b or None)
-
-    def _canonical_route_of_variant(
-        self, route_ids: list[str], dirs: dict[str, LineDirection], rrepo
-    ) -> str | None:
-        def _len_for_rid(rid: str) -> int:
-            for did in ("0", "1", ""):
-                lv = rrepo.get_by_route_and_dir(rid, did)
-                if lv:
-                    return len(lv.stations)
-            return 0
-
-        if not route_ids:
-            return None
-        return sorted(route_ids, key=lambda r: (-_len_for_rid(r), r))[0]
-
-    def _mark_canonical_variant(self, variants: list[LineVariant], rrepo) -> None:
-        def _score(var: LineVariant) -> int:
-            rid = var.canonical_route_id or (var.route_ids[0] if var.route_ids else "")
-            if not rid:
-                return 0
-            for did in ("0", "1", ""):
-                lv = rrepo.get_by_route_and_dir(rid, did)
-                if lv:
-                    return len(lv.stations)
-            return 0
-
-        if not variants:
-            return
-        best = max(variants, key=_score)
-        for i, v in enumerate(list(variants)):
-            variants[i] = LineVariant(
-                variant_id=v.variant_id,
-                terminals_sorted=v.terminals_sorted,
-                directions=v.directions,
-                route_ids=v.route_ids,
-                is_canonical=(v is best),
-                canonical_route_id=v.canonical_route_id,
-            )
 
     def list_lines(self) -> list[ServiceLine]:
         return sorted(

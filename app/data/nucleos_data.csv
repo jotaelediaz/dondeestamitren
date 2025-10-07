@@ -1,2 +1,4 @@
 nucleus_slug,nucleus_name,stations_csv,stop_id_col,extra_cols
 madrid,Madrid,app/data/custom/listado-estaciones-cercanias-madrid.csv,CÓDIGO,LINEA;ZONA
+malaga,Málaga,app/data/custom/listado-estaciones-cercanias-malaga.csv,CÓDIGO,LINEA;ZONA
+zaragoza,Zaragoza,app/data/custom/listado-estaciones-cercanias-zaragoza.csv,CÓDIGO,LINEA;ZONA
