@@ -53,7 +53,7 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlat = radians(lat2 - lat1)
     dlon = radians(lon2 - lon1)
     a = sin(dlat / 2.0) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2.0) ** 2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    c = 2 * atan2(sqrt(1 - a), sqrt(a))
     return R * c
 
 
@@ -121,6 +121,7 @@ def home(request: Request):
         {
             "nuclei": nuclei,
             "last_snapshot": cache.last_snapshot_iso(),
+            "live_source": cache.last_source(),
         },
     )
 
@@ -179,7 +180,8 @@ def route_page_by_id(
     if (route.nucleus_id or "").lower() != nucleus:
         raise HTTPException(404, f"That route doesn't belong to nucleus {nucleus}")
 
-    trains = get_live_trains_cache().get_by_nucleus_and_route(nucleus, route_id)
+    cache = get_live_trains_cache()
+    trains = cache.get_by_nucleus_and_route(nucleus, route_id)
 
     return render(
         request,
@@ -189,6 +191,7 @@ def route_page_by_id(
             "nucleus": mk_nucleus(nucleus),
             "trains": trains,
             "repo": repo,
+            "last_snapshot": cache.last_snapshot_iso(),
         },
     )
 
@@ -269,6 +272,7 @@ def line_detail_page(request: Request, nucleus: str, line_id: str):
             "line": line,
             "repo": repo,
             "trains": trains,
+            "last_snapshot": live_trains.last_snapshot_iso(),
         },
     )
 
@@ -331,6 +335,8 @@ def stop_detail(
     stop = sorted(candidates, key=lambda x: x.seq)[0]
     nearest = stops_repo.nearest_trains(route_id, stop, limit=6)
 
+    cache = get_live_trains_cache()
+
     return render(
         request,
         "stop_detail.html",
@@ -340,6 +346,7 @@ def stop_detail(
             "stop": stop,
             "nearest_trains": nearest,
             "repo": repo,
+            "last_snapshot": cache.last_snapshot_iso(),
         },
     )
 
@@ -406,7 +413,6 @@ def stations_list(
     nucleus = (nucleus or "").lower()
     nuclei = routes_repo.list_nuclei()
 
-    # --- Details ---
     if station_id:
         st = stations_repo.get_by_nucleus_and_id(nucleus, station_id)
         if not st:
@@ -434,7 +440,8 @@ def stations_list(
         route_ids_union = set()
         for it in serving_lines:
             route_ids_union.update(idx.route_ids_for_line(it["line_id"]))
-        live_all = get_live_trains_cache().get_by_nucleus(nucleus)
+        cache = get_live_trains_cache()
+        live_all = cache.get_by_nucleus(nucleus)
         live_trains = [t for t in live_all if getattr(t, "route_id", None) in route_ids_union]
 
         return render(
@@ -448,10 +455,10 @@ def stations_list(
                 "live_trains": live_trains,
                 "repo": routes_repo,
                 "index": idx,
+                "last_snapshot": cache.last_snapshot_iso(),
             },
         )
 
-    # --- List ---
     stations = stations_repo.list_by_nucleus(nucleus)
     eff_limit = _effective_station_limit(limit, q=q, lat=lat, lon=lon, default_all=50)
     stations = _filter_sort_stations(stations, q=q, lat=lat, lon=lon, limit=eff_limit)
@@ -497,6 +504,7 @@ def trains_list(request: Request):
             "nuclei": nuclei,
             "nucleus_lookup": nucleus_lookup,
             "repo": repo,
+            "live_source": cache.last_source(),
         },
     )
 
@@ -518,6 +526,7 @@ def trains_by_nucleus(request: Request, nucleus: str):
             "last_snapshot": cache.last_snapshot_iso(),
             "repo": repo,
             "nucleus": mk_nucleus(nucleus),
+            "live_source": cache.last_source(),
         },
     )
 
@@ -539,5 +548,6 @@ def train_detail(request: Request, nucleus: str, train_id: str):
             "last_snapshot": cache.last_snapshot_iso(),
             "repo": repo,
             "nucleus": mk_nucleus(nucleus),
+            "live_source": cache.last_source(),
         },
     )

@@ -1,53 +1,54 @@
-# app/services/renfe_client.py
 from __future__ import annotations
 
-import json
-from typing import Any
+import gzip
 
-import httpx
+import requests
+from google.transit import gtfs_realtime_pb2
 
 from app.config import settings
 
 
 class RenfeClient:
-    def __init__(self, base_url: str | None = None, timeout_s: float | None = None):
-        effective_base = base_url or getattr(settings, "RENFE_API_BASE", None) or ""
-        self.base_url: str = str(effective_base)
-        self.timeout: float = float(
-            timeout_s if timeout_s is not None else settings.REQUEST_TIMEOUT_S
+    def __init__(
+        self,
+        pb_url: str | None = None,
+        json_url: str | None = None,
+        timeout: float = 7.0,
+    ):
+        self.pb_url = (
+            pb_url or getattr(settings, "RENFE_VEHICLE_POSITIONS_PB_URL", "") or ""
+        ).strip()
+        self.json_url = (
+            json_url or getattr(settings, "RENFE_VEHICLE_POSITIONS_JSON_URL", "") or ""
+        ).strip()
+        self.timeout = float(getattr(settings, "RENFE_HTTP_TIMEOUT", None) or timeout or 7.0)
+
+        self._session = requests.Session()
+        self._session.headers.update(
+            {
+                "Accept-Encoding": "gzip, deflate, br",
+                "User-Agent": "dondeestamitren/1.0",
+            }
         )
-        self._client: httpx.Client | None = None
 
-    @property
-    def client(self) -> httpx.Client:
-        if self._client is None:
-            self._client = httpx.Client(
-                timeout=self.timeout,
-            )
-        return self._client
+    def fetch_trains_pb(self) -> gtfs_realtime_pb2.FeedMessage:
+        if not self.pb_url:
+            raise RuntimeError("RENFE_VEHICLE_POSITIONS_PB_URL no está configurada")
+        r = self._session.get(self.pb_url, timeout=self.timeout)
+        r.raise_for_status()
+        content = r.content
+        if r.headers.get("Content-Encoding", "").lower() == "gzip":
+            content = gzip.decompress(content)
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.ParseFromString(content)
+        return feed
 
-    def close(self) -> None:
-        if self._client is not None:
-            try:
-                self._client.close()
-            finally:
-                self._client = None
-
-    def fetch_raw_json(self) -> Any | None:
-        if not self.base_url:
-            return None
-        try:
-            r = self.client.get(self.base_url)
-            r.raise_for_status()
-            try:
-                return r.json()
-            except ValueError:
-                return json.loads(r.text)
-        except httpx.HTTPError:
-            return None
-
-    def fetch_trains_raw(self) -> Any | None:
-        return self.fetch_raw_json()
+    def fetch_trains_raw(self) -> dict:
+        if not self.json_url:
+            raise RuntimeError("RENFE_VEHICLE_POSITIONS_JSON_URL no está configurada")
+        r = self._session.get(self.json_url, timeout=self.timeout)
+        r.raise_for_status()
+        return r.json()
 
 
 _client_singleton: RenfeClient | None = None

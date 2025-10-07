@@ -1,14 +1,14 @@
 # app/config.py
 from __future__ import annotations
 
-from pydantic import AnyHttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # --- App / Renfe ---
-    RENFE_API_BASE: AnyHttpUrl | None = None
-    REQUEST_TIMEOUT_S: float = 10.0
+    # --- API / Renfe ---
+    RENFE_VEHICLE_POSITIONS_PB_URL: str | None = None
+    RENFE_VEHICLE_POSITIONS_JSON_URL: str | None = None
+    RENFE_HTTP_TIMEOUT: float = 7.0
     POLL_SECONDS: int = 8
     POLL_JITTER_S: int = 0
 

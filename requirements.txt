@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+requests>=2.31.0
 httpx
 pydantic
 pydantic-settings
@@ -7,3 +8,4 @@ jinja2
 python-dotenv
 apscheduler
 asgiref
+gtfs-realtime-bindings>=1.0.0

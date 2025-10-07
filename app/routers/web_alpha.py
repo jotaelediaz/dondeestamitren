@@ -34,6 +34,7 @@ def home(request: Request):
             "request": request,
             "nuclei": nuclei,
             "last_snapshot": cache.last_snapshot_iso(),
+            "last_source": cache.last_source(),
         },
     )
 
@@ -85,6 +86,7 @@ def route_page_by_id(
     request: Request, nucleus: str, route_id: str, direction_id: str = Query(default="")
 ):
     repo = get_routes_repo()
+    cache = get_live_trains_cache()
     nucleus = (nucleus or "").lower()
     route = repo.get_by_route_and_dir(route_id, direction_id or "")
     if not route:
@@ -92,7 +94,7 @@ def route_page_by_id(
     if (route.nucleus_id or "").lower() != nucleus:
         raise HTTPException(404, f"That route doesn't belong to nucleus {nucleus}")
 
-    trains = get_live_trains_cache().get_by_nucleus_and_route(nucleus, route_id)
+    trains = cache.get_by_nucleus_and_route(nucleus, route_id)
 
     return templates.TemplateResponse(
         "route_detail.html",
@@ -102,6 +104,8 @@ def route_page_by_id(
             "nucleus": mk_nucleus(nucleus, repo),
             "trains": trains,
             "repo": repo,
+            "last_source": cache.last_source(),
+            "last_snapshot": cache.last_snapshot_iso(),
         },
     )
 
@@ -146,7 +150,7 @@ def lines_by_nucleus(request: Request, nucleus: str):
 def line_detail_page(request: Request, nucleus: str, line_id: str):
     repo = get_routes_repo()
     idx = get_lines_index()
-    live_trains = get_live_trains_cache()
+    cache = get_live_trains_cache()
     nucleus = (nucleus or "").lower()
 
     line = idx.get_line(line_id)
@@ -156,9 +160,7 @@ def line_detail_page(request: Request, nucleus: str, line_id: str):
         raise HTTPException(404, f"That line doesn't belong to nucleus {nucleus}")
 
     route_ids = set(idx.route_ids_for_line(line_id))
-    trains = [
-        t for t in live_trains.get_by_nucleus(nucleus) if getattr(t, "route_id", None) in route_ids
-    ]
+    trains = [t for t in cache.get_by_nucleus(nucleus) if getattr(t, "route_id", None) in route_ids]
 
     return templates.TemplateResponse(
         "line_detail.html",
@@ -168,6 +170,8 @@ def line_detail_page(request: Request, nucleus: str, line_id: str):
             "line": line,
             "repo": repo,
             "trains": trains,
+            "last_source": cache.last_source(),
+            "last_snapshot": cache.last_snapshot_iso(),
         },
     )
 
@@ -210,11 +214,11 @@ def stop_detail(
     route_id: str,
     station_id: str,
 ):
-    repo = get_routes_repo()
-    stops_repo = get_stops_repo()
+    routes_repo = get_routes_repo()
+    stations_repo = get_stations_repo()
     nucleus = (nucleus or "").lower()
 
-    route = repo.get_by_route_and_dir(route_id, "")
+    route = routes_repo.get_by_route_and_dir(route_id, "")
     if not route:
         raise HTTPException(404, f"Route {route_id} not found")
     if (route.nucleus_id or "").lower() != nucleus:
@@ -222,28 +226,49 @@ def stop_detail(
 
     candidates = [
         s
-        for s in stops_repo.list_by_station(nucleus, station_id)
+        for s in stations_repo.list_by_station(nucleus, station_id)
         if s.route_id == route_id and s.direction_id == route.direction_id
     ]
     if not candidates:
         raise HTTPException(404, f"Station {station_id} not found in route {route_id}")
     stop = sorted(candidates, key=lambda x: x.seq)[0]
-    nearest = stops_repo.nearest_trains(route_id, stop, limit=6)
+    nearest = get_stops_repo().nearest_trains(route_id, stop, limit=6)
 
     return templates.TemplateResponse(
         "stop_detail.html",
         {
             "request": request,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus, routes_repo),
             "route": route,
             "stop": stop,
             "nearest_trains": nearest,
-            "repo": repo,
+            "repo": routes_repo,
         },
     )
 
 
 # --- STATIONS ---
+
+
+@router.get("/stations", response_class=HTMLResponse)
+def stations_all(request: Request):
+    routes_repo = get_routes_repo()
+    stations_repo = get_stations_repo()
+    nuclei = routes_repo.list_nuclei()
+    all_stations = []
+    for n in nuclei:
+        slug = (n.get("slug") or "").strip().lower()
+        if slug:
+            all_stations.extend(stations_repo.list_by_nucleus(slug))
+    return templates.TemplateResponse(
+        "stations.html",
+        {
+            "request": request,
+            "nucleus": None,
+            "stations": all_stations,
+            "repo": routes_repo,
+        },
+    )
 
 
 @router.get("/stations/{nucleus}", response_class=HTMLResponse)
@@ -265,6 +290,7 @@ def stations_by_nucleus(request: Request, nucleus: str):
 def station_detail_by_id(request: Request, nucleus: str, station_id: str):
     routes_repo = get_routes_repo()
     idx = get_lines_index()
+    cache = get_live_trains_cache()
     nucleus = (nucleus or "").lower()
     stations_repo = get_stations_repo()
 
@@ -294,7 +320,7 @@ def station_detail_by_id(request: Request, nucleus: str, station_id: str):
     route_ids_union = set()
     for it in serving_lines:
         route_ids_union.update(get_lines_index().route_ids_for_line(it["line_id"]))
-    live_all = get_live_trains_cache().get_by_nucleus(nucleus)
+    live_all = cache.get_by_nucleus(nucleus)
     live_trains = [t for t in live_all if getattr(t, "route_id", None) in route_ids_union]
 
     return templates.TemplateResponse(
@@ -307,6 +333,8 @@ def station_detail_by_id(request: Request, nucleus: str, station_id: str):
             "live_trains": live_trains,
             "repo": routes_repo,
             "index": get_lines_index(),
+            "last_source": cache.last_source(),
+            "last_snapshot": cache.last_snapshot_iso(),
         },
     )
 
@@ -331,6 +359,7 @@ def trains_list(request: Request):
             "request": request,
             "trains": trains,
             "last_snapshot": cache.last_snapshot_iso(),
+            "last_source": cache.last_source(),
             "nuclei": nuclei,
             "nucleus_lookup": nucleus_lookup,
             "repo": repo,
@@ -353,6 +382,7 @@ def trains_by_nucleus(request: Request, nucleus: str):
             "request": request,
             "trains": trains,
             "last_snapshot": cache.last_snapshot_iso(),
+            "last_source": cache.last_source(),
             "repo": repo,
             "nucleus": mk_nucleus(nucleus, repo),
         },
@@ -374,6 +404,7 @@ def train_detail(request: Request, nucleus: str, train_id: str):
             "request": request,
             "train": train,
             "last_snapshot": cache.last_snapshot_iso(),
+            "last_source": cache.last_source(),
             "repo": repo,
             "nucleus": mk_nucleus(nucleus, repo),
         },
