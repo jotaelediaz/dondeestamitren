@@ -366,6 +366,7 @@ main {
     justify-content: center;
     width: 100%;
     box-sizing: border-box;
+    gap: var(--app-margin);
 }
 
 .search-box-wrapper {
@@ -376,7 +377,8 @@ main {
     background: var(--jotaele-white);
     font-family: 'Rubik', sans-serif;
     border-radius: 10px;
-    height: 2rem;
+    height: 1.7rem;
+    min-width: 0;
     width: 100%;
     padding: calc(var(--app-margin) / 1.5);
 }
@@ -416,22 +418,22 @@ main {
     padding: 0;
 }
 
-.search-box-wrapper .nearby-btn {
+.search-station-box .nearby-btn {
     display: flex;
     flex: 0 0 auto;
-    line-height: 1.6em;
+    line-height: normal;
+    align-items: center;
     justify-content: center;
-    height: 2rem;
-    width: 2rem;
+    height: 2.5rem;
+    width: 2.5rem;
     background: var(--jotaele-button-grey);
     border: 0;
     border-radius: 100%;
     box-shadow: none;
-    font-size: 1.3rem;
+    font-size: 1.6rem;
     color: var(--jotaele-white);
     transition: ease 0.3s;
     padding: 0;
-    margin-left: 0.3em;
 }
 
 .search-box-wrapper .nearby-btn:hover,
@@ -577,13 +579,12 @@ ul.chip-list {
     flex-direction: column;
     flex: 1 1 auto;
     gap: var(--app-margin);
-    padding: 0 0;
     list-style: none;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-    margin: 0 0 calc(var(--bottom-nav-height) + (var(--app-margin) * 1.5));
+    margin: 0 0;
+    padding: 0 0 calc(var(--bottom-nav-height) + (var(--app-margin) * 1.5));
     contain: paint;
 }
 
@@ -605,6 +606,7 @@ ul.chip-list {
     width: 100%;
     padding: calc(var(--app-margin) * 1.1) var(--app-margin);
     min-height: 4rem;
+    min-width: 0;
 }
 
 .chip-card .chip-main {
@@ -614,6 +616,7 @@ ul.chip-list {
     justify-content: space-between;
     flex: 1 1 auto;
     gap: calc(var(--app-margin) / 1);
+    min-width: 0;
 }
 
 .chip-card .chip-icon {
@@ -635,6 +638,7 @@ ul.chip-list {
     flex-direction: column;
     flex: 1 1 auto;
     gap: calc(var(--app-margin) / 3);
+    min-width: 0;
 }
 
 .chip-card .chip-name {
@@ -667,17 +671,17 @@ ul.chip-list {
     color: var(--jotaele-text-grey);
     margin: 0 0;
     padding: 0 0;
-    gap: calc(var(--app-margin) / 2);
+    gap: calc(var(--app-margin) / 3);
 }
 
-.station-card .station-meta .station-lines {
+.station-card .station-meta .station-badge {
     display: flex;
     flex-direction: row;
     align-items: center;
     gap: 0.2rem;
 }
 
-.station-card .station-meta .station-lines img {
+.station-card .station-meta .station-badge img {
     display: flex;
     height: 1rem;
     width: auto;
@@ -689,7 +693,22 @@ ul.chip-list {
     background: var(--line-color, var(--jotaele-button-grey))
 }
 
+.line-card .line-name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
 
+.line-card .line-name .line-terminal-name {
+    flex: 0 1 auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
 
 /* -- Config menu -- */
 

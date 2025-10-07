@@ -37,7 +37,12 @@
 										<h3 class="station-name chip-name">{{ st.name }}</h3>
 										<div class="station-meta chip-subtitle">
 											{% if not nucleus and st.nucleus_id %}<span class="station-nucleus">{{ (nuclei | selectattr('slug', 'equalto', st.nucleus_id) | first).name }}</span>{% endif %}
-											{% if has_cercanias_line %}<span class="station-lines"><img alt="Cercanías" src="/static/img/icon-cercanias.svg"></span>{% endif %}
+											{% if has_cercanias_line %}<span class="station-badge cercanias-badge"><img alt="Cercanías" src="/static/img/icon-cercanias.svg"></span>{% endif %}
+											{% if st.metro_lines %}<span class="station-badge metro-badge"><img alt="Metro" src="/static/img/icon-metro-madrid.svg"></span>{% endif %}
+											{% if st.metro_ligero_lines %}<span class="station-badge metro-ligero-badge"><img alt="Metro Ligero" src="/static/img/icon-metro-ligero-madrid.svg"></span>{% endif %}
+											{% if st.cor_tren_ld %}<span class="station-badge tren-badge"><img alt="Trenes de larga y media distancia" src="/static/img/icon-train-station-renfe.svg"></span>{% endif %}
+											{% if st.cor_bus %}<span class="station-badge bus-badge"><img alt="Estación de autobuses" src="/static/img/icon-bus-renfe.svg"></span>{% endif %}
+											{% if st.cor_aeropuerto %}<span class="station-badge aeropuerto-badge"><img alt="Aeropuerto" src="/static/img/icon-airport-renfe.svg"></span>{% endif %}
 										</div>
 								</div>
 								<div class="station-chip-more chip-more"><i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i></div>

@@ -85,6 +85,26 @@ def _filter_sort_stations(
     return stations[: max(1, int(limit or 50))]
 
 
+def _effective_station_limit(
+    limit: int | None,
+    q: str | None,
+    lat: float | None,
+    lon: float | None,
+    default_all: int,
+) -> int:
+    if isinstance(limit, int) and limit > 0:
+        return limit
+    has_coords = (lat is not None) and (lon is not None)
+    has_q = bool((q or "").strip())
+    if has_coords and not has_q:
+        return 3
+    if has_q and not has_coords:
+        return 10
+    if has_q and has_coords:
+        return 10
+    return default_all
+
+
 # --- HOME ---
 
 
@@ -319,7 +339,7 @@ def stations_all_list(
     q: str | None = Query(default=None, description="Búsqueda por nombre o código"),
     lat: float | None = Query(default=None),
     lon: float | None = Query(default=None),
-    limit: int = Query(default=200, ge=1, le=1000),
+    limit: int | None = Query(default=None, ge=1, le=1000),
 ):
     routes_repo = get_routes_repo()
     stations_repo = get_stations_repo()
@@ -333,7 +353,8 @@ def stations_all_list(
             slugs.append(slug)
             all_stations.extend(stations_repo.list_by_nucleus(slug))
 
-    stations = _filter_sort_stations(all_stations, q=q, lat=lat, lon=lon, limit=limit)
+    eff_limit = _effective_station_limit(limit, q=q, lat=lat, lon=lon, default_all=200)
+    stations = _filter_sort_stations(all_stations, q=q, lat=lat, lon=lon, limit=eff_limit)
 
     station_lines_lookup: dict[str, dict[str, list]] = {}
     for slug in slugs:
@@ -363,7 +384,7 @@ def stations_list(
     q: str | None = Query(default=None, description="Texto: nombre o código"),
     lat: float | None = Query(default=None),
     lon: float | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=500),
+    limit: int | None = Query(default=None, ge=1, le=500),
 ):
     routes_repo = get_routes_repo()
     stations_repo = get_stations_repo()
@@ -418,7 +439,8 @@ def stations_list(
 
     # --- List ---
     stations = stations_repo.list_by_nucleus(nucleus)
-    stations = _filter_sort_stations(stations, q=q, lat=lat, lon=lon, limit=limit)
+    eff_limit = _effective_station_limit(limit, q=q, lat=lat, lon=lon, default_all=50)
+    stations = _filter_sort_stations(stations, q=q, lat=lat, lon=lon, limit=eff_limit)
 
     station_lines_map = stations_repo.get_lines_map_for_nucleus(nucleus, max_lines=6)
 

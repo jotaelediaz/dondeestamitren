@@ -131,6 +131,10 @@ class LinesIndex:
                     variants=variants,
                     color_bg=bg,
                     color_fg=fg,
+                    canonical_route_id=canonical_rid_for_line,
+                    canonical_variant_id=next(
+                        (v.variant_id for v in variants if v.is_canonical), None
+                    ),
                 )
                 lines[shape_id] = line_obj
 
@@ -210,6 +214,8 @@ class LinesIndex:
                 variants=variants,
                 color_bg=bg,
                 color_fg=fg,
+                canonical_route_id=canonical_rid_for_line,
+                canonical_variant_id=next((v.variant_id for v in variants if v.is_canonical), None),
             )
             lines_fallback[line_id] = line_obj
 

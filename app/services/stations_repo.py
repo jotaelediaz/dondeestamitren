@@ -37,6 +37,26 @@ def _fnum(s: str | None) -> float:
         return 0.0
 
 
+# --- helpers ---
+
+
+def _split_cor_lines(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    s = str(value).replace(",", " ").strip()
+    if not s:
+        return ()
+    parts = [p.strip() for p in s.split() if p.strip()]
+    return tuple(parts)
+
+
+def _truthy(value) -> bool:
+    if value is None:
+        return False
+    s = str(value).strip().lower()
+    return s in {"1", "true", "t", "yes", "y", "si", "sí", "x"}
+
+
 class StationsRepo:
 
     def __init__(self, stops_csv: str):
@@ -49,12 +69,17 @@ class StationsRepo:
         self._by_slug: dict[tuple[str, str], Station] = {}
         self._by_stop_id: dict[tuple[str, str], Station] = {}
         self._by_nucleus: dict[str, list[Station]] = defaultdict(list)
+
         self._station_lines_cache: dict[tuple[str, str], list] = {}
+        self._correspondences: dict[str, dict] = {}
 
     def load(self) -> None:
         self._read_stops_once()
+        self._load_correspondences_map()  # ahora lee de route_stations.csv
         self._build_indexes_by_nucleus()
         self._station_lines_cache.clear()
+
+    # ---------- stops.csv → Group by station (parent_station) ----------
 
     def _read_stops_once(self) -> None:
         self._groups.clear()
@@ -80,6 +105,56 @@ class StationsRepo:
                 if stop_id:
                     self._stop_to_group[stop_id] = sid
 
+    # ---------- Correspondences from derived/route_stations.csv ----------
+
+    def _derived_route_stations_path(self) -> str:
+        path = getattr(settings, "DERIVED_ROUTE_STATIONS_CSV", "") or ""
+        if path:
+            return os.path.abspath(path)
+        here = os.path.abspath(os.path.dirname(__file__))
+        app_root = os.path.abspath(os.path.join(here, ".."))
+        return os.path.join(app_root, "data", "derived", "route_stations.csv")
+
+    def _load_correspondences_map(self) -> None:
+        self._correspondences = {}
+        path = self._derived_route_stations_path()
+        if not os.path.exists(path):
+            return
+
+        acc: dict[str, dict] = {}
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            r = csv.DictReader(f)
+            for row in r:
+                sid = (row.get("station_id") or row.get("stop_id") or "").strip()
+                if not sid:
+                    continue
+                d = acc.setdefault(
+                    sid,
+                    {
+                        "metro": set(),
+                        "ml": set(),
+                        "aeropuerto": False,
+                        "bus": False,
+                        "tren_ld": False,
+                    },
+                )
+                d["metro"].update(_split_cor_lines(row.get("cor_metro")))
+                d["ml"].update(_split_cor_lines(row.get("cor_metro_ligero")))
+                d["aeropuerto"] = d["aeropuerto"] or _truthy(row.get("cor_aeropuerto"))
+                d["bus"] = d["bus"] or _truthy(row.get("cor_bus"))
+                d["tren_ld"] = d["tren_ld"] or _truthy(row.get("cor_tren_ld"))
+
+        for sid, v in acc.items():
+            self._correspondences[sid] = {
+                "metro": tuple(sorted(v["metro"], key=lambda x: (len(x), x))),  # orden estable
+                "ml": tuple(sorted(v["ml"], key=lambda x: (len(x), x))),
+                "aeropuerto": bool(v["aeropuerto"]),
+                "bus": bool(v["bus"]),
+                "tren_ld": bool(v["tren_ld"]),
+            }
+
+    # ---------- Build indexes by nucleus ----------
+
     def _build_indexes_by_nucleus(self) -> None:
         self._by_id.clear()
         self._by_slug.clear()
@@ -89,7 +164,7 @@ class StationsRepo:
         from app.services.routes_repo import get_repo as get_lines_repo
 
         lrepo = get_lines_repo()
-        nuclei = lrepo.list_nuclei()  # [{slug, name}, ...]
+        nuclei = lrepo.list_nuclei()
 
         for n in nuclei:
             slug = (n["slug"] or "").strip().lower()
@@ -135,6 +210,7 @@ class StationsRepo:
 
                 station_slug = _slugify(name) or _slugify(sid)
 
+                corr = self._correspondences.get(sid) or {}
                 st = Station(
                     station_id=sid,
                     name=name or sid,
@@ -144,6 +220,11 @@ class StationsRepo:
                     city=None,
                     address=None,
                     slug=station_slug,
+                    metro_lines=tuple(corr.get("metro") or ()),
+                    metro_ligero_lines=tuple(corr.get("ml") or ()),
+                    cor_aeropuerto=bool(corr.get("aeropuerto")),
+                    cor_bus=bool(corr.get("bus")),
+                    cor_tren_ld=bool(corr.get("tren_ld")),
                 )
 
                 self._by_id[(slug, sid)] = st
@@ -157,6 +238,8 @@ class StationsRepo:
 
             stations.sort(key=lambda s: s.name.lower())
             self._by_nucleus[slug] = stations
+
+    # ---------- API ----------
 
     def list_by_nucleus(self, nucleus_slug: str) -> list[Station]:
         return list(self._by_nucleus.get((nucleus_slug or "").strip().lower(), []))
@@ -178,6 +261,9 @@ class StationsRepo:
             return []
         res = [st for st in self.list_by_nucleus(nucleus_slug) if s in st.name.lower()]
         return res[:limit]
+
+    def get_correspondences(self, station_id: str) -> dict:
+        return dict(self._correspondences.get((station_id or "").strip(), {}))
 
     def get_lines(
         self,

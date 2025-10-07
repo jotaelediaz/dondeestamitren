@@ -1,8 +1,9 @@
 # app/domain/models.py
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import asin, cos, radians, sin, sqrt
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,46 @@ class LineRoute:
         x = max(0.0, min(km, self.length_km))
         return x / self.length_km
 
+    @property
+    def has_stations(self) -> bool:
+        return bool(self.stations)
+
+    @property
+    def origin(self) -> StationOnLine | None:
+        """Primera estación según el orden de carga (seq)."""
+        return self.stations[0] if self.stations else None
+
+    @property
+    def destination(self) -> StationOnLine | None:
+        """Última estación según el orden de carga (seq)."""
+        return self.stations[-1] if self.stations else None
+
+    @property
+    def origin_id(self) -> str | None:
+        return self.origin.stop_id if self.origin else None
+
+    @property
+    def destination_id(self) -> str | None:
+        return self.destination.stop_id if self.destination else None
+
+    @property
+    def origin_name(self) -> str | None:
+        return self.origin.stop_name if self.origin else None
+
+    @property
+    def destination_name(self) -> str | None:
+        return self.destination.stop_name if self.destination else None
+
+    @property
+    def terminals(self) -> tuple[str | None, str | None]:
+        """Devuelve (stop_id_A, stop_id_B)."""
+        return self.origin_id, self.destination_id
+
+    @property
+    def terminals_names(self) -> tuple[str | None, str | None]:
+        """Devuelve (nombre_A, nombre_B)."""
+        return self.origin_name, self.destination_name
+
 
 @dataclass(frozen=True)
 class Station:
@@ -47,6 +88,11 @@ class Station:
     city: str | None = None
     address: str | None = None
     slug: str | None = None
+    metro_lines: tuple[str, ...] = ()
+    metro_ligero_lines: tuple[str, ...] = ()
+    cor_aeropuerto: bool = False
+    cor_bus: bool = False
+    cor_tren_ld: bool = False
 
 
 @dataclass(frozen=True)
@@ -101,11 +147,39 @@ class LineVariant:
     canonical_route_id: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class ServiceLine:
     line_id: str
-    short_name: str
-    nucleus_id: str
+    short_name: str | None
+    nucleus_id: str | None
     variants: list[LineVariant]
     color_bg: str | None = None
     color_fg: str | None = None
+
+    canonical_route_id: str | None = None
+    canonical_variant_id: str | None = None
+
+    _canonical_route_cache: Any = field(default=None, repr=False, compare=False)
+
+    @property
+    def canonical_route(self) -> LineRoute | None:
+        if self._canonical_route_cache is not None:
+            return self._canonical_route_cache
+
+        rid = (self.canonical_route_id or "").strip()
+        if not rid:
+            self._canonical_route_cache = None
+            return None
+
+        from app.services.routes_repo import get_repo as get_routes_repo
+
+        rrepo = get_routes_repo()
+
+        for did in ("", "0", "1"):
+            lv = rrepo.get_by_route_and_dir(rid, did)
+            if lv:
+                self._canonical_route_cache = lv
+                return lv
+
+        self._canonical_route_cache = None
+        return None

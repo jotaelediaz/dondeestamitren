@@ -10,72 +10,78 @@
         if (!form || upgradedForms.has(form)) return;
         upgradedForms.add(form);
 
-        // Hidden lat/lon
-        let latEl = form.querySelector('input[name="lat"]');
-        let lonEl = form.querySelector('input[name="lon"]');
-        if (!latEl) { latEl = document.createElement('input'); latEl.type = 'hidden'; latEl.name = 'lat'; form.appendChild(latEl); }
-        if (!lonEl) { lonEl = document.createElement('input'); lonEl.type = 'hidden'; lonEl.name = 'lon'; form.appendChild(lonEl); }
-
+        const qInput    = form.querySelector('input[name="q"]');
         const nearbyBtn = form.querySelector('.nearby-btn');
+
+        const removeLatLon = () => {
+            form.querySelectorAll('input[name="lat"], input[name="lon"]').forEach(el => el.remove());
+        };
+
+        const addHidden = (name, value) => {
+            const el = document.createElement('input');
+            el.type  = 'hidden';
+            el.name  = name;
+            el.value = value;
+            form.appendChild(el);
+            return el;
+        };
+
+        qInput?.addEventListener('input', removeLatLon);
+
+        form.addEventListener('submit', () => {
+            form.querySelectorAll('input[name="lat"], input[name="lon"]').forEach(el => {
+                if (!el.value || Number.isNaN(Number(el.value))) el.remove();
+            });
+            if (qInput && qInput.value.trim() !== '') removeLatLon();
+        });
+
         if (nearbyBtn && !boundButtons.has(nearbyBtn)) {
             boundButtons.add(nearbyBtn);
-            nearbyBtn.addEventListener('click', function () {
-                const qInput = form.querySelector('input[name="q"]');
 
-                let prevRequired = null;
-                if (qInput) {
-                    prevRequired = qInput.required;
-                    qInput.required = false;
-                    qInput.value = '';
-                }
-                form.setAttribute('novalidate', 'novalidate');
-
+            nearbyBtn.addEventListener('click', (ev) => {
+                ev.preventDefault();
                 if (!('geolocation' in navigator)) {
                     alert('Tu navegador no soporta geolocalización.');
-                    // restaura required si hicimos cambios
-                    if (qInput && prevRequired !== null) qInput.required = prevRequired;
-                    form.removeAttribute('novalidate');
                     return;
                 }
 
-                const prev = nearbyBtn.textContent;
+                const wasRequired = qInput?.required ?? false;
+                if (qInput) {
+                    qInput.required = false;
+                    qInput.value = ''; // búsqueda exclusivamente por proximidad
+                }
+                form.setAttribute('novalidate', 'novalidate');
+
+                const prevDisabled = nearbyBtn.disabled;
                 nearbyBtn.disabled = true;
 
                 navigator.geolocation.getCurrentPosition(
-                    function (pos) {
+                    (pos) => {
                         const { latitude, longitude } = pos.coords || {};
                         if (latitude == null || longitude == null) {
-                            alert('No se pudo obtener la ubicación.');
-                            nearbyBtn.disabled = false;
-                            nearbyBtn.textContent = prev;
-                            if (qInput && prevRequired !== null) qInput.required = prevRequired;
-                            form.removeAttribute('novalidate');
-                            return;
+                            throw new Error('No se pudo obtener la ubicación.');
                         }
-                        latEl.value = latitude;
-                        lonEl.value = longitude;
-                        form.submit();
+
+                        removeLatLon();
+                        const lat = Number(latitude.toFixed(6));
+                        const lon = Number(longitude.toFixed(6));
+                        addHidden('lat', String(lat));
+                        addHidden('lon', String(lon));
+
+                        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                        else form.submit();
                     },
-                    function (err) {
+                    (err) => {
                         console.error(err);
                         alert('No se pudo obtener la ubicación (permiso denegado o error).');
-                        nearbyBtn.disabled = false;
-                        nearbyBtn.textContent = prev;
-                        if (qInput && prevRequired !== null) qInput.required = prevRequired;
+                        if (qInput) qInput.required = wasRequired;
                         form.removeAttribute('novalidate');
+                        nearbyBtn.disabled = prevDisabled;
                     },
                     { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
                 );
             });
         }
-
-        form.addEventListener('submit', function () {
-            const qInput = form.querySelector('input[name="q"]');
-            if (qInput && qInput.value.trim() !== '') {
-                latEl.value = '';
-                lonEl.value = '';
-            }
-        });
     }
 
     function bindSideSheet(root = document) {

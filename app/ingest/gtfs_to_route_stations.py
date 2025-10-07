@@ -1,4 +1,3 @@
-# app/ingest/gtfs_to_route_stations.py
 from __future__ import annotations
 
 import csv
@@ -59,6 +58,22 @@ def to_float(value: str) -> float | None:
         return None
 
 
+def _truthy(s: str | None) -> bool:
+    if not s:
+        return False
+    return (s or "").strip().lower() in {"true", "t", "1", "sí", "si", "x", "y"}
+
+
+def _split_lines(s: str | None) -> list[str]:
+    if not s:
+        return []
+    # En tu fichero van separadas por espacios, pero aceptamos coma también
+    return [p for p in (s or "").replace(",", " ").split() if p]
+
+
+# ---- Data classes ----
+
+
 @dataclass
 class RouteInfo:
     route_id: str
@@ -72,6 +87,14 @@ class StopInfo:
     name: str
     lat: float
     lon: float
+    parent_station: str | None = None
+    location_type: str | None = None
+
+
+def canonical_station_id(stop: StopInfo) -> str:
+    if (stop.location_type == "1") and not stop.parent_station:
+        return stop.stop_id
+    return stop.parent_station or stop.stop_id
 
 
 # ---- Load GTFS ----
@@ -92,9 +115,6 @@ def load_routes(routes_path: str, delim: str, enc: str) -> dict[str, RouteInfo]:
 
 
 def load_trips(trips_path: str, delim: str, enc: str) -> dict[str, tuple[str, str]]:
-    """
-    Returns trip_id -> (route_id, direction_id)
-    """
     trips = {}
     for t in read_csv_dicts(trips_path, delim, enc):
         trip_id = t.get("trip_id")
@@ -117,7 +137,14 @@ def load_stops(stops_path: str, delim: str, enc: str) -> dict[str, StopInfo]:
         if lat is None or lon is None:
             continue
         name = (s.get("stop_name") or "").strip()
-        stops[stop_id] = StopInfo(stop_id=stop_id, name=name, lat=lat, lon=lon)
+        stops[stop_id] = StopInfo(
+            stop_id=stop_id,
+            name=name,
+            lat=lat,
+            lon=lon,
+            parent_station=(s.get("parent_station") or "").strip() or None,
+            location_type=(s.get("location_type") or "").strip() or None,
+        )
     return stops
 
 
@@ -168,12 +195,39 @@ def cumulative_km_for_stops(stop_ids: list[str], stops: dict[str, StopInfo]) -> 
     return kms
 
 
+# ---- Correspondences ----
+
+
+def load_correspondences(path: str) -> dict[str, dict]:
+    if not path or not os.path.exists(path):
+        return {}
+    rows = read_csv_dicts(path, delimiter=";", encoding="utf-8-sig")
+    out: dict[str, dict] = {}
+    for r in rows:
+        code = (r.get("CÓDIGO") or r.get("CODIGO") or "").strip()
+        if not code:
+            continue
+        out[code] = {
+            "metro": _split_lines(r.get("METRO")),
+            "metro_ligero": _split_lines(r.get("METRO_LIGERO")),
+            "aeropuerto": _truthy(r.get("AEROPUERTO")),
+            "bus": _truthy(r.get("BUS")),
+            "tren_ld": _truthy(r.get("TREN_LD")),
+        }
+    return out
+
+
+# ---- Build derived rows ----
+
+
 def build_route_stations(
     routes: dict[str, RouteInfo],
     trips_map: dict[str, tuple[str, str]],
     stop_times_by_trip: dict[str, list[tuple[int, str]]],
     stops: dict[str, StopInfo],
+    correspondences: dict[str, dict] | None = None,
 ):
+    correspondences = correspondences or {}
     by_route_dir: dict[tuple[str, str], list[str]] = {}
     for trip_id, (route_id, dir_id) in trips_map.items():
         if not route_id:
@@ -204,6 +258,9 @@ def build_route_stations(
 
         for i, sid in enumerate(filtered):
             s = stops[sid]
+            station_code = canonical_station_id(s)
+            corr = correspondences.get(station_code, {})
+
             rows.append(
                 {
                     "route_id": route_id,
@@ -212,11 +269,17 @@ def build_route_stations(
                     "direction_id": dir_id,
                     "seq": i,
                     "stop_id": sid,
+                    "station_id": station_code,
                     "stop_name": s.name,
                     "lat": f"{s.lat:.6f}",
                     "lon": f"{s.lon:.6f}",
                     "km": f"{kms[i]:.3f}",
                     "length_km": f"{length_km:.3f}",
+                    "cor_metro": " ".join(corr.get("metro", [])),
+                    "cor_metro_ligero": " ".join(corr.get("metro_ligero", [])),
+                    "cor_aeropuerto": "TRUE" if corr.get("aeropuerto") else "",
+                    "cor_bus": "TRUE" if corr.get("bus") else "",
+                    "cor_tren_ld": "TRUE" if corr.get("tren_ld") else "",
                 }
             )
     return rows
@@ -245,7 +308,12 @@ def main():
     stop_times_by_trip = load_stop_times(stop_times_path, delim, enc)
     stops = load_stops(stops_path, delim, enc)
 
-    rows = build_route_stations(routes, trips_map, stop_times_by_trip, stops)
+    corr_path = os.path.abspath(
+        getattr(settings, "CORRESPONDENCES_CSV", "app/data/custom/correspondencias_cercanias.csv")
+    )
+    correspondences = load_correspondences(corr_path) if os.path.exists(corr_path) else {}
+
+    rows = build_route_stations(routes, trips_map, stop_times_by_trip, stops, correspondences)
 
     out_path = os.path.abspath("app/data/derived/route_stations.csv")
     ensure_dirs(out_path)
@@ -257,11 +325,17 @@ def main():
             "direction_id",
             "seq",
             "stop_id",
+            "station_id",
             "stop_name",
             "lat",
             "lon",
             "km",
             "length_km",
+            "cor_metro",
+            "cor_metro_ligero",
+            "cor_aeropuerto",
+            "cor_bus",
+            "cor_tren_ld",
         ]
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
