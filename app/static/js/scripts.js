@@ -4,7 +4,7 @@
     const boundButtons  = new WeakSet();
     const boundDialogs  = new WeakSet();
     let   htmxHooked    = false;
-
+    let   reverseHandlerBound = false;
 
     function enhanceSearchBox(form) {
         if (!form || upgradedForms.has(form)) return;
@@ -48,7 +48,7 @@
                 const wasRequired = qInput?.required ?? false;
                 if (qInput) {
                     qInput.required = false;
-                    qInput.value = ''; // búsqueda exclusivamente por proximidad
+                    qInput.value = '';
                 }
                 form.setAttribute('novalidate', 'novalidate');
 
@@ -143,9 +143,41 @@
         }
     }
 
+    function bindReverseToggleDelegated() {
+        if (reverseHandlerBound) return;
+        reverseHandlerBound = true;
+
+        document.addEventListener('click', function(ev){
+            const btn = ev.target.closest('.line-toggle-reverse');
+            if (!btn) return;
+
+            const card = btn.closest('li.line-card');
+            if (!card) return;
+
+            const next = card.getAttribute('data-state') === 'a' ? 'b' : 'a';
+            card.setAttribute('data-state', next);
+            btn.setAttribute('aria-pressed', next === 'b' ? 'true' : 'false');
+
+            const aA = card.querySelector('a.line-link--a');
+            const aB = card.querySelector('a.line-link--b');
+            if (aA && aB) {
+                const showB = next === 'b';
+                setTimeout(() => {
+                    aA.hidden = showB;
+                    aB.hidden = !showB;
+                    aA.toggleAttribute('inert', showB);
+                    aB.toggleAttribute('inert', !showB);
+                    aA.setAttribute('aria-hidden', showB ? 'true' : 'false');
+                    aB.setAttribute('aria-hidden', showB ? 'false' : 'true');
+                }, 340);
+            }
+        }, { passive: true });
+    }
+
     function init(root = document) {
         root.querySelectorAll('form.search-box, form.search-station-box').forEach(enhanceSearchBox);
         bindSideSheet(root);
+        bindReverseToggleDelegated();
     }
 
     document.addEventListener('DOMContentLoaded', () => init());

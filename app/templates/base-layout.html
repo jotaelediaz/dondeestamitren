@@ -2,16 +2,19 @@
 <html lang="es">
   <head>
     <meta charset="utf-8">
-	  <meta http-equiv="content-type" content="no-store" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
+	  <meta name="mobile-web-app-capable" content="yes">
+	  <meta name="apple-mobile-web-app-title" content="Mi Tren">
 	  <link href="{{ request.url_for('static', path='img/favicon.svg') }}" rel="shortcut icon">
 	  <link href="{{ request.url_for('static', path='img/favicon.png') }}" rel="shortcut icon">
 	  <link rel="apple-touch-icon" sizes="144x144" href="{{ request.url_for('static', path='img/favicon_apple.png') }}">
     <title hx-head="re-eval">{% block title %}{% endblock %}</title>
-	  <link rel="preload" href="{{ request.url_for('static', path='fonts/MaterialSymbolsRoundedVF.ttf') }}" as="font" type="font/ttf" crossorigin>
+	  <link rel="preload" href="{{ request.url_for('static', path='fonts/Sora-VariableFont_wght.woff2') }}" as="font" type="font/woff2" crossorigin>
+	  <link rel="preload" href="{{ request.url_for('static', path='fonts/Rubik-VariableFont_wght.woff2') }}" as="font" type="font/woff2" crossorigin>
+	  <link rel="preload" href="{{ request.url_for('static', path='fonts/MaterialSymbolsRoundedVF.woff2') }}" as="font" type="font/woff2" crossorigin>
 	  <link rel="stylesheet" href="{{ request.url_for('static', path='css/mitren-common-style.css') }}">
   </head>
-  <body data-nucleus="{{ current_nucleus or '' }}" hx-boost="true" hx-target="#main" hx-select="#main" hx-push-url="true">
+  <body data-nucleus="{{ current_nucleus or '' }}" hx-boost="true" hx-target="#main" hx-select="#main" hx-push-url="true" hx-ext="view-transitions">
     <main id="main" class="tft-screen-size container-main" hx-swap="outerHTML transition:true">
 	    {%- block topbar -%}
 		    {% include "partials/topbar.html" %}

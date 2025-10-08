@@ -30,22 +30,60 @@
 									{% set canon_route = ln.canonical_route %}
 									{% set href = '/routes/' ~ (ln.nucleus_id or '')|lower ~ '/' ~ canon_route.route_id if canon_route else '/lines/' ~ (ln.nucleus_id or '')|lower ~ '/' ~ lid %}
 									{% set origin_name, destination_name = canon_route.terminals_names if canon_route else (None, None) %}
+									{% set reverse_id = canon_route and (get_opposite_route_id(canon_route.route_id) if get_opposite_route_id is defined else None) %}
+									{% set reverse_href = reverse_id and ('/routes/' ~ (ln.nucleus_id or '')|lower ~ '/' ~ reverse_id) %}
 									
-									<li class="line-card chip-card" style="--line-color: {{ ln.color_bg }};">
-										<a class="line-link chip-link" href="{{ href }}">
+									<li class="line-card chip-card"
+									    style="--line-color: {{ ln.color_bg }};"
+									    data-state="a">
+										
+										<a class="line-link line-link--a chip-link" href="{{ href }}">
 											<div class="line-main chip-main">
 												{{ get_cercanias_line_icon(ln.short_name, ln.nucleus_id, ln.color_bg) }}
 												<div class="line-chip-content chip-content">
-													<h3 class="line-name">
-														<span class="line-origin-station line-terminal-name">{{ origin_name }}</span>
-														<span class="line-destination-station line-terminal-name">{{ destination_name }}</span>
-													</h3>
-												</div>
-												<div class="station-chip-more chip-more">
-													<i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i>
+													<div class="line-name-swappable" aria-live="polite">
+														<h3 class="line-name face front">
+															<span class="line-origin-station line-terminal-name">{{ origin_name }}</span>
+															<span class="line-destination-station line-terminal-name">{{ destination_name }}</span>
+														</h3>
+														<h3 class="line-name face back">
+															<span class="line-origin-station line-terminal-name">{{ destination_name }}</span>
+															<span class="line-destination-station line-terminal-name">{{ origin_name }}</span>
+														</h3>
+													</div>
 												</div>
 											</div>
 										</a>
+										
+										{% if reverse_href %}
+											<a class="line-link line-link--b chip-link"
+											   href="{{ reverse_href }}"
+											   hidden aria-hidden="true" inert>
+												<div class="line-main chip-main">
+													{{ get_cercanias_line_icon(ln.short_name, ln.nucleus_id, ln.color_bg) }}
+													<div class="line-chip-content chip-content">
+														<div class="line-name-swappable" aria-live="polite">
+															<h3 class="line-name face front">
+																<span class="line-origin-station line-terminal-name">{{ origin_name }}</span>
+																<span class="line-destination-station line-terminal-name">{{ destination_name }}</span>
+															</h3>
+															<h3 class="line-name face back">
+																<span class="line-origin-station line-terminal-name">{{ destination_name }}</span>
+																<span class="line-destination-station line-terminal-name">{{ origin_name }}</span>
+															</h3>
+														</div>
+													</div>
+												</div>
+											</a>
+											
+											<button type="button"
+											        class="chip-secondary-action line-toggle-reverse"
+											        title="Invertir"
+											        aria-label="Invertir"
+											        aria-pressed="false">
+												<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">swap_vert</i>
+											</button>
+										{% endif %}
 									</li>
 								{% endfor %}
 							</ul>

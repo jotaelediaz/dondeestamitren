@@ -426,6 +426,35 @@ class RoutesRepo:
             return self._route_colors_by_short.get(s, (None, None))
         return (None, None)
 
+    def get_opposite_route_id(self, route_id: str) -> str | None:
+        rid = (route_id or "").strip()
+        if not rid:
+            return None
+        base = (
+            self.get_by_route_and_dir(rid, "")
+            or self.get_by_route_and_dir(rid, "0")
+            or self.get_by_route_and_dir(rid, "1")
+        )
+        if not base:
+            return None
+        did = (base.direction_id or "").strip()
+        opp = "1" if did in ("", "0") else "0"
+        s = (base.route_short_name or "").strip().lower()
+        n = (base.nucleus_id or "").strip().lower()
+        lv = self._by_nucleus_short_dir.get((n, s, opp))
+        if lv and lv.route_id != rid:
+            return lv.route_id
+        for (arid, adid), candidate in self._by_route_dir.items():
+            if arid == rid:
+                continue
+            if (candidate.route_short_name or "").strip().lower() != s:
+                continue
+            if (candidate.nucleus_id or "").strip().lower() != n:
+                continue
+            if (adid or "") == opp or did == "" or opp == "":
+                return candidate.route_id
+        return None
+
     @property
     def nuclei_names(self):
         return self._nuclei_names
@@ -487,3 +516,8 @@ def reload_repo() -> None:
     global _repo
     if _repo is not None:
         _repo.reload()
+
+
+def get_opposite_route_id(route_id: str) -> str | None:
+    repo = get_repo()
+    return repo.get_opposite_route_id(route_id)

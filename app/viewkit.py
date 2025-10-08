@@ -36,6 +36,14 @@ def mk_nucleus(slug: str | None):
     return {"slug": s, "name": (repo.nucleus_name(s) or s.capitalize())}
 
 
+def get_opposite_route_id(route_id: str) -> str | None:
+    repo = get_routes_repo()
+    return repo.get_opposite_route_id(route_id)
+
+
+templates.env.globals["get_opposite_route_id"] = get_opposite_route_id
+
+
 def render(request: Request, name: str, ctx: dict | None = None):
     slug = get_current_nucleus(request) or ""
     base = {"request": request, "current_nucleus": mk_nucleus(slug)}
