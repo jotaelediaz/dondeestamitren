@@ -27,7 +27,6 @@ class RenfeClient:
         self._session.headers.update(
             {
                 "Accept-Encoding": "gzip, deflate, br",
-                "User-Agent": "dondeestamitren/1.0",
             }
         )
 

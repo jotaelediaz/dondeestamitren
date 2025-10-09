@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import math
 import os
+import re
 import unicodedata
 from dataclasses import dataclass
 
@@ -82,7 +83,7 @@ def normalize_text(s: str | None) -> str:
         return ""
     s = unicodedata.normalize("NFKD", s)
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    return s.strip().lower()
+    return re.sub(r"\s+", " ", s).strip().lower()
 
 
 # ============== GTFS Data ==============
@@ -131,10 +132,13 @@ def load_routes(routes_path: str, delim: str, enc: str) -> dict[str, RouteInfo]:
         rid = (r.get("route_id") or "").strip()
         if not rid:
             continue
+        rlong = (r.get("route_long_name") or "").replace("\u2212", "-")
+        rlong = re.sub(r"\s*-\s*", " - ", rlong)  # ‘-’ con espacios a ambos lados
+        rlong = re.sub(r"\s+", " ", rlong).strip()
         routes[rid] = RouteInfo(
             route_id=rid,
             short=(r.get("route_short_name") or "").strip(),
-            long=(r.get("route_long_name") or "").strip(),
+            long=rlong,
         )
     log(f"[routes] loaded: {len(routes)}")
     return routes
@@ -305,6 +309,72 @@ def _closest_point_along_polyline(
     return best_dist, best_s
 
 
+# ============== Helpers: orient by long name ==============
+
+
+def _parse_terminals_from_long_name(long_name: str) -> tuple[str | None, str | None, int]:
+    s = (long_name or "").replace("\u2212", "-")
+    s = re.sub(r"\s*-\s*", " - ", s)
+    parts = [p.strip() for p in s.split(" - ") if p.strip()]
+    if len(parts) >= 2:
+        a = normalize_text(parts[0])
+        b = normalize_text(parts[-1])
+        return a, b, len(parts)
+    return None, None, len(parts)
+
+
+def _name_like(a: str, b: str) -> bool:
+    return a == b or (a in b) or (b in a)
+
+
+def _maybe_orient_sequence_by_long(
+    rid: str,
+    route_long_name: str,
+    ordered_stop_ids: list[str],
+    stops: dict[str, StopInfo],
+) -> list[str]:
+    if not ordered_stop_ids:
+        return ordered_stop_ids
+
+    first_name = normalize_text(
+        stops.get(ordered_stop_ids[0]).name if stops.get(ordered_stop_ids[0]) else ""
+    )
+    last_name = normalize_text(
+        stops.get(ordered_stop_ids[-1]).name if stops.get(ordered_stop_ids[-1]) else ""
+    )
+
+    A, B, n_parts = _parse_terminals_from_long_name(route_long_name)
+
+    if A and B:
+        # They match
+        if _name_like(first_name, A) and _name_like(last_name, B):
+            log(
+                f"[orient] {rid} long='{route_long_name}' "
+                f"first='{first_name or '-'}' last='{last_name or '-'}' n={len(ordered_stop_ids)}"
+            )
+            return ordered_stop_ids
+        # They don't match -> invert
+        if _name_like(first_name, B) and _name_like(last_name, A):
+            ordered_stop_ids = list(reversed(ordered_stop_ids))
+            first_name = normalize_text(
+                stops.get(ordered_stop_ids[0]).name if stops.get(ordered_stop_ids[0]) else ""
+            )
+            last_name = normalize_text(
+                stops.get(ordered_stop_ids[-1]).name if stops.get(ordered_stop_ids[-1]) else ""
+            )
+            log(
+                f"[orient] {rid} long='{route_long_name}' "
+                f"first='{first_name or '-'}' last='{last_name or '-'}' n={len(ordered_stop_ids)}"
+            )
+            return ordered_stop_ids
+
+    log(
+        f"[orient] {rid} long='{route_long_name}' "
+        f"first='{first_name or '-'}' last='{last_name or '-'}' n={len(ordered_stop_ids)}"
+    )
+    return ordered_stop_ids
+
+
 # ============== Stops sequence by route_id ==============
 
 
@@ -342,6 +412,7 @@ def build_sequences_for_routes(
         if done % 50 == 0 or done == total:
             log(f"[build] progress {done}/{total} …")
 
+        rinfo = routes.get(rid)
         trips_for_route = by_route.get(rid, [])
         best_trip_id = None
         best_count = -1
@@ -356,6 +427,7 @@ def build_sequences_for_routes(
                 best_count = count
                 best_trip_id = t.trip_id
 
+        # --- Prefer stop_times
         if best_trip_id:
             raw_seq = stop_times_by_trip[best_trip_id]
             seen = set()
@@ -364,6 +436,11 @@ def build_sequences_for_routes(
                 if sid in stops and sid not in seen:
                     ordered.append(sid)
                     seen.add(sid)
+
+            ordered = _maybe_orient_sequence_by_long(
+                rid, rinfo.long if rinfo else "", ordered, stops
+            )
+
             if len(ordered) >= 2:
                 origin = ordered[0]
                 dest = ordered[-1]
@@ -409,6 +486,8 @@ def build_sequences_for_routes(
             if sid not in seen:
                 ordered.append(sid)
                 seen.add(sid)
+
+        ordered = _maybe_orient_sequence_by_long(rid, rinfo.long if rinfo else "", ordered, stops)
 
         if len(ordered) < 2:
             log(f"[build][WARN] route {rid} → shape fallback got <2 stops → skipped")
@@ -466,10 +545,10 @@ def assign_directions_by_pairs(
 
             mark = None
             if long_norm and ("-" in long_norm):
-                parts = [p.strip() for p in long_norm.split("-")]
+                parts = [p.strip() for p in re.split(r"\s*-\s*", long_norm) if p.strip()]
                 if len(parts) >= 2:
                     left = parts[0]
-                    right = parts[1]
+                    right = parts[-1]
                     if left == a and right == b:
                         mark = "0"
                     elif left == b and right == a:
