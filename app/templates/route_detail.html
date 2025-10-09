@@ -5,15 +5,30 @@
 	<section id="line-route" class="line-route app-main-content" aria-label="Ruta de la línea {{ route.route_long_name if route else '' }}">
 			<div class="grouped-lists-scroll">
 						<div class="app-block-padding sticky-title">
-							<h2 class="app-block-title">➜ {{ route.route_short_name }} · {{ route.route_long_name }}
-								<span class="title-badge cercanias-badge"><img alt="Cercanías" src="/static/img/icon-cercanias.svg"></span>
-							</h2>
+							<div class="line-chip-header">
+								<div class="line-chip-icon chip-icon" >
+									{{ get_cercanias_line_icon(route.route_short_name, route.nucleus_id, route.color_bg) }}
+								</div>
+								<h2 class="line-name">
+									{% set origin_name, destination_name = route.terminals_names %}
+									<span class="line-origin-station line-terminal-name">{{ origin_name }}</span>
+									<span class="line-destination-station line-terminal-name">{{ destination_name }}</span>
+								</h2>
+								<div class="line-chip-header-buttons">
+									{% set reverse_id = repo.get_opposite_route_id(route.route_id) %}
+									{% if reverse_id %}
+										<a class="line-chip-header-button line-toggle-reverse" href="/routes/{{ nucleus.slug }}/{{ reverse_id }}" title="Ver sentido inverso" aria-label="Ver sentido inverso" rel="alternate">
+											<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">swap_vert</i>
+										</a>
+									{% endif %}
+								</div>
+							</div>
 						</div>
-						<div class="app-block-padding">
+						<div class="app-block-padding app-block-vertical-padding">
 							<ul class="grid-route-map" data-number-of-stations="{{ route.stations|length }}" style="--number-of-stations: {{ route.stations|length }}; --line-color: {{ route.color_bg }};">
 								{% for stop in route.stations %}
 									<li class="grid-route-map-station {{ 'origin-station' if route.origin.stop_id == stop.stop_id else 'destination-station' if route.destination.stop_id == stop.stop_id else 'mid-station' }}">
-										{{ print_station_route_map(stop) }}
+										{{ print_station_route_map(stop, route.route_short_name) }}
 									</li>
 								{% endfor %}
 							</ul>
@@ -45,9 +60,11 @@
 						</table>
 		</div>
 	{% endif %}
-	
-	
-	
-	
 	</section>
 {%- endblock %}
+
+{%- block extra_stylesheets -%}
+	<link rel="preload" href="{{ request.url_for('static', path='fonts/Via-Medium.woff2') }}" as="font" type="font/woff2" crossorigin>
+	<link rel="preload" href="{{ request.url_for('static', path='fonts/Via-Bold.woff2') }}" as="font" type="font/woff2" crossorigin>
+	<link rel="stylesheet" href="/static/css/mitren-renfe-style.css">
+{%- endblock -%}

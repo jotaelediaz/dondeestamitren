@@ -1,0 +1,44 @@
+@font-face {
+    font-family: 'Renfe';
+    src: url("/static/fonts/Via-Medium.woff2") format("woff2");
+    font-weight: 500;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Renfe';
+    src: url("/static/fonts/Via-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+}
+
+:root{
+    --color-renfe-black: #383838;
+    --color-renfe-grey-dark: #54565a;
+    --color-renfe-grey-medium: #76777a;
+    --color-renfe-grey-light: #c8c8c8;
+    --color-renfe-cercanias: #f5333f;
+    --color-renfe-md: #f1650d;
+    --color-renfe: #870064;
+}
+
+.grid-route-map {
+    --line-color: var(--color-renfe);
+    --line-route-width: 9px;
+    --icon-dot-size: 18px;
+    --icon-border-dot-size: 4px;
+}
+
+.grid-route-map .grid-route-station-name {
+    font-family: Renfe, sans-serif;
+    font-weight: 500;
+    color: var(--color-renfe-black);
+    font-size: 1.2rem;
+    line-height: 1.08em;
+    padding-bottom: 0.2em;
+}
+
+.grid-route-map .grid-route-map-station.destination-station .grid-route-station-name,
+.grid-route-map .grid-route-map-station.origin-station .grid-route-station-name {
+    font-weight: 700;
+}

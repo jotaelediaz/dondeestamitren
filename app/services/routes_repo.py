@@ -426,6 +426,24 @@ class RoutesRepo:
             return self._route_colors_by_short.get(s, (None, None))
         return (None, None)
 
+    @staticmethod
+    def station_for_stop(nucleus_slug: str, stop_id: str):
+        from app.services.stations_repo import get_repo as get_stations_repo
+
+        return get_stations_repo().get_by_stop_id(
+            (nucleus_slug or "").strip().lower(), (stop_id or "").strip()
+        )
+
+    @staticmethod
+    def lines_for_stop(nucleus_slug: str, stop_id: str, max_lines: int = 6, unique: bool = True):
+        from app.services.stations_repo import get_repo as get_stations_repo
+
+        st_repo = get_stations_repo()
+        st = st_repo.get_by_stop_id(nucleus_slug, stop_id)
+        if not st:
+            return []
+        return st_repo.get_lines(nucleus_slug, st.station_id, max_lines=max_lines, unique=unique)
+
     def get_opposite_route_id(self, route_id: str) -> str | None:
         rid = (route_id or "").strip()
         if not rid:

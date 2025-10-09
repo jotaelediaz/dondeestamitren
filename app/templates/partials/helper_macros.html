@@ -17,8 +17,8 @@
 {%- endmacro -%}
 
 
-{%- macro print_station_route_map(station) %}
-	<div class="station-block" data-station-index="{{ station.seq + 1 }}" data-stop-id="{{ station.stop_id }}">
+{%- macro print_station_route_map(stop, current_line_code = '') %}
+	<div class="station-block" data-station-index="{{ stop.seq + 1 }}" data-stop-id="{{ stop.stop_id }}">
 		<div class="grid-route-line">
 			<div class="route-line-wrapper">
 				<i class="route-line-fragment"></i>
@@ -27,9 +27,26 @@
 		</div>
 		<div class="grid-route-station-info">
 					<div class="grid-route-station-name">
-						<span class="station-name">{{ station.stop_name }}</span>
+						<span class="station-name">{{ stop.stop_name }}</span>
 					</div>
 				<div class="grid-route-connections">
+					<div class="connections-group">
+						{% set connected_lines = repo.lines_for_stop(nucleus.slug, stop.stop_id, max_lines=8) | natural_sort %}
+						{%- set station = repo.station_for_stop(nucleus.slug, stop.stop_id) -%}
+	
+						{% for ln in connected_lines %}
+							{% set line_code = 'c8' if ln.short_name in ['c8a', 'c8b'] else ln.short_name|lower %}
+							{%- if line_code != current_line_code|lower and line_code not in ['c4a', 'c4b'] -%}
+								{{ get_cercanias_line_icon(line_code, nucleus.slug) }}
+							{%- endif -%}
+						{% endfor %}
+						
+						{% if station.metro_lines %}<span class="station-badge metro-badge"><img alt="Metro" src="/static/img/icon-metro-madrid.svg"></span>{% endif %}
+						{% if station.metro_ligero_lines %}<span class="station-badge metro-ligero-badge"><img alt="Metro Ligero" src="/static/img/icon-metro-ligero-madrid.svg"></span>{% endif %}
+						{% if station.cor_tren_ld %}<span class="station-badge tren-badge"><img alt="Trenes de larga y media distancia" src="/static/img/icon-train-station-renfe.svg"></span>{% endif %}
+						{% if station.cor_bus %}<span class="station-badge bus-badge"><img alt="Estación de autobuses" src="/static/img/icon-bus-renfe.svg"></span>{% endif %}
+						{% if station.cor_aeropuerto %}<span class="station-badge aeropuerto-badge"><img alt="Aeropuerto" src="/static/img/icon-airport-renfe.svg"></span>{% endif %}
+					</div>
 				</div>
 		</div>
 		<div class="grid-route-train-position">

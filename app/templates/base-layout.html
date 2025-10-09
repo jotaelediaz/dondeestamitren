@@ -13,6 +13,8 @@
 	  <link rel="preload" href="{{ request.url_for('static', path='fonts/Rubik-VariableFont_wght.woff2') }}" as="font" type="font/woff2" crossorigin>
 	  <link rel="preload" href="{{ request.url_for('static', path='fonts/MaterialSymbolsRoundedVF.woff2') }}" as="font" type="font/woff2" crossorigin>
 	  <link rel="stylesheet" href="{{ request.url_for('static', path='css/mitren-common-style.css') }}">
+	  {%- block extra_stylesheets -%}
+	  {%- endblock -%}
   </head>
   <body data-nucleus="{{ current_nucleus or '' }}" hx-boost="true" hx-target="#main" hx-select="#main" hx-push-url="true" hx-ext="view-transitions">
     <main id="main" class="tft-screen-size container-main" hx-swap="outerHTML transition:true">
