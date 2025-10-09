@@ -1065,27 +1065,35 @@ ul.chip-list {
 }
 
 .line-chip-header .line-chip-icon {
-    height: 2rem;
+    height: 1.5rem;
+}
+
+.app-block-with-buttons {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .line-chip-header .line-name {
     display: flex;
     flex-direction: column;
-    font-size: 1rem;
+    font-size: 1.1rem;
     width: 100%;
     min-width: 0;
     margin: var(--app-margin) 0;
 }
 
-.line-chip-header .line-name .line-terminal-name {
+.line-chip-header .line-name {
     flex: 0 1 auto;
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    display: block;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 
 .line-chip-header-buttons .line-toggle-reverse {
