@@ -174,10 +174,34 @@
         }, { passive: true });
     }
 
+    function bindConnectionsToggleDelegated() {
+        document.addEventListener('click', function (ev) {
+            const btn = ev.target.closest('.toggle-connections-shown');
+            if (!btn) return;
+
+            const wrappers = document.querySelectorAll('.grid-route-map .connections-group');
+            if (!wrappers.length) return;
+
+            const anyVisible = Array.from(wrappers).some(el => !el.hidden);
+            const willShow = !anyVisible;
+
+            wrappers.forEach(el => {
+                el.hidden = !willShow;
+                el.toggleAttribute('inert', !willShow);
+                el.setAttribute('aria-hidden', willShow ? 'false' : 'true');
+            });
+
+            btn.setAttribute('aria-pressed', willShow ? 'true' : 'false');
+
+        }, { passive: true });
+    }
+
+
     function init(root = document) {
         root.querySelectorAll('form.search-box, form.search-station-box').forEach(enhanceSearchBox);
         bindSideSheet(root);
         bindReverseToggleDelegated();
+        bindConnectionsToggleDelegated();
     }
 
     document.addEventListener('DOMContentLoaded', () => init());

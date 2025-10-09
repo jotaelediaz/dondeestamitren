@@ -13,6 +13,9 @@
 							{% set origin_name, destination_name = route.terminals_names %} {{ destination_name }}
 						</h2>
 						<div class="line-chip-header-buttons ">
+							<button type="button" class="line-chip-header-button header-secondary-button toggle-connections-shown" title="Mostrar/Ocultar correspondencias" aria-pressed="true">
+								<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">transfer_within_a_station</i>
+							</button>
 							{% set reverse_id = repo.get_opposite_route_id(route.route_id) %}
 							{% if reverse_id %}
 								<a class="line-chip-header-button line-toggle-reverse" href="/routes/{{ nucleus.slug }}/{{ reverse_id }}" title="Ver sentido inverso" aria-label="Ver sentido inverso" rel="alternate">
