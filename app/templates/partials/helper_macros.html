@@ -26,9 +26,10 @@
 			</div>
 		</div>
 		<div class="grid-route-station-info">
-					<div class="grid-route-station-name">
-						<span class="station-name">{{ stop.stop_name }}</span>
-					</div>
+			<a href="/routes/{{ nucleus.slug }}/{{ route.route_id }}/stops/{{ stop.stop_id }}" class="stop-link">
+				<div class="grid-route-station-name">
+					<span class="station-name">{{ stop.stop_name }}</span>
+				</div>
 				<div class="grid-route-connections">
 					<div class="connections-group">
 						{% set connected_lines = repo.lines_for_stop(nucleus.slug, stop.stop_id, max_lines=8) | natural_sort %}
@@ -48,6 +49,7 @@
 						{% if station.cor_aeropuerto %}<span class="station-badge aeropuerto-badge"><img alt="Aeropuerto" src="/static/img/icon-airport-renfe.svg"></span>{% endif %}
 					</div>
 				</div>
+			</a>
 		</div>
 		<div class="grid-route-train-position">
 			T

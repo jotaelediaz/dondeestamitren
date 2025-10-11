@@ -215,7 +215,7 @@ def stop_detail(
     station_id: str,
 ):
     routes_repo = get_routes_repo()
-    stations_repo = get_stations_repo()
+    stops_repo = get_stops_repo()
     nucleus = (nucleus or "").lower()
 
     route = routes_repo.get_by_route_and_dir(route_id, "")
@@ -226,7 +226,7 @@ def stop_detail(
 
     candidates = [
         s
-        for s in stations_repo.list_by_station(nucleus, station_id)
+        for s in stops_repo.list_by_station(nucleus, station_id)
         if s.route_id == route_id and s.direction_id == route.direction_id
     ]
     if not candidates:

@@ -7,6 +7,7 @@ from google.transit import gtfs_realtime_pb2
 from pydantic import BaseModel, Field
 
 ROUTE_SUFFIX_RE = re.compile(r"([A-Za-z]+\d+)$")
+_STATUS_FALLBACK = {0: "INCOMING_AT", 1: "STOPPED_AT", 2: "IN_TRANSIT_TO"}
 
 
 class TrainPosition(BaseModel):
@@ -28,6 +29,26 @@ class TrainPosition(BaseModel):
             "INCOMING_AT": "Llegando a estación",
         }
         return m.get((self.current_status or "").upper(), self.current_status or "—")
+
+    def status_code(self) -> int | None:
+        if self.current_status is None:
+            return None
+
+        s = str(self.current_status).strip()
+
+        # Si ya viene numérico (p.ej. "1" o 1), úsalo
+        try:
+            v = int(s)
+            return v if v in (0, 1, 2) else None
+        except Exception:
+            pass
+
+        mapping = {
+            "INCOMING_AT": 0,
+            "STOPPED_AT": 1,
+            "IN_TRANSIT_TO": 2,
+        }
+        return mapping.get(s.upper())
 
 
 def _route_from_trip_id(trip_id: str) -> str:
@@ -65,9 +86,20 @@ def parse_train_gtfs_pb(
     lat = float(pos.latitude) if pos and getattr(pos, "latitude", None) not in (None, 0) else None
     lon = float(pos.longitude) if pos and getattr(pos, "longitude", None) not in (None, 0) else None
     stop_id = (veh.stop_id or "").strip() or None
-    current_status = (
-        veh.current_status.name if hasattr(veh.current_status, "name") else str(veh.current_status)
-    )
+
+    current_status: str | None = None
+    try:
+        status_value = int(getattr(veh, "current_status", 0))
+        current_status = gtfs_realtime_pb2.VehiclePosition.VehicleStopStatus.Name(status_value)
+    except Exception:
+        try:
+            cs = getattr(veh, "current_status", None)
+            current_status = getattr(cs, "name", None) or _STATUS_FALLBACK.get(
+                int(cs) if cs is not None else 0
+            )
+        except Exception:
+            current_status = None
+
     ts = int(veh.timestamp or 0) or int(default_ts or 0)
 
     return TrainPosition(

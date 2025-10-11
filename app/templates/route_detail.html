@@ -3,66 +3,62 @@
 {%- block app_content %}
 	
 	<section id="line-route" class="line-route app-main-content" aria-label="Ruta de la línea {{ route.route_long_name if route else '' }}">
-			<div class="grouped-lists-scroll">
-				<div class="app-block-padding sticky-title">
-					<div class="line-chip-header">
-						<div class="line-chip-icon chip-icon" >
-							{{ get_cercanias_line_icon(route.route_short_name, route.nucleus_id, route.color_bg) }}
-						</div>
-						<h2 class="line-name">
-							{% set origin_name, destination_name = route.terminals_names %} {{ destination_name }}
-						</h2>
-						<div class="line-chip-header-buttons ">
-							<button type="button" class="line-chip-header-button header-secondary-button toggle-connections-shown" title="Mostrar/Ocultar correspondencias" aria-pressed="true">
-								<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">transfer_within_a_station</i>
-							</button>
-							{% set reverse_id = repo.get_opposite_route_id(route.route_id) %}
-							{% if reverse_id %}
-								<a class="line-chip-header-button line-toggle-reverse" href="/routes/{{ nucleus.slug }}/{{ reverse_id }}" title="Ver sentido inverso" aria-label="Ver sentido inverso" rel="alternate">
-									<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">swap_vert</i>
-								</a>
-							{% endif %}
-						</div>
+		<div class="grouped-lists-scroll">
+			<div class="app-block-padding sticky-title">
+				<div class="line-chip-header">
+					<div class="line-chip-icon chip-icon" >
+						{{ get_cercanias_line_icon(route.route_short_name, route.nucleus_id, route.color_bg) }}
+					</div>
+					<h2 class="line-name">
+						{% set origin_name, destination_name = route.terminals_names %} {{ destination_name }}
+					</h2>
+					<div class="line-chip-header-buttons ">
+						<button type="button" class="line-chip-header-button header-secondary-button toggle-connections-shown" title="Mostrar/Ocultar correspondencias" aria-pressed="true">
+							<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">transfer_within_a_station</i>
+						</button>
+						{% set reverse_id = repo.get_opposite_route_id(route.route_id) %}
+						{% if reverse_id %}
+							<a class="line-chip-header-button line-toggle-reverse" href="/routes/{{ nucleus.slug }}/{{ reverse_id }}" title="Ver sentido inverso" aria-label="Ver sentido inverso" rel="alternate">
+								<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">swap_vert</i>
+							</a>
+						{% endif %}
 					</div>
 				</div>
-				
-				<div class="app-block-padding app-block-vertical-padding">
-					<ul class="grid-route-map" data-number-of-stations="{{ route.stations|length }}" style="--number-of-stations: {{ route.stations|length }}; --line-color: {{ route.color_bg }};">
-						{% for stop in route.stations %}
-							<li class="grid-route-map-station {{ 'origin-station' if route.origin.stop_id == stop.stop_id else 'destination-station' if route.destination.stop_id == stop.stop_id else 'mid-station' }}">
-								{{ print_station_route_map(stop, route.route_short_name) }}
-							</li>
-						{% endfor %}
-					</ul>
-				</div>
-				
-				
-						<h2 class="text-xl font-semibold mb-2">Trenes circulando en esta ruta</h2>
-
-						{% if not trains or trains|length == 0 %}
-						<p>No se encuentran trenes circulando en esta línea ahora mismo.</p>
-						{% else %}
-						<table border="1" cellpadding="6" cellspacing="0">
-							<thead>
-							<tr>
-								<th>Tren</th>
-								<th>Estado</th>
-								<th>Parada actual</th>
-							</tr>
-							</thead>
-							<tbody>
-							{% for t in trains %}
-								<tr>
-									<td><a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
-									<td>{{ t.status_human() }}</td>
-									<td>{{ repo.get_stop_name(t.stop_id) }} <i>({{ t.stop_id or "—" }})</i></td>
-								</tr>
-							{% endfor %}
-							</tbody>
-						</table>
+			</div>
+			
+			<div class="app-block-padding app-block-vertical-padding">
+				<ul class="grid-route-map" data-number-of-stations="{{ route.stations|length }}" style="--number-of-stations: {{ route.stations|length }}; --line-color: {{ route.color_bg }};">
+					{% for stop in route.stations %}
+						<li class="grid-route-map-station {{ 'origin-station' if route.origin.stop_id == stop.stop_id else 'destination-station' if route.destination.stop_id == stop.stop_id else 'mid-station' }}">
+							{{ print_station_route_map(stop, route.route_short_name) }}
+						</li>
+					{% endfor %}
+				</ul>
+			</div>
 		</div>
-	{% endif %}
 	</section>
+	
+	<section id="stop-drawer" class="drawer-bottom" hidden aria-hidden="true">
+		<div class="drawer-inner">
+			<div class="drawer-header">
+				<h3 class="drawer-title">Detalle de parada</h3>
+				<button type="button" class="drawer-close" aria-label="Cerrar">✕</button>
+			</div>
+			<div id="stop-drawer-body" class="drawer-body">
+				<div class="htmx-indicator">Cargando…</div>
+			</div>
+		</div>
+	</section>
+	
+	{% if open_stop_id %}
+		<script>
+        document.addEventListener('DOMContentLoaded', function(){
+            const url = "/routes/{{ nucleus.slug }}/{{ route.route_id }}/stops/{{ open_stop_id }}";
+            window.AppDrawers?.openStop(url);
+        });
+		</script>
+	{% endif %}
+	
 {%- endblock %}
 
 {%- block extra_stylesheets -%}
@@ -72,4 +68,29 @@
 {%- endblock -%}
 
 {% block bottom_navbar %}
+	<nav id="bottom-nav" role="navigation" aria-label="Menú de ruta" class="navbar-buttons-group">
+		<div class="nav-buttons-group-inner">
+			<button id="btn-toggle-trains"
+			        class="navbar-button"
+			        type="button"
+			        aria-controls="route-trains-panel"
+			        aria-expanded="false"
+			        title="Mostrar/ocultar trenes en la ruta"
+			        data-url="/lines/{{ nucleus.slug }}/{{ route.line_id }}/trains?dir={{ '0' if (route.direction_id or '') in ('', '0') else '1' }}"
+			>
+				<i class="navbar-icon navbar-button-icon material-symbols-rounded">train</i>
+			</button>
+		</div>
+	</nav>
+
+	<section id="route-trains-panel" class="drawer-bottom" hidden aria-hidden="true">
+		<div class="drawer-inner">
+{#			<div class="drawer-header">
+				<h3 class="drawer-title">Trenes en esta ruta</h3>
+			</div>#}
+			<div id="route-trains-body" class="drawer-body">
+				<div id="trains-loading" class="htmx-indicator">Cargando…</div>
+			</div>
+		</div>
+	</section>
 {% endblock %}

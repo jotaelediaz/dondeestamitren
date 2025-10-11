@@ -17,6 +17,7 @@
 	  {%- endblock -%}
   </head>
   <body data-nucleus="{{ current_nucleus or '' }}" hx-boost="true" hx-target="#main" hx-select="#main" hx-push-url="true" hx-ext="view-transitions">
+    <script src="{{ request.url_for('static', path='js/htmx.min.js') }}"></script>
     <main id="main" class="tft-screen-size container-main" hx-swap="outerHTML transition:true">
 	    {%- block topbar -%}
 		    {% include "partials/topbar.html" %}
@@ -29,7 +30,6 @@
 		    {% include "partials/navbar.html" %}
 	    {% endblock %}
     </main>
-    <script src="{{ request.url_for('static', path='js/htmx.min.js') }}"></script>
     <script defer src="{{ request.url_for('static', path='js/scripts.js') }}"></script>
     <script defer src="{{ request.url_for('static', path='js/nucleus.js') }}"></script>
     {% block config_menu %}

@@ -1,6 +1,7 @@
 # app/routers/web.py
 import unicodedata
 from collections import defaultdict
+from contextlib import suppress
 from math import atan2, cos, radians, sin, sqrt
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -277,6 +278,108 @@ def line_detail_page(request: Request, nucleus: str, line_id: str):
     )
 
 
+@router.get("/lines/{nucleus}/{line_id}/trains", response_class=HTMLResponse, name="line_trains")
+def line_trains(
+    request: Request, nucleus: str, line_id: str, dir: str | None = Query(default=None)
+):
+    repo = get_routes_repo()
+    idx = get_lines_index()
+    live = get_live_trains_cache()
+    nucleus = (nucleus or "").lower()
+    is_htmx = request.headers.get("HX-Request") == "true"
+
+    line = idx.get_line(line_id)
+    if not line:
+        raise HTTPException(404, f"Line '{line_id}' not found")
+    if (line.nucleus_id or "").lower() != nucleus:
+        raise HTTPException(404, f"That line doesn't belong to nucleus {nucleus}")
+
+    route_ids = list(idx.route_ids_for_line(line_id))
+    if not route_ids:
+        raise HTTPException(404, "This line has no routes")
+
+    ids_set = set(route_ids)
+
+    def _norm_dir(v) -> str:
+        s = str(v or "").strip()
+        return "0" if s in ("", "0") else "1"
+
+    eff_dir: str | None
+    if dir is not None:
+        eff_dir = _norm_dir(dir)
+    else:
+        base = None
+        for rid in route_ids:
+            base = repo.get_by_route_and_dir(rid, "")
+            if base:
+                break
+        eff_dir = _norm_dir(base.direction_id) if base else None
+
+    if is_htmx:
+        live_all = live.get_by_nucleus(nucleus)
+        trains = []
+        for t in live_all:
+            rid = getattr(t, "route_id", None)
+            if rid not in ids_set:
+                continue
+            if eff_dir is not None:
+                tdir = getattr(t, "direction_id", None)
+                if tdir is None:
+                    r = repo.get_by_route_and_dir(rid, "")
+                    tdir = getattr(r, "direction_id", None)
+                if _norm_dir(tdir) != eff_dir:
+                    continue
+            trains.append(t)
+
+        def _sort_key(t):
+            return (
+                _norm_dir(getattr(t, "direction_id", "0")),
+                getattr(t, "idx", 10**9),
+                str(getattr(t, "train_id", "")),
+            )
+
+        with suppress(Exception):
+            trains.sort(key=_sort_key)
+
+    return render(
+        request,
+        "partials/route_trains_panel.html",
+        {
+            "nucleus": mk_nucleus(nucleus),
+            "line": line,
+            "trains": trains,
+            "repo": repo,
+            "last_snapshot": live.last_snapshot_iso(),
+        },
+    )
+
+    # Navegación normal: pinta una ruta “canónica” y abre el drawer
+    route = None
+    for rid in route_ids:
+        route = repo.get_by_route_and_dir(rid, "")
+        if route:
+            break
+    if not route:
+        raise HTTPException(404, "Route for this line not found")
+
+    trains_for_route = live.get_by_nucleus_and_route(nucleus, route.route_id)
+
+    return render(
+        request,
+        "route_detail.html",
+        {
+            "nucleus": mk_nucleus(nucleus),
+            "route": route,
+            "repo": repo,
+            "last_snapshot": live.last_snapshot_iso(),
+            "trains": trains_for_route,
+            "open_trains_panel": True,
+            # El botón hará HTMX a esta URL pero con ?dir=...
+            "trains_panel_url": str(request.url.path),
+        },
+    )
+
+
 # --- STOPS IN ROUTES ---
 
 
@@ -337,16 +440,33 @@ def stop_detail(
 
     cache = get_live_trains_cache()
 
+    is_htmx = request.headers.get("HX-Request") == "true"
+
+    if is_htmx:
+        # If HTMX, return only modal content
+        return render(
+            request,
+            "/partials/stop_detail_panel.html",
+            {
+                "nucleus": mk_nucleus(nucleus),
+                "route": route,
+                "stop": stop,
+                "nearest_trains": nearest,
+                "repo": repo,
+                "last_snapshot": cache.last_snapshot_iso(),
+            },
+        )
+
+    # Else if HTTP navigation, return route details
     return render(
         request,
-        "stop_detail.html",
+        "route_detail.html",
         {
             "nucleus": mk_nucleus(nucleus),
             "route": route,
-            "stop": stop,
-            "nearest_trains": nearest,
             "repo": repo,
             "last_snapshot": cache.last_snapshot_iso(),
+            "open_stop_id": station_id,
         },
     )
 

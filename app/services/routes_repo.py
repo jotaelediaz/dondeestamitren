@@ -22,6 +22,7 @@ class RoutesRepo:
         self._stop_names: dict[str, str] = {}
         self._route_colors_by_id: dict[str, tuple[str | None, str | None]] = {}
         self._route_colors_by_short: dict[str, tuple[str | None, str | None]] = {}
+        self._line_by_route_id: dict[str, str] = {}
 
     def _fnum(self, s: str | None, default="0") -> float:
         if s is None:
@@ -110,6 +111,7 @@ class RoutesRepo:
         self._by_route_dir.clear()
         self._by_nucleus_short_dir.clear()
         self._stop_names.clear()
+        self._line_by_route_id.clear()
 
         for (rid, did_raw), rows in by_key_rows.items():
             did = did_raw or ""
@@ -161,6 +163,10 @@ class RoutesRepo:
                 color_bg=bg,
                 color_fg=fg,
             )
+
+            lid = f"{nucleus_slug}_{short}" if nucleus_slug and short else None
+            if lid:
+                self._line_by_route_id[rid] = lid
 
             self._by_key[(rid, did)] = lv
             self._by_short_dir[(short.lower(), did)] = lv
@@ -443,6 +449,10 @@ class RoutesRepo:
         if not st:
             return []
         return st_repo.get_lines(nucleus_slug, st.station_id, max_lines=max_lines, unique=unique)
+
+    def line_id_for_route(self, route_id: str) -> str | None:
+        rid = (route_id or "").strip()
+        return self._line_by_route_id.get(rid)
 
     def get_opposite_route_id(self, route_id: str) -> str | None:
         rid = (route_id or "").strip()

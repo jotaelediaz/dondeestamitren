@@ -28,6 +28,17 @@ class LineRoute:
     color_bg: str | None = None
     color_fg: str | None = None
 
+    @property
+    def line_id(self) -> str | None:
+        n = (self.nucleus_id or "").strip().lower()
+        s = (self.route_short_name or "").strip()
+        return f"{n}_{s}" if n and s else None
+
+    @property
+    def line_slug(self) -> str | None:
+        lid = self.line_id
+        return lid.lower() if lid else None
+
     def station_count(self) -> int:
         return len(self.stations)
 
