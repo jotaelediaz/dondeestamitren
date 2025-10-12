@@ -1,4 +1,3 @@
-# app/services/live_trains_cache.py
 from __future__ import annotations
 
 import time
@@ -34,6 +33,7 @@ class LiveTrainsCache:
 
         self._consecutive_empty: int = 0
         self._last_source: str | None = None  # "pb" | "json" | None
+        self._stop_to_nucleus: dict[str, str] = {}
 
     # -------- PB path --------
     def _fetch_pb_once(self):
@@ -43,6 +43,26 @@ class LiveTrainsCache:
         except Exception as e:
             return None, f"pb_exc: {e!r}"
 
+    def _ensure_stop_nucleus_index(self):
+        if self._stop_to_nucleus:
+            return
+        repo = get_lines_repo()
+        m: dict[str, str] = {}
+        for n in repo.list_nuclei():
+            slug = (n.get("slug") or "").strip().lower()
+            if not slug:
+                continue
+            for sid in repo.stop_ids_for_nucleus(slug):
+                if sid and sid not in m:
+                    m[sid] = slug
+        self._stop_to_nucleus = m
+
+    def _nucleus_for_stop(self, stop_id: str | None) -> str | None:
+        if not stop_id:
+            return None
+        self._ensure_stop_nucleus_index()
+        return self._stop_to_nucleus.get(stop_id)
+
     def _parse_pb(self, feed) -> tuple[int, int, list[TrainPosition]]:
         header_ts = int(getattr(getattr(feed, "header", None), "timestamp", 0) or 0)
         now_s = int(time.time())
@@ -50,6 +70,7 @@ class LiveTrainsCache:
 
         trips_repo = get_trips_repo()
         lines_repo = get_lines_repo()
+        self._ensure_stop_nucleus_index()
 
         for ent in getattr(feed, "entity", []):
             tp = parse_train_gtfs_pb(ent, default_ts=header_ts)
@@ -59,6 +80,11 @@ class LiveTrainsCache:
             if rid:
                 tp.route_id = rid
                 tp.nucleus_slug = lines_repo.nucleus_for_route_id(rid)
+            else:
+                self._fill_route_from_short_and_stop(tp)
+            tp.nucleus_slug = self._nucleus_for_stop(tp.stop_id) or (
+                lines_repo.nucleus_for_route_id(rid) if rid else None
+            )
             items.append(tp)
 
         return header_ts, now_s, items
@@ -87,6 +113,7 @@ class LiveTrainsCache:
         if isinstance(ents, list):
             trips_repo = get_trips_repo()
             lines_repo = get_lines_repo()
+            self._ensure_stop_nucleus_index()
             for ent in ents:
                 tp = parse_train_gtfs_json(ent, default_ts=header_ts)
                 if not tp:
@@ -95,6 +122,11 @@ class LiveTrainsCache:
                 if rid:
                     tp.route_id = rid
                     tp.nucleus_slug = lines_repo.nucleus_for_route_id(rid)
+                else:
+                    self._fill_route_from_short_and_stop(tp)
+                tp.nucleus_slug = self._nucleus_for_stop(tp.stop_id) or (
+                    lines_repo.nucleus_for_route_id(rid) if rid else None
+                )
                 items.append(tp)
 
         return header_ts, now_s, items
@@ -225,6 +257,39 @@ class LiveTrainsCache:
 
     def last_source(self) -> str | None:
         return self._last_source
+
+    @staticmethod
+    def _fill_route_from_short_and_stop(tp):
+        rrepo = get_lines_repo()
+        short = (getattr(tp, "route_short_name", "") or "").strip().lower()
+        if not short:
+            return
+        stop_id = (getattr(tp, "stop_id", "") or "").strip()
+
+        candidates = []
+        for (rid, did), lv in rrepo.by_route_dir.items():
+            if (lv.route_short_name or "").strip().lower() != short:
+                continue
+            if stop_id:
+                for s in lv.stations:
+                    if (s.stop_id or "").strip() == stop_id:
+                        candidates.append((rid, did, lv))
+                        break
+            else:
+                candidates.append((rid, did, lv))
+
+        if not candidates:
+            return
+
+        tdir = (getattr(tp, "direction_id", "") or "").strip()
+        if tdir in ("0", "1"):
+            filtered = [c for c in candidates if (c[1] or "") == tdir]
+            if filtered:
+                candidates = filtered
+
+        rid, did, lv = max(candidates, key=lambda c: len(c[2].stations))
+        tp.route_id = rid
+        tp.nucleus_slug = (lv.nucleus_id or "").strip() or getattr(tp, "nucleus_slug", None)
 
 
 _cache_singleton: LiveTrainsCache | None = None

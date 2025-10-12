@@ -6,7 +6,8 @@ import re
 from google.transit import gtfs_realtime_pb2
 from pydantic import BaseModel, Field
 
-ROUTE_SUFFIX_RE = re.compile(r"([A-Za-z]+\d+)$")
+ROUTE_SUFFIX_RE = re.compile(r"([A-Za-z]+\d+[A-Za-z]*)$", re.IGNORECASE)
+LABEL_PREFIX_RE = re.compile(r"^([A-Za-z]+\d+[A-Za-z]*)\b", re.IGNORECASE)
 _STATUS_FALLBACK = {0: "INCOMING_AT", 1: "STOPPED_AT", 2: "IN_TRANSIT_TO"}
 
 
@@ -51,6 +52,13 @@ class TrainPosition(BaseModel):
         return mapping.get(s.upper())
 
 
+def _route_from_trip_or_label(trip_id: str, label: str | None) -> str:
+    s1 = (trip_id or "").strip()
+    s2 = (label or "").strip()
+    m = ROUTE_SUFFIX_RE.search(s1) or LABEL_PREFIX_RE.search(s2)
+    return m.group(1).upper() if m else ""
+
+
 def _route_from_trip_id(trip_id: str) -> str:
     m = ROUTE_SUFFIX_RE.search(trip_id or "")
     return m.group(1) if m else ""
@@ -76,10 +84,12 @@ def parse_train_gtfs_pb(
     veh = entity.vehicle
     trip = veh.trip
     pos = veh.position
+    veh_info = veh.vehicle
 
     trip_id = (trip.trip_id or "").strip()
-    train_id = (veh.vehicle.id or "").strip()
-    route = _route_from_trip_id(trip_id)
+    train_id = (veh_info.id or "").strip()
+    route = _route_from_trip_or_label(trip_id, getattr(veh_info, "label", None))
+
     if not (trip_id and route and train_id):
         return None
 
@@ -87,18 +97,14 @@ def parse_train_gtfs_pb(
     lon = float(pos.longitude) if pos and getattr(pos, "longitude", None) not in (None, 0) else None
     stop_id = (veh.stop_id or "").strip() or None
 
-    current_status: str | None = None
     try:
         status_value = int(getattr(veh, "current_status", 0))
         current_status = gtfs_realtime_pb2.VehiclePosition.VehicleStopStatus.Name(status_value)
     except Exception:
-        try:
-            cs = getattr(veh, "current_status", None)
-            current_status = getattr(cs, "name", None) or _STATUS_FALLBACK.get(
-                int(cs) if cs is not None else 0
-            )
-        except Exception:
-            current_status = None
+        cs = getattr(veh, "current_status", None)
+        current_status = getattr(cs, "name", None) or _STATUS_FALLBACK.get(
+            int(cs) if cs is not None else 0
+        )
 
     ts = int(veh.timestamp or 0) or int(default_ts or 0)
 

@@ -196,7 +196,7 @@ class LinesIndex:
         rrepo = get_routes_repo()
 
         def _suffix_short(route_id: str) -> str:
-            m = re.search(r"([A-Za-z]+\d+)$", route_id or "")
+            m = re.search(r"([A-Za-z]+\d+[A-Za-z]*)$", route_id or "", re.IGNORECASE)
             return m.group(1) if m else (route_id[-4:] or route_id)
 
         lines: dict[str, ServiceLine] = {}
