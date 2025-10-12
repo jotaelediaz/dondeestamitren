@@ -52,6 +52,7 @@
 
         if (nearbyBtn && !boundButtons.has(nearbyBtn)) {
             boundButtons.add(nearbyBtn);
+
             nearbyBtn.addEventListener('click', (ev) => {
                 ev.preventDefault();
                 if (!('geolocation' in navigator)) {
@@ -264,6 +265,11 @@
                 lastFocusEl = (document.activeElement && document.contains(document.activeElement))
                     ? document.activeElement : (btn || document.body);
 
+                const stopDrawer = document.getElementById('stop-drawer');
+                if (stopDrawer && stopDrawer.__closeStopDrawer && stopDrawer.classList.contains('open')) {
+                    stopDrawer.__closeStopDrawer();
+                }
+
                 panel.hidden = false;
                 panel.removeAttribute('inert');
                 panel.setAttribute('aria-hidden', 'false');
@@ -355,6 +361,11 @@
                 lastFocusEl = (document.activeElement && document.contains(document.activeElement))
                     ? document.activeElement : document.body;
 
+                const trainsPanel = document.getElementById('route-trains-panel');
+                if (trainsPanel && trainsPanel.__closeTrainsPanel && trainsPanel.classList.contains('open')) {
+                    trainsPanel.__closeTrainsPanel();
+                }
+
                 panel.hidden = false;
                 panel.removeAttribute('inert');
                 panel.setAttribute('aria-hidden', 'false');
@@ -419,34 +430,6 @@
                 boundButtons.add(close);
                 close.addEventListener('click', closePanel);
             }
-
-            document.addEventListener('click', (ev) => {
-                const a = ev.target.closest('.grid-route-map a[href*="/stops/"]');
-                if (!a) return;
-                if (a.getAttribute('hx-boost') !== 'false') a.setAttribute('hx-boost', 'false');
-                ev.preventDefault();
-                ev.stopPropagation();
-                if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
-                openWithUrl(a.href);
-            }, { capture: true, passive: false });
-
-            if (!stopGlobalHandlersBound) {
-                stopGlobalHandlersBound = true;
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape' && panel.classList.contains('open')) {
-                        panel.__closeStopDrawer && panel.__closeStopDrawer();
-                    }
-                });
-                document.addEventListener('open:trains-drawer', () => {
-                    if (panel.classList.contains('open')) panel.__closeStopDrawer();
-                });
-                document.addEventListener('htmx:beforeSwap', (e) => {
-                    let tgt = (e && e.detail && e.detail.target) ? e.detail.target : null;
-                    if (!tgt) { try { tgt = e.target; } catch(_) {} }
-                    if (tgt && (tgt === body || (tgt.closest && tgt.closest('#stop-drawer')))) return;
-                    if (panel.classList.contains('open')) panel.__closeStopDrawer();
-                });
-            }
         }
 
         window.AppDrawers = window.AppDrawers || {};
@@ -455,6 +438,38 @@
     }
 
     // ------------------ Init & observers ------------------
+    let stopClicksDelegatedBound = false;
+    function bindGlobalStopLinkDelegation() {
+        if (stopClicksDelegatedBound) return;
+        stopClicksDelegatedBound = true;
+        document.addEventListener('click', (ev) => {
+            const a = ev.target.closest('.grid-route-map a[href*="/stops/"]');
+            if (!a) return;
+            if (a.getAttribute('hx-boost') !== 'false') a.setAttribute('hx-boost', 'false');
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+            const href = a.href;
+            const panel = document.getElementById('stop-drawer');
+            if (!panel) { location.href = href; return; }
+            if (!boundPanels.has(panel)) { bindStopDrawer(document); }
+            if (panel.__openStopWithUrl) panel.__openStopWithUrl(href);
+            else {
+                fetch(href, { headers: { 'HX-Request': 'true' } })
+                    .then(r => r.ok ? r.text() : Promise.reject(r))
+                    .then(html => {
+                        panel.hidden = false;
+                        panel.removeAttribute('inert');
+                        panel.setAttribute('aria-hidden', 'false');
+                        panel.classList.add('open');
+                        const body = panel.querySelector('#stop-drawer-body');
+                        if (body) { body.innerHTML = html; if (window.htmx) htmx.process(body); }
+                        try { history.replaceState({}, '', href); } catch(_) {}
+                    });
+            }
+        }, { capture: true, passive: false });
+    }
+
     function init(root = document) {
         root.querySelectorAll('form.search-box, form.search-station-box').forEach(enhanceSearchBox);
         bindSideSheet(root);
@@ -464,6 +479,7 @@
         bindRouteTrainsPanel(root);
         bindStopDrawer(root);
         disableBoostForStopLinks(root);
+        bindGlobalStopLinkDelegation();
     }
 
     document.addEventListener('DOMContentLoaded', () => init());
