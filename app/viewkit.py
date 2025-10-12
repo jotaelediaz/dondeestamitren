@@ -1,5 +1,8 @@
 # app/viewkit.py
 import re
+from datetime import UTC, datetime
+from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
@@ -26,6 +29,61 @@ def natural_sort(value, attr=None, reverse=False):
 
 
 templates.env.filters["natural_sort"] = natural_sort
+
+
+def _parse_dt(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, (int | float)):
+        return datetime.fromtimestamp(float(value), tz=UTC)
+    s = str(value).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        return datetime.fromtimestamp(float(s), tz=UTC)
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
+
+
+def fmt_dt(value: Any, kind: str = "time", tz: str | None = "UTC") -> str:
+    dt = _parse_dt(value)
+    if not dt:
+        return "—"
+
+    if tz and tz.upper() != "UTC":
+        if ZoneInfo:
+            try:
+                dt = dt.astimezone(ZoneInfo(tz))
+            except Exception:
+                dt = dt.astimezone(UTC)
+        else:
+            dt = dt.astimezone(UTC)
+    else:
+        dt = dt.astimezone(UTC)
+
+    if kind == "time":
+        return dt.strftime("%H:%M")
+    if kind == "time_sec":
+        return dt.strftime("%H:%M:%S")
+    if kind == "date":
+        return dt.strftime("%Y-%m-%d")
+    if kind == "datetime":
+        return dt.strftime("%Y-%m-%d %H:%M")
+
+    try:
+        if "%" in kind:
+            return dt.strftime(kind)
+    except Exception:
+        pass
+    return dt.isoformat()
+
+
+templates.env.filters["fmt_dt"] = fmt_dt
 
 
 def mk_nucleus(slug: str | None):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import time
+from collections import deque
 from datetime import UTC, datetime
 
 from app.domain.live_models import (
@@ -20,6 +22,8 @@ FAST_RETRY_DELAY = 0.4
 EMPTY_GRACE_SNAPSHOTS = 2
 MAX_STALE_SECONDS = 180
 
+log = logging.getLogger("live_trains")
+
 
 class LiveTrainsCache:
     def __init__(self):
@@ -35,12 +39,42 @@ class LiveTrainsCache:
         self._last_source: str | None = None  # "pb" | "json" | None
         self._stop_to_nucleus: dict[str, str] = {}
 
+        # --- Debug/metrics ---
+        self._debug = deque(maxlen=300)  # eventos recientes en memoria
+        self._last_fetch_kind: str | None = None  # "pb" | "json" | None
+        self._last_fetch_took_s: float = 0.0
+
+    # -------- Internals: logging --------
+    def _log(self, stage: str, **kv) -> None:
+        evt = {
+            "t": int(time.time()),
+            "stage": stage,
+            "source": self._last_source,
+            "took_s": round(self._last_fetch_took_s, 3),
+            **kv,
+        }
+        self._debug.append(evt)
+        try:
+            # Log legible + datos clave
+            log.info(
+                "live_trains %s %s",
+                stage,
+                {k: v for k, v in evt.items() if k not in ("stage",)},
+            )
+        except Exception:
+            pass
+
     # -------- PB path --------
     def _fetch_pb_once(self):
+        t0 = time.time()
         try:
             feed = get_client().fetch_trains_pb()
+            self._last_fetch_kind = "pb"
+            self._last_fetch_took_s = time.time() - t0
             return feed, None
         except Exception as e:
+            self._last_fetch_kind = "pb"
+            self._last_fetch_took_s = time.time() - t0
             return None, f"pb_exc: {e!r}"
 
     def _ensure_stop_nucleus_index(self):
@@ -72,7 +106,8 @@ class LiveTrainsCache:
         lines_repo = get_lines_repo()
         self._ensure_stop_nucleus_index()
 
-        for ent in getattr(feed, "entity", []):
+        ents = getattr(feed, "entity", []) or []
+        for ent in ents:
             tp = parse_train_gtfs_pb(ent, default_ts=header_ts)
             if not tp:
                 continue
@@ -87,16 +122,29 @@ class LiveTrainsCache:
             )
             items.append(tp)
 
+        self._log(
+            "parsed_pb",
+            header_ts=header_ts,
+            entities=len(ents),
+            items=len(items),
+        )
         return header_ts, now_s, items
 
     # -------- JSON path --------
     def _fetch_json_once(self):
+        t0 = time.time()
         try:
             raw = get_client().fetch_trains_raw()
             if not isinstance(raw, dict):
+                self._last_fetch_kind = "json"
+                self._last_fetch_took_s = time.time() - t0
                 return None, f"raw_not_dict(type={type(raw).__name__})"
+            self._last_fetch_kind = "json"
+            self._last_fetch_took_s = time.time() - t0
             return raw, None
         except Exception as e:
+            self._last_fetch_kind = "json"
+            self._last_fetch_took_s = time.time() - t0
             return None, f"client_exc: {e!r}"
 
     def _parse_json(self, raw: dict) -> tuple[int, int, list[TrainPosition]]:
@@ -129,6 +177,12 @@ class LiveTrainsCache:
                 )
                 items.append(tp)
 
+        self._log(
+            "parsed_json",
+            header_ts=header_ts,
+            entities=len(ents) if isinstance(ents, list) else 0,
+            items=len(items),
+        )
         return header_ts, now_s, items
 
     # -------- Public API --------
@@ -160,12 +214,13 @@ class LiveTrainsCache:
             if raw is None:
                 self._errors_streak += 1
                 self._last_error = err_pb or err_json
+                self._log("fetch_error", error=self._last_error, errors_streak=self._errors_streak)
                 return len(self._items), self._last_fetch_s
 
             header_ts, now_s, items = self._parse_json(raw)
             self._last_source = "json"
 
-        if header_ts and header_ts == self._last_snapshot_ts:
+        if header_ts and header_ts == self._last_snapshot_ts and not items:
             self._last_fetch_s = now_s
             self._errors_streak = 0
             return len(self._items), self._last_fetch_s
@@ -175,18 +230,34 @@ class LiveTrainsCache:
             self._errors_streak = 0
             self._consecutive_empty += 1
 
+            grace = False
             if self._items and (
                 (now_s - (self._last_fetch_s or now_s)) <= MAX_STALE_SECONDS
                 or self._consecutive_empty <= EMPTY_GRACE_SNAPSHOTS
             ):
+                grace = True
                 self._last_fetch_s = now_s
+                self._log(
+                    "empty_with_grace",
+                    header_ts=header_ts,
+                    prev_items=len(self._items),
+                    consecutive_empty=self._consecutive_empty,
+                )
                 return len(self._items), self._last_fetch_s
 
             self._last_fetch_s = now_s
             if header_ts:
                 self._last_snapshot_ts = header_ts
+            self._log(
+                "empty_cleared",
+                header_ts=header_ts,
+                prev_items=len(self._items),
+                consecutive_empty=self._consecutive_empty,
+                grace_applied=grace,
+            )
             return len(self._items), self._last_fetch_s
 
+        prev_len = len(self._items)
         self._items = items
         self._by_id = {tp.train_id: tp for tp in self._items}
         self._last_fetch_s = now_s
@@ -194,6 +265,13 @@ class LiveTrainsCache:
             self._last_snapshot_ts = header_ts
         self._errors_streak = 0
         self._consecutive_empty = 0
+
+        self._log(
+            "update_items",
+            header_ts=header_ts,
+            prev_items=prev_len,
+            new_items=len(self._items),
+        )
         return len(self._items), self._last_fetch_s
 
     def list_all(self) -> list[TrainPosition]:
@@ -257,6 +335,27 @@ class LiveTrainsCache:
 
     def last_source(self) -> str | None:
         return self._last_source
+
+    # -------- Debug API --------
+    def debug_state(self) -> dict:
+        return {
+            "last_source": self._last_source,
+            "last_snapshot_ts": self._last_snapshot_ts,
+            "last_snapshot_iso": self.last_snapshot_iso(),
+            "last_fetch_s": int(self._last_fetch_s),
+            "last_fetch_kind": self._last_fetch_kind,
+            "last_fetch_took_s": round(self._last_fetch_took_s, 3),
+            "items": len(self._items),
+            "errors_streak": self._errors_streak,
+            "last_error": self._last_error,
+            "consecutive_empty": self._consecutive_empty,
+            "is_stale": self.is_stale(),
+        }
+
+    def debug_events(self, limit: int = 50) -> list[dict]:
+        if limit <= 0:
+            return []
+        return list(self._debug)[-limit:]
 
     @staticmethod
     def _fill_route_from_short_and_stop(tp):

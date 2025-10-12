@@ -280,12 +280,17 @@ def line_detail_page(request: Request, nucleus: str, line_id: str):
 
 @router.get("/lines/{nucleus}/{line_id}/trains", response_class=HTMLResponse, name="line_trains")
 def line_trains(
-    request: Request, nucleus: str, line_id: str, dir: str | None = Query(default=None)
+    request: Request,
+    nucleus: str,
+    line_id: str,
+    dir: str | None = Query(default=None),
+    source_rid: str | None = Query(default=None),
 ):
     repo = get_routes_repo()
     idx = get_lines_index()
     live = get_live_trains_cache()
     nucleus = (nucleus or "").lower()
+
     is_htmx = request.headers.get("HX-Request") == "true"
 
     line = idx.get_line(line_id)
@@ -349,7 +354,9 @@ def line_trains(
                 "line": line,
                 "trains": trains,
                 "repo": repo,
+                "source_rid": source_rid,
                 "last_snapshot": live.last_snapshot_iso(),
+                "is_stale": live.is_stale(),
             },
         )
 
@@ -370,10 +377,12 @@ def line_trains(
             "nucleus": mk_nucleus(nucleus),
             "route": route,
             "repo": repo,
-            "last_snapshot": live.last_snapshot_iso(),
             "trains": trains_for_route,
             "open_trains_panel": True,
             "trains_panel_url": str(request.url.path),
+            "source_rid": source_rid,
+            "last_snapshot": live.last_snapshot_iso(),
+            "is_stale": live.is_stale(),
         },
     )
 
@@ -669,3 +678,19 @@ def train_detail(request: Request, nucleus: str, train_id: str):
             "live_source": cache.last_source(),
         },
     )
+
+
+@router.get("/trains/state")
+def live_state():
+    from app.services.live_trains_cache import get_live_trains_cache
+
+    c = get_live_trains_cache()
+    return c.debug_state()
+
+
+@router.get("/trains/events")
+def live_events(limit: int = 50):
+    from app.services.live_trains_cache import get_live_trains_cache
+
+    c = get_live_trains_cache()
+    return c.debug_events(limit=limit)

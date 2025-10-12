@@ -6,16 +6,16 @@
 		<div class="grouped-lists-scroll">
 			<div class="app-block-padding sticky-title">
 				<div class="line-chip-header">
-					<div class="line-chip-icon chip-icon" >
+					<div class="line-chip-icon chip-icon">
 						{{ get_cercanias_line_icon(route.route_short_name, route.nucleus_id, route.color_bg) }}
 					</div>
 					<h2 class="line-name">
 						{% set origin_name, destination_name = route.terminals_names %} {{ destination_name }}
 					</h2>
-					<div class="line-chip-header-buttons ">
-						<button type="button" class="line-chip-header-button header-secondary-button toggle-connections-shown" title="Mostrar/Ocultar correspondencias" aria-pressed="true">
+					<div class="line-chip-header-buttons">
+						{#<button type="button" class="line-chip-header-button header-secondary-button toggle-connections-shown" title="Mostrar/Ocultar correspondencias" aria-pressed="true">
 							<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">transfer_within_a_station</i>
-						</button>
+						</button>#}
 						{% set reverse_id = repo.get_opposite_route_id(route.route_id) %}
 						{% if reverse_id %}
 							<a class="line-chip-header-button line-toggle-reverse" href="/routes/{{ nucleus.slug }}/{{ reverse_id }}" title="Ver sentido inverso" aria-label="Ver sentido inverso" rel="alternate">
@@ -76,19 +76,17 @@
 			        aria-controls="route-trains-panel"
 			        aria-expanded="false"
 			        title="Mostrar/ocultar trenes en la ruta"
-			        data-url="/lines/{{ nucleus.slug }}/{{ route.line_id }}/trains?dir={{ '0' if (route.direction_id or '') in ('', '0') else '1' }}"
+			        data-url="/lines/{{ nucleus.slug }}/{{ route.line_id }}/trains?dir={{ '0' if (route.direction_id or '') in ('', '0') else '1' }}&source_rid={{ route.route_id }}"
 			>
 				<i class="navbar-icon navbar-button-icon material-symbols-rounded">train</i>
 			</button>
 		</div>
 	</nav>
-
+	
 	<section id="route-trains-panel" class="drawer-bottom" hidden aria-hidden="true">
 		<div class="drawer-inner">
-{#			<div class="drawer-header">
-				<h3 class="drawer-title">Trenes en esta ruta</h3>
-			</div>#}
-			<div id="route-trains-body" class="drawer-body">
+			<div id="route-trains-body"
+			     data-url="/lines/{{ nucleus.slug }}/{{ route.line_id }}/trains?dir={{ '0' if (route.direction_id or '') in ('', '0') else '1' }}&source_rid={{ route.route_id }}">
 				<div id="trains-loading" class="htmx-indicator">Cargando…</div>
 			</div>
 		</div>

@@ -228,8 +228,61 @@
                 catch(_) { return '/trains'; }
             }
 
+            function urlWithCtx(baseUrl) {
+                try {
+                    const url = new URL(baseUrl, location.origin);
+                    const ctxForm = body.querySelector('#rtp-ctx');
+                    if (ctxForm) {
+                        const fd = new FormData(ctxForm);
+                        for (const [k, v] of fd.entries()) {
+                            if (v != null && String(v) !== '') url.searchParams.set(k, String(v));
+                        }
+                    }
+                    return url.toString();
+                } catch(_) {
+                    return baseUrl;
+                }
+            }
+
+            function bindBodyLinks() {
+                body.querySelectorAll('a[href]').forEach(a => {
+                    if (boundButtons.has(a)) return;
+                    boundButtons.add(a);
+                    a.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const href = a.getAttribute('href');
+                        closePanel();
+                        requestAnimationFrame(() => {
+                            if (window.htmx) {
+                                htmx.ajax('GET', href, {
+                                    headers: { 'HX-Request': 'true' },
+                                    target: 'body',
+                                    swap: 'innerHTML transition:true'
+                                }).then(() => {
+                                    try { history.pushState({}, '', href); } catch(_) {}
+                                });
+                            } else {
+                                location.href = href;
+                            }
+                        });
+                    });
+                });
+            }
+
+            function enrichBodyBindings() {
+                bindBodyLinks();
+                const refreshBtn = body.querySelector('#update-route-train-list');
+                if (refreshBtn && !boundButtons.has(refreshBtn)) {
+                    boundButtons.add(refreshBtn);
+                    refreshBtn.addEventListener('click', (ev) => {
+                        ev.preventDefault();
+                        refreshNow();
+                    });
+                }
+            }
+
             function loadOnce() {
-                if (panel.dataset.loaded) return;
+                if (panel.dataset.loaded) { enrichBodyBindings(); return; }
                 const url = resolveUrl();
                 fetch(url, { headers: { 'HX-Request': 'true' } })
                     .then(r => r.ok ? r.text() : Promise.reject(r))
@@ -238,23 +291,8 @@
                         template.innerHTML = html;
                         if (template.content.firstChild) {
                             body.innerHTML = html;
-                            htmx.process(body);
-                            body.querySelectorAll('a[href]').forEach(a => {
-                                a.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    const href = a.getAttribute('href');
-                                    closePanel();
-                                    requestAnimationFrame(() => {
-                                        htmx.ajax('GET', href, {
-                                            headers: { 'HX-Request': 'true' },
-                                            target: 'body',
-                                            swap: 'innerHTML'
-                                        }).then(() => {
-                                            history.pushState({}, '', href);
-                                        });
-                                    });
-                                });
-                            });
+                            if (window.htmx) htmx.process(body);
+                            enrichBodyBindings();
                             panel.dataset.loaded = '1';
                         }
                     })
@@ -294,6 +332,61 @@
                 panel.setAttribute('inert', '');
                 if (btn) btn.setAttribute('aria-expanded', 'false');
                 setTimeout(() => { panel.hidden = true; }, 260);
+            }
+
+            let refreshing = false;
+            function refreshNow() {
+                if (refreshing) return;
+                refreshing = true;
+
+                const inner = panel.querySelector('.drawer-inner');
+                const indicator = body.querySelector('.htmx-indicator');
+                if (indicator) indicator.style.opacity = '1';
+
+                const refreshBtns = body.querySelectorAll('#update-route-train-list');
+                refreshBtns.forEach(b => b.disabled = true);
+
+                const url = urlWithCtx(resolveUrl());
+
+                fetch(url, { headers: { 'HX-Request': 'true' } })
+                    .then(r => r.ok ? r.text() : Promise.reject(r))
+                    .then(html => {
+                        inner.classList.add('is-fading');
+
+                        const doSwap = () => {
+                            const tpl = document.createElement('template');
+                            tpl.innerHTML = html;
+                            if (tpl.content.firstChild) {
+                                body.innerHTML = html;
+                                if (window.htmx) htmx.process(body);
+                                enrichBodyBindings();
+                            } else {
+                                body.innerHTML = '<p>Error al cargar los trenes.</p>';
+                            }
+                            requestAnimationFrame(() => inner.classList.remove('is-fading'));
+                        };
+
+                        const onEnd = (ev) => {
+                            if (ev.propertyName !== 'opacity') return;
+                            inner.removeEventListener('transitionend', onEnd);
+                            doSwap();
+                        };
+                        inner.addEventListener('transitionend', onEnd, { once: true });
+
+                        setTimeout(() => {
+                            try { inner.removeEventListener('transitionend', onEnd); } catch(_) {}
+                            if (getComputedStyle(inner).opacity === '0') doSwap();
+                        }, 300);
+                    })
+                    .catch(() => {
+                        body.innerHTML = '<p>Error al cargar los trenes.</p>';
+                        panel.querySelector('.drawer-inner')?.classList.remove('is-fading');
+                    })
+                    .finally(() => {
+                        if (indicator) indicator.style.opacity = '';
+                        refreshBtns.forEach(b => b.disabled = false);
+                        refreshing = false;
+                    });
             }
 
             panel.__closeTrainsPanel = closePanel;
@@ -383,20 +476,24 @@
                         template.innerHTML = html;
                         if (template.content.firstChild) {
                             body.innerHTML = html;
-                            htmx.process(body);
+                            if (window.htmx) htmx.process(body);
                             body.querySelectorAll('a[href]').forEach(a => {
                                 a.addEventListener('click', (e) => {
                                     e.preventDefault();
                                     const href = a.getAttribute('href');
                                     closePanel();
                                     requestAnimationFrame(() => {
-                                        htmx.ajax('GET', href, {
-                                            headers: { 'HX-Request': 'true' },
-                                            target: 'body',
-                                            swap: 'innerHTML'
-                                        }).then(() => {
-                                            history.pushState({}, '', href);
-                                        });
+                                        if (window.htmx) {
+                                            htmx.ajax('GET', href, {
+                                                headers: { 'HX-Request': 'true' },
+                                                target: 'body',
+                                                swap: 'innerHTML transition:true'
+                                            }).then(() => {
+                                                try { history.pushState({}, '', href); } catch(_) {}
+                                            });
+                                        } else {
+                                            location.href = href;
+                                        }
                                     });
                                 });
                             });
