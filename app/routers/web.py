@@ -341,19 +341,18 @@ def line_trains(
         with suppress(Exception):
             trains.sort(key=_sort_key)
 
-    return render(
-        request,
-        "partials/route_trains_panel.html",
-        {
-            "nucleus": mk_nucleus(nucleus),
-            "line": line,
-            "trains": trains,
-            "repo": repo,
-            "last_snapshot": live.last_snapshot_iso(),
-        },
-    )
+        return render(
+            request,
+            "partials/route_trains_panel.html",
+            {
+                "nucleus": mk_nucleus(nucleus),
+                "line": line,
+                "trains": trains,
+                "repo": repo,
+                "last_snapshot": live.last_snapshot_iso(),
+            },
+        )
 
-    # Navegación normal: pinta una ruta “canónica” y abre el drawer
     route = None
     for rid in route_ids:
         route = repo.get_by_route_and_dir(rid, "")
@@ -374,7 +373,6 @@ def line_trains(
             "last_snapshot": live.last_snapshot_iso(),
             "trains": trains_for_route,
             "open_trains_panel": True,
-            # El botón hará HTMX a esta URL pero con ?dir=...
             "trains_panel_url": str(request.url.path),
         },
     )

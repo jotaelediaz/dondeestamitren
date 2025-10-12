@@ -9,10 +9,9 @@
     let   trainsGlobalHandlersBound = false;
     let   stopGlobalHandlersBound   = false;
 
-    // ------------------ Utilidades ------------------
+    // ------------------ Utilities ------------------
     function stripHxAttrs(html) {
-        // elimina cualquier atributo hx-* para evitar htmx:targetError en fragmentos inyectados
-        return String(html).replace(/\s(hx-[\w:-]+)(=(".*?"|'.*?'|[^\s>]+))?/gi, "");
+        return String(html).replace(/\s(hx-(target|swap|indicator|trigger))(=(".*?"|'.*?'|[^\s>]+))?/gi, "");
     }
 
     function disableBoostForStopLinks(root = document) {
@@ -141,7 +140,7 @@
         }
     }
 
-    // ---------- Toggle de sentido en tarjetas ----------
+    // ---------- Toggle line direction cards ----------
     function bindReverseToggleDelegated() {
         if (reverseHandlerBound) return;
         reverseHandlerBound = true;
@@ -196,7 +195,7 @@
         }, { passive: true });
     }
 
-    // ================== DRAWER: Trenes ==================
+    // ------------------ Drawer Train routes ------------------
     function bindRouteTrainsPanel(root = document) {
         const btn   = root.querySelector('#btn-toggle-trains') || document.querySelector('#btn-toggle-trains');
         const panel = root.querySelector('#route-trains-panel') || document.getElementById('route-trains-panel');
@@ -206,7 +205,6 @@
         const close = panel.querySelector('.drawer-close');
         if (!body) return;
 
-        // A11y base
         panel.setAttribute('role', 'dialog');
         panel.setAttribute('aria-modal', 'true');
         if (!panel.hasAttribute('tabindex')) panel.setAttribute('tabindex', '-1');
@@ -235,8 +233,29 @@
                 fetch(url, { headers: { 'HX-Request': 'true' } })
                     .then(r => r.ok ? r.text() : Promise.reject(r))
                     .then(html => {
-                        body.innerHTML = stripHxAttrs(html);
-                        panel.dataset.loaded = '1';
+                        const template = document.createElement('template');
+                        template.innerHTML = html;
+                        if (template.content.firstChild) {
+                            body.innerHTML = html;
+                            htmx.process(body);
+                            body.querySelectorAll('a[href]').forEach(a => {
+                                a.addEventListener('click', (e) => {
+                                    e.preventDefault();
+                                    const href = a.getAttribute('href');
+                                    closePanel();
+                                    requestAnimationFrame(() => {
+                                        htmx.ajax('GET', href, {
+                                            headers: { 'HX-Request': 'true' },
+                                            target: 'body',
+                                            swap: 'innerHTML'
+                                        }).then(() => {
+                                            history.pushState({}, '', href);
+                                        });
+                                    });
+                                });
+                            });
+                            panel.dataset.loaded = '1';
+                        }
                     })
                     .catch(() => { body.innerHTML = '<p>Error al cargar los trenes.</p>'; });
             }
@@ -307,7 +326,7 @@
         }
     }
 
-    // ================== DRAWER: Parada ==================
+    // ------------------ Drawer route stops ------------------
     function bindStopDrawer(root = document) {
         const panel = root.querySelector('#stop-drawer') || document.getElementById('stop-drawer');
         if (!panel) return;  // sin DOM, no operamos
@@ -349,8 +368,29 @@
                 fetch(url, { headers: { 'HX-Request': 'true' } })
                     .then(r => r.ok ? r.text() : Promise.reject(r))
                     .then(html => {
-                        body.innerHTML = stripHxAttrs(html);
-                        try { history.replaceState({}, '', url); } catch(_) {}
+                        const template = document.createElement('template');
+                        template.innerHTML = html;
+                        if (template.content.firstChild) {
+                            body.innerHTML = html;
+                            htmx.process(body);
+                            body.querySelectorAll('a[href]').forEach(a => {
+                                a.addEventListener('click', (e) => {
+                                    e.preventDefault();
+                                    const href = a.getAttribute('href');
+                                    closePanel();
+                                    requestAnimationFrame(() => {
+                                        htmx.ajax('GET', href, {
+                                            headers: { 'HX-Request': 'true' },
+                                            target: 'body',
+                                            swap: 'innerHTML'
+                                        }).then(() => {
+                                            history.pushState({}, '', href);
+                                        });
+                                    });
+                                });
+                            });
+                            try { history.replaceState({}, '', url); } catch(_) {}
+                        }
                     })
                     .catch(() => { body.innerHTML = '<p>Error al cargar la parada.</p>'; });
 
@@ -380,11 +420,9 @@
                 close.addEventListener('click', closePanel);
             }
 
-            // Captura clicks en enlaces de paradas antes de HTMX
             document.addEventListener('click', (ev) => {
                 const a = ev.target.closest('.grid-route-map a[href*="/stops/"]');
                 if (!a) return;
-                // Desactiva totalmente cualquier boost/htmx
                 if (a.getAttribute('hx-boost') !== 'false') a.setAttribute('hx-boost', 'false');
                 ev.preventDefault();
                 ev.stopPropagation();
@@ -411,7 +449,6 @@
             }
         }
 
-        // API global por si lo quieres usar desde plantillas
         window.AppDrawers = window.AppDrawers || {};
         window.AppDrawers.openStop  = (url) => { const p = document.getElementById('stop-drawer'); p && p.__openStopWithUrl && p.__openStopWithUrl(url); };
         window.AppDrawers.closeStop = () => { const p = document.getElementById('stop-drawer'); p && p.__closeStopDrawer && p.__closeStopDrawer(); };
