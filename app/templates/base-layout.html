@@ -16,9 +16,15 @@
 	  {%- block extra_stylesheets -%}
 	  {%- endblock -%}
   </head>
-  <body data-nucleus="{{ current_nucleus or '' }}" hx-boost="true" hx-target="#main" hx-select="#main" hx-push-url="true" hx-ext="view-transitions">
+  <body
+	  hx-boost="true"
+	  hx-target="#main"
+	  hx-select="#main > *"
+	  hx-push-url="true"
+	  hx-ext="view-transitions">
+
     <script src="{{ request.url_for('static', path='js/htmx.min.js') }}"></script>
-    <main id="main" class="tft-screen-size container-main" hx-swap="outerHTML transition:true">
+    <main id="main" class="tft-screen-size container-main" hx-swap="innerHTML transition:true">
 	    {%- block topbar -%}
 		    {% include "partials/topbar.html" %}
 	    {%- endblock -%}

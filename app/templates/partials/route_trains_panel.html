@@ -1,31 +1,28 @@
-{% if not trains %}
-	<p>No se encuentran trenes circulando en esta línea ahora mismo.</p>
-{% else %}
-	<div class="drawer-header">
-		<form class="display-none" id="rtp-ctx">
-			<input type="hidden" name="dir" value="{{ dir|default('0') }}">
-			<input type="hidden" name="source_rid" value="{{ source_rid|default('') }}">
-		</form>
-		<div class="drawer-title-group">
-      <span class="live-pill {{ 'is-stale' if is_stale else '' }}" title="{{ 'Datos desactualizados' if is_stale else 'En directo' }}" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i></span>
-			<h3 class="drawer-title">
-				<span class="title-content">Trenes en esta ruta</span>
-				<span class="muted">Actualizado: {{ last_snapshot|fmt_dt('time', 'Europe/Madrid') }}</span>
-			</h3>
-		</div>
-		<button class="navbar-button bottom-nav-secondary-button"
-		        type="button"
-		        id="update-route-train-list"
-		        hx-get="/lines/{{ nucleus.slug }}/{{ line.line_id }}/trains"
-		        hx-target="#route-trains-body"
-		        hx-swap="innerHTML"
-		        hx-include="#rtp-ctx"
-		        title="Actualizar trenes"
-		        aria-label="Actualizar trenes">
-			<i class="material-symbols-rounded" aria-hidden="true">cached</i>
-		</button>
+<div class="drawer-header">
+	<form class="display-none" id="rtp-ctx">
+		<input type="hidden" name="dir" value="{{ dir|default('0') }}">
+		<input type="hidden" name="source_rid" value="{{ source_rid|default('') }}">
+	</form>
+	<div class="drawer-title-group">
+    <span class="live-pill {{ 'is-stale' if is_stale else '' }}" title="{{ 'Datos desactualizados' if is_stale else 'En directo' }}" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i></span>
+		<h3 class="drawer-title">
+			<span class="title-content">Trenes en esta ruta</span>
+			<span class="muted">Actualizado: {{ last_snapshot|fmt_dt('time', 'Europe/Madrid') }}</span>
+		</h3>
 	</div>
-	
+	<button class="navbar-button bottom-nav-secondary-button"
+	        type="button"
+	        id="update-route-train-list"
+	        hx-get="/lines/{{ nucleus.slug }}/{{ line.line_id }}/trains"
+	        hx-target="#route-trains-body"
+	        hx-swap="innerHTML"
+	        hx-include="#rtp-ctx"
+	        title="Actualizar trenes"
+	        aria-label="Actualizar trenes">
+		<i class="material-symbols-rounded" aria-hidden="true">cached</i>
+	</button>
+</div>
+{% if trains %}
 	<ul class="train-list grouped-lists-scroll-horizontal" hx-boost="true">
 		{% for t in trains %}
 			{% set train_route = repo.get_by_route_and_dir(t.route_id, dir) or repo.get_by_route_and_dir(t.route_id, "") %}
@@ -50,4 +47,9 @@
 			</li>
 		{% endfor %}
 	</ul>
+{% else %}
+	<div class="error-drawer no-trains-error">
+		<i class="material-symbols-rounded">hide_source</i>
+		<span>No se encuentran trenes circulando en esta línea ahora mismo.</span>
+	</div>
 {% endif %}

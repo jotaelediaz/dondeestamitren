@@ -37,7 +37,6 @@ class TrainPosition(BaseModel):
 
         s = str(self.current_status).strip()
 
-        # Si ya viene numérico (p.ej. "1" o 1), úsalo
         try:
             v = int(s)
             return v if v in (0, 1, 2) else None
