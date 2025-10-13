@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from collections import deque
@@ -54,15 +55,13 @@ class LiveTrainsCache:
             **kv,
         }
         self._debug.append(evt)
-        try:
-            # Log legible + datos clave
+
+        with contextlib.suppress(Exception):
             log.info(
                 "live_trains %s %s",
-                stage,
+                +stage,
                 {k: v for k, v in evt.items() if k not in ("stage",)},
             )
-        except Exception:
-            pass
 
     # -------- PB path --------
     def _fetch_pb_once(self):

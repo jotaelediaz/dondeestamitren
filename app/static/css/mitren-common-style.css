@@ -1491,3 +1491,9 @@ ul.chip-list {
 .error-drawer i {
     color: var(--jotaele-error);
 }
+
+/* - Stop drawer - */
+
+#stop-drawer {
+    min-height: 50vh; /* TEMPORAL */
+}
