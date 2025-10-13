@@ -145,7 +145,6 @@ class StopsRepo:
     ) -> set[str]:
         lrepo = get_lines_repo()
         did = direction_id or ""
-        # Base route
         base_lv = lrepo._by_route_dir.get((base_route_id, did))  # noqa: SLF001
         if base_lv is None:
             return {base_route_id}
@@ -160,7 +159,7 @@ class StopsRepo:
                 continue
             if getattr(lv, "line_id", None) != target_line:
                 continue
-            # Line route variants
+            # Only routes that include this stop
             if self._get_stop_in_variant(rid, did, stop_id) is not None:
                 rids.add(rid)
         if not rids:
@@ -174,30 +173,50 @@ class StopsRepo:
                 continue
             try:
                 val = float(v)
-                if not (10.0 <= val <= 160.0):
-                    continue
-                return val, f"from:{attr}"
+                if 10.0 <= val <= 160.0:
+                    return val, f"from:{attr}"
             except Exception:
                 continue
         return None, "fallback:default"
 
-    def nearest_train_same_line_same_dir(
+    def _eta_from_result(self, stop: Stop, r: NearestTrainResult) -> ETAResult | None:
+        if not r.approaching:
+            return None
+        speed_kmh, note = self._speed_from_train_obj_kmh(r.train)
+        if speed_kmh is None:
+            speed_kmh, note = DEFAULT_EFFECTIVE_SPEED_KMH, "fallback:default"
+        speed_kmh = max(12.0, min(140.0, float(speed_kmh)))
+        distance_km = max(0.0, float(r.delta_km))
+        dwell_seconds = int(max(0, int(r.delta_seq)) * DEFAULT_DWELL_PER_STOP_SEC)
+        seconds = int(round((distance_km / speed_kmh) * 3600.0 + dwell_seconds))
+        return ETAResult(
+            seconds=seconds,
+            minutes_rounded=max(0, int(round(seconds / 60))),
+            distance_km=distance_km,
+            speed_kmh_used=float(speed_kmh),
+            dwell_seconds=dwell_seconds,
+            stops_remaining=max(0, int(r.delta_seq)),
+            note=note,
+        )
+
+    def nearest_trains(
         self,
         route_id: str,
-        direction_id: str,
         stop: Stop,
-    ) -> NearestTrainResult | None:
+        limit: int = 5,
+        direction_id: str = "",
+        only_approaching: bool = True,
+        allow_passed_max_km: float | None = None,
+        include_eta: bool = False,
+    ) -> list[NearestTrainResult | tuple[NearestTrainResult, ETAResult | None]]:
+        did = direction_id or stop.direction_id or ""
         cache = get_live_trains_cache()
-        did = direction_id or ""
-        stop_seq = int(stop.seq)
-        stop_km = float(stop.km)
 
         candidate_route_ids = self._same_line_route_ids_that_include_stop(
             route_id, did, stop.stop_id
         )
 
-        best_approaching: NearestTrainResult | None = None
-        best_any: NearestTrainResult | None = None
+        results: list[NearestTrainResult] = []
 
         for rid in candidate_route_ids:
             trains = cache.get_by_route_id(rid) or []
@@ -206,13 +225,11 @@ class StopsRepo:
 
             for t in trains:
                 train_stop: Stop | None = None
-                t_stop_id = (getattr(t, "stop_id", "") or "").strip()
-                if t_stop_id:
-                    train_stop = self._get_stop_in_variant(rid, did, t_stop_id)
-
+                tsid = (getattr(t, "stop_id", "") or "").strip()
+                if tsid:
+                    train_stop = self._get_stop_in_variant(rid, did, tsid)
                 if train_stop is None:
-                    lat = getattr(t, "lat", None)
-                    lon = getattr(t, "lon", None)
+                    lat, lon = getattr(t, "lat", None), getattr(t, "lon", None)
                     if lat is not None and lon is not None:
                         try:
                             train_stop = self._nearest_stop_in_variant_by_geo(
@@ -220,93 +237,114 @@ class StopsRepo:
                             )
                         except Exception:
                             train_stop = None
-
                 if train_stop is None:
                     continue
 
-                train_seq = int(train_stop.seq)
-                train_km = float(train_stop.km)
-
-                delta_seq = stop_seq - train_seq
-                delta_km = stop_km - train_km
+                delta_seq = int(stop.seq) - int(train_stop.seq)
+                delta_km = float(stop.km) - float(train_stop.km)
                 approaching = delta_seq >= 0
 
-                physical_d = None
+                phys = None
                 if getattr(t, "lat", None) is not None and getattr(t, "lon", None) is not None:
                     try:
-                        physical_d = stop.distance_km_to(float(t.lat), float(t.lon))
+                        phys = stop.distance_km_to(float(t.lat), float(t.lon))
                     except Exception:
-                        physical_d = None
+                        phys = None
 
-                result = NearestTrainResult(
+                r = NearestTrainResult(
                     train=t,
                     route_id=rid,
                     direction_id=did,
                     approaching=approaching,
-                    delta_seq=int(delta_seq),
-                    delta_km=float(delta_km),
-                    abs_delta_km=float(abs(delta_km)),
-                    stop_seq=stop_seq,
-                    train_seq=train_seq,
+                    delta_seq=delta_seq,
+                    delta_km=delta_km,
+                    abs_delta_km=abs(delta_km),
+                    stop_seq=int(stop.seq),
+                    train_seq=int(train_stop.seq),
                     train_stop_id=train_stop.stop_id,
-                    physical_d_km=physical_d,
+                    physical_d_km=phys,
                 )
 
-                if approaching and (
-                    best_approaching is None or result.abs_delta_km < best_approaching.abs_delta_km
-                ):
-                    best_approaching = result
+                if only_approaching and not r.approaching:
+                    continue
+                results.append(r)
 
-                if best_any is None or result.abs_delta_km < best_any.abs_delta_km:
-                    best_any = result
+        if only_approaching and not results and (allow_passed_max_km is not None):
+            passed: list[NearestTrainResult] = []
+            for rid in candidate_route_ids:
+                for t in cache.get_by_route_id(rid) or []:
+                    train_stop = None
+                    tsid = (getattr(t, "stop_id", "") or "").strip()
+                    if tsid:
+                        train_stop = self._get_stop_in_variant(rid, did, tsid)
+                    if train_stop is None:
+                        lat, lon = getattr(t, "lat", None), getattr(t, "lon", None)
+                        if lat is not None and lon is not None:
+                            try:
+                                train_stop = self._nearest_stop_in_variant_by_geo(
+                                    rid, did, float(lat), float(lon)
+                                )
+                            except Exception:
+                                train_stop = None
+                    if train_stop is None:
+                        continue
 
-        return best_approaching or best_any
+                    delta_seq = int(stop.seq) - int(train_stop.seq)
+                    delta_km = float(stop.km) - float(train_stop.km)
+                    if delta_seq >= 0:
+                        continue
+                    abs_km = abs(delta_km)
+                    if abs_km <= float(allow_passed_max_km):
+                        r = NearestTrainResult(
+                            train=t,
+                            route_id=rid,
+                            direction_id=did,
+                            approaching=False,
+                            delta_seq=delta_seq,
+                            delta_km=delta_km,
+                            abs_delta_km=abs_km,
+                            stop_seq=int(stop.seq),
+                            train_seq=int(train_stop.seq),
+                            train_stop_id=train_stop.stop_id,
+                            physical_d_km=None,
+                        )
+                        passed.append(r)
+            results = passed
 
-    def estimate_eta_same_line_same_dir(
+        results.sort(key=lambda x: (0 if x.approaching else 1, x.abs_delta_km, x.delta_seq))
+
+        if limit and limit > 0 and len(results) > limit:
+            results = results[:limit]
+
+        if not include_eta:
+            return results
+
+        out: list[tuple[NearestTrainResult, ETAResult | None]] = []
+        for r in results:
+            out.append((r, self._eta_from_result(stop, r)))
+        return out
+
+    def nearest_train(
         self,
         route_id: str,
-        direction_id: str,
         stop: Stop,
-    ) -> ETAResult | None:
-        nearest = self.nearest_train_same_line_same_dir(route_id, direction_id, stop)
-        if nearest is None or not nearest.approaching:
-            return None
-
-        distance_km = max(0.0, float(nearest.delta_km))
-        stops_between = max(0, int(nearest.delta_seq))
-        dwell_seconds = int(stops_between * DEFAULT_DWELL_PER_STOP_SEC)
-
-        speed_kmh, note = self._speed_from_train_obj_kmh(nearest.train)
-        if speed_kmh is None:
-            speed_kmh = DEFAULT_EFFECTIVE_SPEED_KMH
-
-        speed_kmh = max(12.0, min(140.0, float(speed_kmh)))
-
-        travel_seconds = (distance_km / speed_kmh) * 3600.0 + dwell_seconds
-        seconds = int(round(travel_seconds))
-        minutes_rounded = max(0, int(round(seconds / 60)))
-
-        return ETAResult(
-            seconds=seconds,
-            minutes_rounded=minutes_rounded,
-            distance_km=distance_km,
-            speed_kmh_used=float(speed_kmh),
-            dwell_seconds=dwell_seconds,
-            stops_remaining=stops_between,
-            note=note,
+        direction_id: str = "",
+        only_approaching: bool = True,
+        allow_passed_max_km: float | None = None,
+        include_eta: bool = False,
+    ) -> NearestTrainResult | tuple[NearestTrainResult, ETAResult | None] | None:
+        res = self.nearest_trains(
+            route_id=route_id,
+            stop=stop,
+            limit=1,
+            direction_id=direction_id,
+            only_approaching=only_approaching,
+            allow_passed_max_km=allow_passed_max_km,
+            include_eta=include_eta,
         )
-
-    def nearest_train_same_line_same_dir_with_eta(
-        self,
-        route_id: str,
-        direction_id: str,
-        stop: Stop,
-    ) -> tuple[NearestTrainResult | None, ETAResult | None]:
-        nearest = self.nearest_train_same_line_same_dir(route_id, direction_id, stop)
-        eta = None
-        if nearest and nearest.approaching:
-            eta = self.estimate_eta_same_line_same_dir(route_id, direction_id, stop)
-        return nearest, eta
+        if not res:
+            return None
+        return res[0]
 
     def list_by_route(self, route_id: str, direction_id: str = "") -> list[Stop]:
         return list(self._by_route_dir.get(((route_id or ""), (direction_id or "")), []))
@@ -323,17 +361,6 @@ class StopsRepo:
         return list(
             self._by_station.get(((nucleus_slug or "").lower(), (station_id or "").strip()), [])
         )
-
-    def nearest_trains(self, route_id: str, stop: Stop, limit: int = 5) -> list:
-        cache = get_live_trains_cache()
-        trains = cache.get_by_route_id(route_id)
-
-        def dkm(t) -> float:
-            if t.lat is None or t.lon is None:
-                return 1e9
-            return stop.distance_km_to(float(t.lat), float(t.lon))
-
-        return sorted(trains, key=dkm)[:limit]
 
 
 _repo: StopsRepo | None = None

@@ -18,26 +18,58 @@
 
 <section>
 	<h2>Trenes más cercanos a la parada</h2>
-	{% if nearest_trains %}
-	<table>
-		<thead>
-		<tr>
-			<th>Tren</th><th>Ruta</th><th>Vel.</th><th>Lat</th><th>Lon</th><th>Hora</th>
-		</tr>
-		</thead>
-		<tbody>
-		{% for t in nearest_trains %}
+	
+	{% if nearest_trains and nearest_trains|length > 0 %}
+		<table border="1" cellpadding="6" cellspacing="0">
+			<thead>
 			<tr>
-				<td><a href="/alpha/trains/{{ nucleus.slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
-				<td>{{ t.route_short_name or t.route_id }}</td>
-				<td>{{ (t.speed_kmh or 0)|round(0) }} km/h</td>
-				<td>{{ '%.5f'|format(t.lat or 0) }}</td>
-				<td>{{ '%.5f'|format(t.lon or 0) }}</td>
-				<td>{{ t.ts or '-' }}</td>
+				<th>Tren</th>
+				<th>Ruta</th>
+				<th>Lat</th>
+				<th>Lon</th>
+				<th>Tiempos</th>
+				<th>¿Estación pasada?</th>
 			</tr>
-		{% endfor %}
-		</tbody>
-	</table>
+			</thead>
+			<tbody>
+			{% for item in nearest_trains %}
+				{% set r   = (item[0] if (item is sequence and item|length >= 1) else item) %}
+				{% set eta = (item[1] if (item is sequence and item|length >= 2) else None) %}
+				
+				{% set route_obj = (repo.get_by_route_and_dir(r.route_id, r.direction_id) if repo is defined else None) %}
+				{% set route_label = route_obj.route_short_name if route_obj is not none else r.route_id %}
+				
+				{% set lat = r.train.lat or 0 %}
+				{% set lon = r.train.lon or 0 %}
+				{% set ts  = r.train.ts or '-' %}
+				{% set pasada = (not r.approaching) %}
+				
+				<tr>
+					<td>
+						<a href="/alpha/trains/{{ nucleus.slug }}/{{ r.train.train_id }}">{{ r.train.train_id }}</a>
+					</td>
+					<td>{{ route_label }}</td>
+					<td>{{ '%.5f'|format(lat|float) }}</td>
+					<td>{{ '%.5f'|format(lon|float) }}</td>
+					<td>
+						{% if eta %}
+							~{{ eta.minutes_rounded }} min
+							<small class="muted">({{ '%.1f'|format(eta.distance_km) }} km)</small>
+						{% else %}
+							—
+						{% endif %}
+					</td>
+					<td>
+						{% if pasada %}
+							Sí <small class="muted">({{ '%.1f'|format(r.abs_delta_km|float) }} km atrás)</small>
+						{% else %}
+							No
+						{% endif %}
+					</td>
+				</tr>
+			{% endfor %}
+			</tbody>
+		</table>
 	{% else %}
 		<p>No hay trenes cercanos ahora mismo.</p>
 	{% endif %}

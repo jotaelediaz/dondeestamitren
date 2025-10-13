@@ -232,7 +232,15 @@ def stop_detail(
     if not candidates:
         raise HTTPException(404, f"Station {station_id} not found in route {route_id}")
     stop = sorted(candidates, key=lambda x: x.seq)[0]
-    nearest = get_stops_repo().nearest_trains(route_id, stop, limit=6)
+    nearest = stops_repo.nearest_trains(
+        route_id=route.route_id,
+        stop=stop,
+        direction_id=route.direction_id,
+        limit=30,
+        include_eta=True,
+        only_approaching=False,
+        allow_passed_max_km=10.0,
+    )
 
     return templates.TemplateResponse(
         "stop_detail.html",

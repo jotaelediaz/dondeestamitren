@@ -443,8 +443,13 @@ def stop_detail(
     if not candidates:
         raise HTTPException(404, f"Station {station_id} not found in route {route_id}")
     stop = sorted(candidates, key=lambda x: x.seq)[0]
-    nearest, eta = stops_repo.nearest_train_same_line_same_dir_with_eta(
-        route.route_id, route.direction_id, stop
+
+    nearest = stops_repo.nearest_trains(
+        route_id=route.route_id,
+        stop=stop,
+        direction_id=route.direction_id,
+        limit=5,
+        include_eta=True,
     )
 
     cache = get_live_trains_cache()
@@ -460,8 +465,7 @@ def stop_detail(
                 "nucleus": mk_nucleus(nucleus),
                 "route": route,
                 "stop": stop,
-                "nearest_train": nearest,
-                "eta": eta,
+                "nearest_trains": nearest,
                 "repo": repo,
                 "last_snapshot": cache.last_snapshot_iso(),
             },
@@ -476,6 +480,7 @@ def stop_detail(
             "route": route,
             "repo": repo,
             "last_snapshot": cache.last_snapshot_iso(),
+            "nearest_trains": nearest,
             "open_stop_id": station_id,
         },
     )
