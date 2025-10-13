@@ -1,7 +1,9 @@
+# app/services/live_trains_cache.py
 from __future__ import annotations
 
 import contextlib
 import logging
+import re
 import time
 from collections import deque
 from datetime import UTC, datetime
@@ -45,6 +47,39 @@ class LiveTrainsCache:
         self._last_fetch_kind: str | None = None  # "pb" | "json" | None
         self._last_fetch_took_s: float = 0.0
 
+    # ---------------- Platform ----------------
+    _PLATFORM_RE = re.compile(r"PLATF\.\(\s*([^)]+?)\s*\)", re.IGNORECASE)
+
+    @classmethod
+    def extract_platform_from_label(cls, label: str | None) -> str | None:
+        """Renfe uses C1-23537-PLATF.(3) in the
+        label field to denote the platform number."""
+        if not label:
+            return None
+        m = cls._PLATFORM_RE.search(label)
+        if not m:
+            return None
+        val = (m.group(1) or "").strip()
+        if not val or val.upper() in {"-", "NA", "N/A", "NULL"}:
+            return None
+        return val
+
+    def _enrich_platform_from_parsed_train(self, tp: TrainPosition) -> None:
+        label = getattr(tp, "label", None)
+        platform = self.extract_platform_from_label(label)
+        if not platform:
+            return
+        with contextlib.suppress(Exception):
+            tp.platform = platform
+            tp.platform_source = "renfe_label"
+            sid = getattr(tp, "stop_id", None)
+            if sid:
+                mapping = getattr(tp, "platform_by_stop", None)
+                if not isinstance(mapping, dict):
+                    mapping = {}
+                    tp.platform_by_stop = mapping
+                mapping[str(sid)] = platform
+
     # -------- Internals: logging --------
     def _log(self, stage: str, **kv) -> None:
         evt = {
@@ -59,7 +94,7 @@ class LiveTrainsCache:
         with contextlib.suppress(Exception):
             log.info(
                 "live_trains %s %s",
-                +stage,
+                stage,
                 {k: v for k, v in evt.items() if k not in ("stage",)},
             )
 
@@ -119,6 +154,7 @@ class LiveTrainsCache:
             tp.nucleus_slug = self._nucleus_for_stop(tp.stop_id) or (
                 lines_repo.nucleus_for_route_id(rid) if rid else None
             )
+            self._enrich_platform_from_parsed_train(tp)
             items.append(tp)
 
         self._log(
@@ -174,6 +210,7 @@ class LiveTrainsCache:
                 tp.nucleus_slug = self._nucleus_for_stop(tp.stop_id) or (
                     lines_repo.nucleus_for_route_id(rid) if rid else None
                 )
+                self._enrich_platform_from_parsed_train(tp)
                 items.append(tp)
 
         self._log(

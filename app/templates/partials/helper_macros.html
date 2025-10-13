@@ -36,7 +36,7 @@
 						{%- set station = repo.station_for_stop(nucleus.slug, stop.stop_id) -%}
 	
 						{% for ln in connected_lines %}
-							{% set line_code = 'c8' if ln.short_name in ['c8a', 'c8b'] else ln.short_name|lower %}
+							{% set line_code = ln.short_name|lower %}
 							{%- if line_code != current_line_code|lower and line_code not in ['c4a', 'c4b'] -%}
 								{{ get_cercanias_line_icon(line_code, nucleus.slug) }}
 							{%- endif -%}

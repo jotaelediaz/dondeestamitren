@@ -123,7 +123,7 @@
 
             if (!htmxHooked) {
                 htmxHooked = true;
-                document.addEventListener('htmx:beforeSwap', () => {
+                document.addEventListener('htmx:beforeSwap', (ev) => {
                     if (dlg.__closeSheet) dlg.__closeSheet();
                 });
             }
@@ -248,23 +248,8 @@
                 body.querySelectorAll('a[href]').forEach(a => {
                     if (boundButtons.has(a)) return;
                     boundButtons.add(a);
-                    a.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        const href = a.getAttribute('href');
+                    a.addEventListener('click', () => {
                         closePanel();
-                        requestAnimationFrame(() => {
-                            if (window.htmx) {
-                                htmx.ajax('GET', href, {
-                                    headers: { 'HX-Request': 'true' },
-                                    target: 'body',
-                                    swap: 'innerHTML transition:true'
-                                }).then(() => {
-                                    try { history.pushState({}, '', href); } catch(_) {}
-                                });
-                            } else {
-                                location.href = href;
-                            }
-                        });
                     });
                 });
             }
@@ -427,7 +412,6 @@
                 });
                 document.addEventListener('htmx:beforeSwap', (e) => {
                     let tgt = (e && e.detail && e.detail.target) ? e.detail.target : null;
-                    if (!tgt) { try { tgt = e.target; } catch(_) {} }
                     if (tgt && (tgt === body || (tgt.closest && tgt.closest('#route-trains-panel')))) return;
                     if (panel.classList.contains('open')) closePanel();
                 });
@@ -438,7 +422,7 @@
     // ------------------ Drawer route stops ------------------
     function bindStopDrawer(root = document) {
         const panel = root.querySelector('#stop-drawer') || document.getElementById('stop-drawer');
-        if (!panel) return;  // sin DOM, no operamos
+        if (!panel) return;
 
         const body  = panel.querySelector('#stop-drawer-body');
         const close = panel.querySelector('.drawer-close');
@@ -489,22 +473,7 @@
                             if (window.htmx) htmx.process(body);
                             body.querySelectorAll('a[href]').forEach(a => {
                                 a.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    const href = a.getAttribute('href');
                                     closePanel();
-                                    requestAnimationFrame(() => {
-                                        if (window.htmx) {
-                                            htmx.ajax('GET', href, {
-                                                headers: { 'HX-Request': 'true' },
-                                                target: 'body',
-                                                swap: 'innerHTML transition:true'
-                                            }).then(() => {
-                                                try { history.pushState({}, '', href); } catch(_) {}
-                                            });
-                                        } else {
-                                            location.href = href;
-                                        }
-                                    });
                                 });
                             });
                             try { history.replaceState({}, '', url); } catch(_) {}

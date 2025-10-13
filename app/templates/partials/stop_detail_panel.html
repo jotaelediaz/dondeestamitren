@@ -18,6 +18,8 @@
 				<div class="chip-body">
 					<div class="chip-title">
 						<strong>{{ nearest.train.train_id }}</strong>
+						{% set P = (nearest.train.platform_by_stop|default({})).get(stop.stop_id) or nearest.train.platform %}
+						{% if P %} · Vía {{ P }}{% endif %}
 						{% if nearest_eta %}
 							· llega en ~{{ nearest_eta.minutes_rounded }} min
 						{% endif %}
@@ -36,8 +38,10 @@
 			<ul class="lista-proximos">
 				{% for r, r_eta in nearest_trains %}
 					<li>
+						{% set P = (r.train.platform_by_stop|default({})).get(stop.stop_id) or r.train.platform %}
 						{{ r.train.train_id }} · {{ '%.1f'|format(r.delta_km|float) }} km
 						{% if r_eta %} · ~{{ r_eta.minutes_rounded }} min{% endif %}
+						{% if P %} · Vía {{ P }}{% endif %}
 					</li>
 				{% endfor %}
 			</ul>
