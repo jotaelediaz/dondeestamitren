@@ -276,6 +276,8 @@
                     boundButtons.add(refreshBtn);
                     refreshBtn.addEventListener('click', (ev) => {
                         ev.preventDefault();
+                        ev.stopPropagation();
+                        if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
                         refreshNow();
                     });
                 }
@@ -339,12 +341,12 @@
                 if (refreshing) return;
                 refreshing = true;
 
-                const inner = panel.querySelector('.drawer-inner');
-                const indicator = body.querySelector('.htmx-indicator');
-                if (indicator) indicator.style.opacity = '1';
+                const inner     = panel.querySelector('.drawer-inner');
+                const bodyEl    = body;
+                const indicator = bodyEl.querySelector('.htmx-indicator');
 
-                const refreshBtns = body.querySelectorAll('#update-route-train-list');
-                refreshBtns.forEach(b => b.disabled = true);
+                if (indicator) indicator.style.opacity = '1';
+                bodyEl.querySelectorAll('#update-route-train-list').forEach(b => b.disabled = true);
 
                 const url = urlWithCtx(resolveUrl());
 
@@ -353,30 +355,38 @@
                     .then(html => {
                         inner.classList.add('is-fading');
 
+                        const animEl = panel.querySelector('.drawer-body') || inner;
+
+                        let swapped = false;
                         const doSwap = () => {
+                            if (swapped) return;
+                            swapped = true;
+
                             const tpl = document.createElement('template');
                             tpl.innerHTML = html;
+
                             if (tpl.content.firstChild) {
-                                body.innerHTML = html;
-                                if (window.htmx) htmx.process(body);
+                                bodyEl.innerHTML = html;
+                                if (window.htmx) htmx.process(bodyEl);
                                 enrichBodyBindings();
                             } else {
-                                body.innerHTML = '<p>Error al cargar los trenes.</p>';
+                                bodyEl.innerHTML = '<p>Error al cargar los trenes.</p>';
                             }
+
                             requestAnimationFrame(() => inner.classList.remove('is-fading'));
                         };
 
                         const onEnd = (ev) => {
                             if (ev.propertyName !== 'opacity') return;
-                            inner.removeEventListener('transitionend', onEnd);
+                            animEl.removeEventListener('transitionend', onEnd);
                             doSwap();
                         };
-                        inner.addEventListener('transitionend', onEnd, { once: true });
+                        animEl.addEventListener('transitionend', onEnd, { once: true });
 
                         setTimeout(() => {
-                            try { inner.removeEventListener('transitionend', onEnd); } catch(_) {}
-                            if (getComputedStyle(inner).opacity === '0') doSwap();
-                        }, 300);
+                            try { animEl.removeEventListener('transitionend', onEnd); } catch(_) {}
+                            doSwap();
+                        }, 320);
                     })
                     .catch(() => {
                         body.innerHTML = '<p>Error al cargar los trenes.</p>';
@@ -384,7 +394,7 @@
                     })
                     .finally(() => {
                         if (indicator) indicator.style.opacity = '';
-                        refreshBtns.forEach(b => b.disabled = false);
+                        bodyEl.querySelectorAll('#update-route-train-list').forEach(b => b.disabled = false);
                         refreshing = false;
                     });
             }

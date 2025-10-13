@@ -1,6 +1,7 @@
 # app/main.py
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -18,7 +19,6 @@ from app.services.live_trains_cache import get_live_trains_cache
 
 scheduler: BackgroundScheduler | None = None
 
-import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 

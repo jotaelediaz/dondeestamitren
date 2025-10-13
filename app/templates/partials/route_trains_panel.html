@@ -26,7 +26,7 @@
 	<ul class="train-list grouped-lists-scroll-horizontal" hx-boost="true">
 		{% for t in trains %}
 			{% set train_route = repo.get_by_route_and_dir(t.route_id, dir) or repo.get_by_route_and_dir(t.route_id, "") %}
-			<li class="route-train-chip-card chip-card" style="--train-color: {{ train_route.color_bg }};">
+			<li class="route-train-chip-card chip-card" style="--train-color: {{ train_route.color_bg }};" data-route-id="{{ train_route.route_id }}" data-train-id="{{ t.train_id }}">
 				<a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}"
 				   hx-target="#main"
 				   hx-swap="innerHTML transition:true"

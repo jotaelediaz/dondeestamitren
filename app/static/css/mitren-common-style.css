@@ -210,13 +210,14 @@ main {
 }
 
 .backdrop-nav {
-    background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--jotaele-background) 50%, transparent), var(--jotaele-background));
+    background: linear-gradient(to bottom, transparent, var(--jotaele-background) 60%);
     position: fixed;
     width: 100%;
     height: var(--bottom-nav-height);
     padding: var(--app-margin) var(--app-margin) calc(var(--app-margin) / 1.5);
     bottom: 0;
     z-index: 70;
+    pointer-events: none;
 }
 
 #bottom-nav .nav-inner {
@@ -1017,7 +1018,7 @@ ul.chip-list {
     font-family: Sora, sans-serif;
     font-weight: 700;
     color: var(--jotaele-black);
-    font-size: 1.08rem;
+    font-size: 1rem;
     line-height: 1.1em;
     padding-bottom: 0.2em;
 }
@@ -1333,14 +1334,13 @@ ul.chip-list {
 .route-train-chip-card {
     display: flex;
     flex-direction: column;
-    flex: 1 0 8rem;
+    flex: 0 0 8rem;
     width: 8rem;
     overflow: hidden;
     align-items: flex-start;
     padding: calc(var(--app-margin) * 0.9) var(--app-margin);
     border-radius: 15px;
     position: relative;
-    height: 4.45rem;
 }
 
 .route-train-chip-card > a {
@@ -1484,7 +1484,7 @@ ul.chip-list {
     display: flex;
     align-items: center;
     gap: var(--app-margin);
-    font-size: 1.1rem;
+    font-size: 1rem;
     box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
 }
 
