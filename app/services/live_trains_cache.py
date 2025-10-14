@@ -1,4 +1,3 @@
-# app/services/live_trains_cache.py
 from __future__ import annotations
 
 import contextlib
@@ -6,6 +5,7 @@ import logging
 import re
 import time
 from collections import deque
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from app.domain.live_models import (
@@ -21,11 +21,20 @@ from app.services.trips_repo import get_repo as get_trips_repo
 FAST_RETRY_ATTEMPTS = 2
 FAST_RETRY_DELAY = 0.4
 
-# If API returns 0 trains, apply grace before clearing cache
-EMPTY_GRACE_SNAPSHOTS = 2
+# Stale indicates when the last snapshot is considered obsolete
 MAX_STALE_SECONDS = 180
 
+# Trains are preserved for 15 minutes if they are not present in the snapshot
+MISSING_TTL_SECONDS = 15 * 60
+
 log = logging.getLogger("live_trains")
+
+
+@dataclass
+class _TrainEntry:
+    tp: TrainPosition
+    last_seen_wall_s: float
+    last_source_ts: int
 
 
 class LiveTrainsCache:
@@ -33,6 +42,7 @@ class LiveTrainsCache:
         self._items: list[TrainPosition] = []
         self._by_id: dict[str, TrainPosition] = {}
 
+        self._entries: dict[str, _TrainEntry] = {}
         self._last_fetch_s: float = 0.0
         self._last_snapshot_ts: int = 0
         self._errors_streak: int = 0
@@ -43,7 +53,7 @@ class LiveTrainsCache:
         self._stop_to_nucleus: dict[str, str] = {}
 
         # --- Debug/metrics ---
-        self._debug = deque(maxlen=300)  # eventos recientes en memoria
+        self._debug = deque(maxlen=300)
         self._last_fetch_kind: str | None = None  # "pb" | "json" | None
         self._last_fetch_took_s: float = 0.0
 
@@ -90,7 +100,6 @@ class LiveTrainsCache:
             **kv,
         }
         self._debug.append(evt)
-
         with contextlib.suppress(Exception):
             log.info(
                 "live_trains %s %s",
@@ -98,19 +107,7 @@ class LiveTrainsCache:
                 {k: v for k, v in evt.items() if k not in ("stage",)},
             )
 
-    # -------- PB path --------
-    def _fetch_pb_once(self):
-        t0 = time.time()
-        try:
-            feed = get_client().fetch_trains_pb()
-            self._last_fetch_kind = "pb"
-            self._last_fetch_took_s = time.time() - t0
-            return feed, None
-        except Exception as e:
-            self._last_fetch_kind = "pb"
-            self._last_fetch_took_s = time.time() - t0
-            return None, f"pb_exc: {e!r}"
-
+    # -------- Helpers: nucleus/route inference --------
     def _ensure_stop_nucleus_index(self):
         if self._stop_to_nucleus:
             return
@@ -130,6 +127,52 @@ class LiveTrainsCache:
             return None
         self._ensure_stop_nucleus_index()
         return self._stop_to_nucleus.get(stop_id)
+
+    @staticmethod
+    def _fill_route_from_short_and_stop(tp):
+        rrepo = get_lines_repo()
+        short = (getattr(tp, "route_short_name", "") or "").strip().lower()
+        if not short:
+            return
+        stop_id = (getattr(tp, "stop_id", "") or "").strip()
+
+        candidates = []
+        for (rid, did), lv in rrepo.by_route_dir.items():
+            if (lv.route_short_name or "").strip().lower() != short:
+                continue
+            if stop_id:
+                for s in lv.stations:
+                    if (s.stop_id or "").strip() == stop_id:
+                        candidates.append((rid, did, lv))
+                        break
+            else:
+                candidates.append((rid, did, lv))
+
+        if not candidates:
+            return
+
+        tdir = (getattr(tp, "direction_id", "") or "").strip()
+        if tdir in ("0", "1"):
+            filtered = [c for c in candidates if (c[1] or "") == tdir]
+            if filtered:
+                candidates = filtered
+
+        rid, did, lv = max(candidates, key=lambda c: len(c[2].stations))
+        tp.route_id = rid
+        tp.nucleus_slug = (lv.nucleus_id or "").strip() or getattr(tp, "nucleus_slug", None)
+
+    # -------- GTFS protobuf path --------
+    def _fetch_pb_once(self):
+        t0 = time.time()
+        try:
+            feed = get_client().fetch_trains_pb()
+            self._last_fetch_kind = "pb"
+            self._last_fetch_took_s = time.time() - t0
+            return feed, None
+        except Exception as e:
+            self._last_fetch_kind = "pb"
+            self._last_fetch_took_s = time.time() - t0
+            return None, f"pb_exc: {e!r}"
 
     def _parse_pb(self, feed) -> tuple[int, int, list[TrainPosition]]:
         header_ts = int(getattr(getattr(feed, "header", None), "timestamp", 0) or 0)
@@ -221,10 +264,51 @@ class LiveTrainsCache:
         )
         return header_ts, now_s, items
 
+    # -------- Internal: merge, sweep, rebuild views --------
+    def _merge_snapshot(
+        self, items: list[TrainPosition], now_s: int, header_ts: int
+    ) -> tuple[int, int]:
+        updated = 0
+        created = 0
+        for tp in items:
+            tid = tp.train_id
+            if not tid:
+                continue
+            entry = self._entries.get(tid)
+            last_source_ts = int(getattr(tp, "timestamp", None) or header_ts or 0)
+            if entry is None:
+                self._entries[tid] = _TrainEntry(
+                    tp=tp, last_seen_wall_s=float(now_s), last_source_ts=last_source_ts
+                )
+                created += 1
+            else:
+                entry.tp = tp
+                entry.last_seen_wall_s = float(now_s)
+                entry.last_source_ts = last_source_ts
+                updated += 1
+        return updated, created
+
+    def _sweep_expired(self, now_s: int) -> int:
+        to_del = []
+        for tid, entry in self._entries.items():
+            if (now_s - entry.last_seen_wall_s) >= MISSING_TTL_SECONDS:
+                to_del.append(tid)
+        for tid in to_del:
+            del self._entries[tid]
+        if to_del:
+            self._log("sweep_expired", removed=len(to_del), ttl=MISSING_TTL_SECONDS)
+        return len(to_del)
+
+    def _rebuild_views(self) -> None:
+        items = [e.tp for e in self._entries.values()]
+        self._items = items
+        self._by_id = {tp.train_id: tp for tp in items}
+
     # -------- Public API --------
     def refresh(self) -> tuple[int, float]:
         self._last_error = None
 
+        # ---- PB
         feed = None
         err_pb = None
         for i in range(1 + FAST_RETRY_ATTEMPTS):
@@ -238,6 +322,7 @@ class LiveTrainsCache:
             header_ts, now_s, items = self._parse_pb(feed)
             self._last_source = "pb"
         else:
+            # ---- Fallback JSON
             raw = None
             err_json = None
             for i in range(1 + FAST_RETRY_ATTEMPTS):
@@ -251,62 +336,45 @@ class LiveTrainsCache:
                 self._errors_streak += 1
                 self._last_error = err_pb or err_json
                 self._log("fetch_error", error=self._last_error, errors_streak=self._errors_streak)
+                now_s = int(time.time())
+                self._sweep_expired(now_s)
+                self._rebuild_views()
                 return len(self._items), self._last_fetch_s
 
             header_ts, now_s, items = self._parse_json(raw)
             self._last_source = "json"
 
-        if header_ts and header_ts == self._last_snapshot_ts and not items:
-            self._last_fetch_s = now_s
-            self._errors_streak = 0
-            return len(self._items), self._last_fetch_s
+        # ---- Parsing and merge
+        if header_ts:
+            self._last_snapshot_ts = header_ts
+        self._last_fetch_s = now_s
+        self._errors_streak = 0
 
         if not items:
-            self._last_error = "parsed_zero_items"
-            self._errors_streak = 0
             self._consecutive_empty += 1
-
-            grace = False
-            if self._items and (
-                (now_s - (self._last_fetch_s or now_s)) <= MAX_STALE_SECONDS
-                or self._consecutive_empty <= EMPTY_GRACE_SNAPSHOTS
-            ):
-                grace = True
-                self._last_fetch_s = now_s
-                self._log(
-                    "empty_with_grace",
-                    header_ts=header_ts,
-                    prev_items=len(self._items),
-                    consecutive_empty=self._consecutive_empty,
-                )
-                return len(self._items), self._last_fetch_s
-
-            self._last_fetch_s = now_s
-            if header_ts:
-                self._last_snapshot_ts = header_ts
+            removed = self._sweep_expired(now_s)
+            self._rebuild_views()
             self._log(
-                "empty_cleared",
+                "refresh_empty_keep",
                 header_ts=header_ts,
-                prev_items=len(self._items),
                 consecutive_empty=self._consecutive_empty,
-                grace_applied=grace,
+                kept=len(self._items),
+                removed_expired=removed,
             )
             return len(self._items), self._last_fetch_s
 
-        prev_len = len(self._items)
-        self._items = items
-        self._by_id = {tp.train_id: tp for tp in self._items}
-        self._last_fetch_s = now_s
-        if header_ts:
-            self._last_snapshot_ts = header_ts
-        self._errors_streak = 0
         self._consecutive_empty = 0
+        updated, created = self._merge_snapshot(items, now_s, header_ts)
+        removed = self._sweep_expired(now_s)
+        self._rebuild_views()
 
         self._log(
-            "update_items",
+            "refresh_merge",
             header_ts=header_ts,
-            prev_items=prev_len,
-            new_items=len(self._items),
+            updated=updated,
+            created=created,
+            removed_expired=removed,
+            active=len(self._items),
         )
         return len(self._items), self._last_fetch_s
 
@@ -365,7 +433,7 @@ class LiveTrainsCache:
         return datetime.fromtimestamp(ts, tz=UTC).isoformat()
 
     def is_stale(self) -> bool:
-        if not self._items or not self._last_snapshot_ts:
+        if not self._last_snapshot_ts:
             return False
         return (time.time() - self._last_snapshot_ts) > MAX_STALE_SECONDS
 
@@ -386,45 +454,13 @@ class LiveTrainsCache:
             "last_error": self._last_error,
             "consecutive_empty": self._consecutive_empty,
             "is_stale": self.is_stale(),
+            "ttl_seconds": MISSING_TTL_SECONDS,
         }
 
     def debug_events(self, limit: int = 50) -> list[dict]:
         if limit <= 0:
             return []
         return list(self._debug)[-limit:]
-
-    @staticmethod
-    def _fill_route_from_short_and_stop(tp):
-        rrepo = get_lines_repo()
-        short = (getattr(tp, "route_short_name", "") or "").strip().lower()
-        if not short:
-            return
-        stop_id = (getattr(tp, "stop_id", "") or "").strip()
-
-        candidates = []
-        for (rid, did), lv in rrepo.by_route_dir.items():
-            if (lv.route_short_name or "").strip().lower() != short:
-                continue
-            if stop_id:
-                for s in lv.stations:
-                    if (s.stop_id or "").strip() == stop_id:
-                        candidates.append((rid, did, lv))
-                        break
-            else:
-                candidates.append((rid, did, lv))
-
-        if not candidates:
-            return
-
-        tdir = (getattr(tp, "direction_id", "") or "").strip()
-        if tdir in ("0", "1"):
-            filtered = [c for c in candidates if (c[1] or "") == tdir]
-            if filtered:
-                candidates = filtered
-
-        rid, did, lv = max(candidates, key=lambda c: len(c[2].stations))
-        tp.route_id = rid
-        tp.nucleus_slug = (lv.nucleus_id or "").strip() or getattr(tp, "nucleus_slug", None)
 
 
 _cache_singleton: LiveTrainsCache | None = None
