@@ -50,25 +50,7 @@
 		</div>
 	</section>
 	
-	{% if open_stop_id %}
-		<script>
-        document.addEventListener('DOMContentLoaded', function(){
-            const url = "/routes/{{ nucleus.slug }}/{{ route.route_id }}/stops/{{ open_stop_id }}";
-            window.AppDrawers?.openStop(url);
-        });
-		</script>
-	{% endif %}
-	
-{%- endblock %}
-
-{%- block extra_stylesheets -%}
-{#	<link rel="preload" href="{{ request.url_for('static', path='fonts/Via-Medium.woff2') }}" as="font" type="font/woff2" crossorigin>
-	<link rel="preload" href="{{ request.url_for('static', path='fonts/Via-Bold.woff2') }}" as="font" type="font/woff2" crossorigin>
-	<link rel="stylesheet" href="/static/css/mitren-renfe-style.css">#}
-{%- endblock -%}
-
-{% block bottom_navbar %}
-	<nav id="bottom-nav" role="navigation" aria-label="Menú de ruta" class="navbar-buttons-group">
+	<nav id="bottom-actions-nav" role="navigation" aria-label="Menú de ruta" class="navbar-buttons-group">
 		<div class="nav-buttons-group-inner">
 			<button id="btn-toggle-trains"
 			        class="navbar-button"
@@ -91,5 +73,20 @@
 			</div>
 		</div>
 	</section>
-	<div class="backdrop-nav"></div>
-{% endblock %}
+	
+	{% if open_stop_id %}
+		<script>
+        document.addEventListener('DOMContentLoaded', function(){
+            const url = "/routes/{{ nucleus.slug }}/{{ route.route_id }}/stops/{{ open_stop_id }}";
+            window.AppDrawers?.openStop(url);
+        });
+		</script>
+	{% endif %}
+	
+{%- endblock %}
+
+{%- block extra_stylesheets -%}
+{#	<link rel="preload" href="{{ request.url_for('static', path='fonts/Via-Medium.woff2') }}" as="font" type="font/woff2" crossorigin>
+	<link rel="preload" href="{{ request.url_for('static', path='fonts/Via-Bold.woff2') }}" as="font" type="font/woff2" crossorigin>
+	<link rel="stylesheet" href="/static/css/mitren-renfe-style.css">#}
+{%- endblock -%}

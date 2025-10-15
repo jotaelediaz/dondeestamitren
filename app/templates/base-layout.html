@@ -1,45 +1,78 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-	  <meta name="mobile-web-app-capable" content="yes">
-	  <meta name="apple-mobile-web-app-title" content="Mi Tren">
-	  <link href="{{ request.url_for('static', path='img/favicon.svg') }}" rel="shortcut icon">
-	  <link href="{{ request.url_for('static', path='img/favicon.png') }}" rel="shortcut icon">
-	  <link rel="apple-touch-icon" sizes="144x144" href="{{ request.url_for('static', path='img/favicon_apple.png') }}">
-    <title hx-head="re-eval">{% block title %}{% endblock %}</title>
-	  <link rel="preload" href="{{ request.url_for('static', path='fonts/Sora-VariableFont_wght.woff2') }}" as="font" type="font/woff2" crossorigin>
-	  <link rel="preload" href="{{ request.url_for('static', path='fonts/Rubik-VariableFont_wght.woff2') }}" as="font" type="font/woff2" crossorigin>
-	  <link rel="preload" href="{{ request.url_for('static', path='fonts/MaterialSymbolsRoundedVF.woff2') }}" as="font" type="font/woff2" crossorigin>
-	  <link rel="stylesheet" href="{{ request.url_for('static', path='css/mitren-common-style.css') }}">
-	  {%- block extra_stylesheets -%}
-	  {%- endblock -%}
-  </head>
-  <body
-	  hx-boost="true"
-	  hx-target="#main"
-	  hx-select="#main > *"
-	  hx-push-url="true"
-	  hx-ext="view-transitions">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-title" content="Mi Tren">
+	<link href="{{ request.url_for('static', path='img/favicon.svg') }}" rel="shortcut icon">
+	<link href="{{ request.url_for('static', path='img/favicon.png') }}" rel="shortcut icon">
+	<link rel="apple-touch-icon" sizes="144x144" href="{{ request.url_for('static', path='img/favicon_apple.png') }}">
+	<title hx-head="re-eval">{% block title %}{% endblock %}</title>
+	
+	<link rel="preload" href="{{ request.url_for('static', path='fonts/Sora-VariableFont_wght.woff2') }}" as="font" type="font/woff2" crossorigin>
+	<link rel="preload" href="{{ request.url_for('static', path='fonts/Rubik-VariableFont_wght.woff2') }}" as="font" type="font/woff2" crossorigin>
+	<link rel="preload" href="{{ request.url_for('static', path='fonts/MaterialSymbolsRoundedVF.woff2') }}" as="font" type="font/woff2" crossorigin>
+	
+	<link rel="stylesheet" href="{{ request.url_for('static', path='css/mitren-common-style.css') }}">
+	{% block extra_stylesheets %}{% endblock %}
+</head>
+<body
+	hx-ext="view-transitions"
+	hx-boost="true"
+	hx-target="#content"
+	hx-select="#content > *"
+	hx-push-url="true">
 
-    <script src="{{ request.url_for('static', path='js/htmx.min.js') }}"></script>
-    <main id="main" class="tft-screen-size container-main" hx-swap="innerHTML transition:true">
-	    {%- block topbar -%}
-		    {% include "partials/topbar.html" %}
-	    {%- endblock -%}
-	    
-      {%- block app_content %}
-      {%- endblock %}
-	    
-	    {% block bottom_navbar %}
-		    {% include "partials/navbar.html" %}
-	    {% endblock %}
-    </main>
-    <script defer src="{{ request.url_for('static', path='js/scripts.js') }}"></script>
-    <script defer src="{{ request.url_for('static', path='js/nucleus.js') }}"></script>
-    {% block config_menu %}
-	    {% include "partials/config_menu.html" %}
-    {% endblock %}
-  </body>
+<script src="{{ request.url_for('static', path='js/htmx.min.js') }}"></script>
+
+<main id="app" class="tft-screen-size container-main">
+	<header id="topbar" hx-preserve>
+		{% block topbar %}{% include "partials/topbar.html" %}{% endblock %}
+	</header>
+	
+	<input type="hidden" id="state-nuc"   name="nucleus"  value="{{ nucleus.slug if nucleus else '' }}">
+	<input type="hidden" id="state-route" name="route_id" value="{{ route_id if route_id is defined else '' }}">
+	<input type="hidden" id="state-dir"   name="dir"      value="{{ dir if dir is defined else '' }}">
+	
+	<section id="content" hx-history-elt hx-swap="morph:innerHTML transition:true settle:150ms">
+		{% block app_content %}{% endblock %}
+	</section>
+	
+	<nav id="bottom-nav" hx-preserve role="navigation" aria-label="Menú">
+		{% block bottom_navbar %}{% include "partials/navbar.html" %}{% endblock %}
+	</nav>
+</main>
+
+<aside id="drawer" aria-hidden="true" hx-preserve>
+	<div id="drawer-content"></div>
+</aside>
+
+{% block config_menu %}{% include "partials/config_menu.html" %}{% endblock %}
+
+<script defer src="{{ request.url_for('static', path='js/scripts.js') }}"></script>
+<script defer src="{{ request.url_for('static', path='js/nucleus.js') }}"></script>
+
+<script>
+    htmx.config.globalViewTransitions = true;
+    htmx.config.refreshOnHistoryMiss = true;
+    htmx.config.historyCacheSize = 20;
+    htmx.config.scrollIntoViewOnBoost = true;
+
+    document.body.addEventListener('htmx:configRequest', (evt) => {
+        const tgt = evt.detail.elt;
+        if (tgt && (tgt.closest('#drawer') || tgt.id === 'open-drawer')) {
+            evt.detail.parameters['route_id'] = document.getElementById('state-route')?.value || '';
+            evt.detail.parameters['dir']      = document.getElementById('state-dir')?.value || '';
+            evt.detail.parameters['nucleus']  = document.getElementById('state-nuc')?.value || '';
+        }
+    });
+
+    document.body.addEventListener('htmx:afterSwap', (e) => {
+        if (e.target.id === 'content' || e.target.id === 'drawer-content') {
+            window.initDrawers && window.initDrawers();
+        }
+    });
+</script>
+</body>
 </html>

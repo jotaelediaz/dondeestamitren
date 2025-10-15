@@ -175,7 +175,7 @@ main {
 #app-topbar .topbar-title {
     width: 100%;
     height: var(--topbar-height);
-    display: flex; calc(var(--app-margin) / 1);
+    display: flex;
     justify-content: center;
     align-items: center;
 }
@@ -363,14 +363,19 @@ main {
 
 /* -- Transitions -- */
 
-#main {
+#content {
     view-transition-name: page;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
 }
 
 @keyframes vt-fade-in   { from { opacity: 0 } to { opacity: 1 } }
 @keyframes vt-fade-out  { from { opacity: 1 } to { opacity: 0 } }
 @keyframes vt-slide-in  { from { transform: translateX(8px) } to { transform: none } }
-@keyframes vt-slide-out { from { transform: none } to { transform: translateY(-8px) } }
+@keyframes vt-slide-out { from { transform: none } to { transform: translateX(-8px) } }
 
 ::view-transition-new(page) {
     animation: vt-fade-in var(--vt-in) var(--vt-ease) both,
@@ -681,17 +686,17 @@ main {
     flex-direction: column;
     flex: 1 1 auto;
     min-height: 0;
-    overflow: hidden;
+    overflow-y: auto;
 }
 
 ul.chip-list {
     display: flex;
     flex-direction: column;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     gap: var(--app-margin);
     list-style: none;
     min-height: 0;
-    overflow-y: auto;
+    overflow-y: visible;
     overflow-x: hidden;
     margin: 0 0;
     padding: 0 0 calc(var(--bottom-nav-height) + (var(--app-margin) * 1.5));
@@ -835,12 +840,13 @@ ul.chip-list {
 }
 
 .grouped-lists-scroll {
-    display: block;
+    display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    padding-bottom: calc((var(--bottom-nav-height) * 2.3) + (var(--app-margin) * 2));
+    padding-bottom: calc((var(--bottom-nav-height) * 3.3) + (var(--app-margin) * 3));
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
@@ -1164,12 +1170,23 @@ ul.chip-list {
 
 /* - Buttons group navbar - */
 
-#bottom-nav.navbar-buttons-group {
+#bottom-actions-nav {
+    position: fixed;
+    bottom: calc(var(--bottom-nav-height) + (var(--app-margin) * 1.7));
+    z-index: 9999;
+    right: 0;
+    padding-right: var(--app-margin);
+}
+
+#route-actions.navbar-buttons-group {
     padding: 0 var(--app-margin) calc(var(--app-margin) / 1) 0;
     width: fit-content;
     right: 0;
     left: auto;
     background: none;
+    position: fixed;
+    bottom: 0;
+    z-index: 1000;
 }
 
 .nav-buttons-group-inner {
@@ -1217,8 +1234,8 @@ ul.chip-list {
     position: fixed;
     left:0;
     right:0;
-    bottom:0;
-    z-index: 60;
+    bottom: 0;
+    z-index: 9999;
     transform: translateY(100%);
     transition: ease 0.2s;
     background: var(--jotaele-white);
@@ -1227,11 +1244,12 @@ ul.chip-list {
     box-shadow: 0 -12px 40px rgba(0,0,0,.35);
     max-height: 60vh;
     outline: 0;
+    padding-bottom: calc(var(--bottom-nav-height) + (var(--app-margin) * 1.7));
 }
 
 
 .drawer-inner {
-    padding: var(--app-margin) var(--app-margin) calc(var(--app-margin) / 1);
+    padding: var(--app-margin) var(--app-margin) 0;
     overflow: auto;
     max-height: 60vh;
     outline: 0;
@@ -1282,7 +1300,7 @@ ul.chip-list {
 }
 
 #route-trains-panel.drawer-bottom {
-    background: linear-gradient(to bottom, transparent 0%, var(--jotaele-background) 65%, var(--jotaele-background) 80%);
+    background: linear-gradient(to bottom, transparent 0%, var(--jotaele-background) 25%, var(--jotaele-background) 80%);
     border-radius: 0;
     height: 12rem;
     max-height: 12rem;
