@@ -23,5 +23,8 @@
 			{{ nucleus_picker(current_nucleus, nuclei) }}
 		</div>
 	</section>
-
 {%- endblock %}
+
+{% block action_buttons %}
+	<div id="action-buttons-items" hx-swap-oob="true"></div>
+{% endblock %}

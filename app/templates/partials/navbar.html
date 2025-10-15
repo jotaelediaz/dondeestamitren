@@ -1,16 +1,20 @@
-<div class="nav-inner">
+{% set section = section or
+	('lines'    if request.url.path.startswith('/lines') or request.url.path.startswith('/routes') else
+	'stations' if request.url.path.startswith('/stations') or request.url.path.startswith('/stops') else
+	'trains'   if request.url.path.startswith('/trains') else
+	'home') %}
+
+<div id="bottom-nav-items" class="nav-inner" hx-swap-oob="true">
 	<div class="navbar-inner-wrapper">
-		<a class="navbar-item" data-tab="stations" href="/stations/">
+		<a class="navbar-item {{ 'item-active' if section=='stations' }}" href="/stations" data-section="stations" aria-current="{{ 'page' if section=='stations' }}">
 			<i class="material-symbols-rounded">emoji_transportation</i>
 			Estaciones
 		</a>
-		
-		<a class="navbar-item" data-tab="lines" href="/lines/">
+		<a class="navbar-item {{ 'item-active' if section=='lines' }}" href="/lines" data-section="lines" aria-current="{{ 'page' if section=='lines'   }}">
 			<i class="material-symbols-rounded">route</i>
 			Líneas
 		</a>
-		
-		<a class="navbar-item" data-tab="trains" href="/trains/">
+		<a class="navbar-item {{ 'item-active' if section=='trains' }}" href="/trains" data-section="trains" aria-current="{{ 'page' if section=='trains'  }}">
 			<i class="material-symbols-rounded">train</i>
 			Trenes
 		</a>

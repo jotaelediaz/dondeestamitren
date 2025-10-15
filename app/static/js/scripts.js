@@ -20,6 +20,94 @@
         });
     }
 
+    function getStaticDrawer() {
+        const panel = document.getElementById('drawer');
+        const body  = document.getElementById('drawer-content');
+        return { panel, body };
+    }
+
+    function setDrawerMode(mode) {
+        const { panel } = getStaticDrawer();
+        if (!panel) return;
+        panel.classList.remove('drawer-trains','drawer-stop');
+        if (mode === 'trains') panel.classList.add('drawer-trains');
+        else if (mode === 'stop') panel.classList.add('drawer-stop');
+        if (mode) panel.dataset.mode = mode; else delete panel.dataset.mode;
+    }
+
+    function openStaticDrawer() {
+        console.debug('[drawer] openStaticDrawer()');
+        const { panel } = getStaticDrawer();
+        if (!panel) return;
+        panel.hidden = false;
+        panel.removeAttribute('inert');
+        panel.setAttribute('aria-hidden', 'false');
+        panel.getBoundingClientRect();
+        panel.classList.add('open');
+    }
+
+    function closeStaticDrawer() {
+        console.debug('[drawer] closeStaticDrawer()');
+        const { panel } = getStaticDrawer();
+        if (!panel) return;
+        panel.classList.remove('open');
+        panel.setAttribute('aria-hidden', 'true');
+        panel.setAttribute('inert', '');
+        panel.classList.remove('drawer-trains','drawer-stop');
+        setTimeout(() => { panel.hidden = true; }, 260);
+    }
+
+    function swapDrawerHTML(html) {
+        const { body } = getStaticDrawer();
+        if (!body) return;
+        body.innerHTML = html;
+        if (window.htmx) htmx.process(body);
+        body.querySelectorAll('.drawer-close,[data-close-sheet]').forEach(btn => {
+            if (boundButtons.has(btn)) return;
+            boundButtons.add(btn);
+            btn.addEventListener('click', (ev) => { ev.preventDefault(); closeStaticDrawer(); });
+        });
+    }
+
+    function loadIntoDrawer(url, opts = {}) {
+        const { panel, body } = getStaticDrawer();
+        if (!panel || !body) return;
+        const inner = panel.querySelector('.drawer-inner') || body;
+        const indicator = body.querySelector('.htmx-indicator');
+        if (indicator) indicator.style.opacity = '1';
+        fetch(url, { headers: { 'HX-Request': 'true' } })
+            .then(r => r.ok ? r.text() : Promise.reject(r))
+            .then(html => {
+                inner.classList.add('is-fading');
+                const animEl = panel.querySelector('.drawer-body') || inner;
+                let swapped = false;
+                const doSwap = () => {
+                    if (swapped) return;
+                    swapped = true;
+                    swapDrawerHTML(html);
+                    requestAnimationFrame(() => inner.classList.remove('is-fading'));
+                    if (opts.afterLoad) { try { opts.afterLoad(); } catch(_) {} }
+                };
+                const onEnd = (ev) => {
+                    if (ev.propertyName !== 'opacity') return;
+                    animEl.removeEventListener('transitionend', onEnd);
+                    doSwap();
+                };
+                animEl.addEventListener('transitionend', onEnd, { once: true });
+                setTimeout(() => {
+                    try { animEl.removeEventListener('transitionend', onEnd); } catch(_) {}
+                    doSwap();
+                }, 320);
+            })
+            .catch(() => {
+                swapDrawerHTML('<p>Error al cargar.</p>');
+                panel.querySelector('.drawer-inner')?.classList.remove('is-fading');
+            })
+            .finally(() => {
+                if (indicator) indicator.style.opacity = '';
+            });
+    }
+
     // ------------------ Search box ------------------
     function enhanceSearchBox(form) {
         if (!form || upgradedForms.has(form)) return;
@@ -198,13 +286,13 @@
 
     // ------------------ Drawer Train routes ------------------
     function bindRouteTrainsPanel(root = document) {
+        console.debug('[trains] bindRouteTrainsPanel() called. root=', root);
         const btn   = root.querySelector('#btn-toggle-trains') || document.querySelector('#btn-toggle-trains');
-        const panel = root.querySelector('#route-trains-panel') || document.getElementById('route-trains-panel');
-        if (!panel) return;  // no hay DOM → no hacemos nada
-
-        const body  = panel.querySelector('#route-trains-body');
-        const close = panel.querySelector('.drawer-close');
-        if (!body) return;
+        const panel = document.getElementById('drawer');
+        const body  = document.getElementById('drawer-content');
+        const close = null;
+        console.debug('[trains] btn?', !!btn, 'panel?', !!panel, 'body?', !!body, 'btn=', btn);
+        if (!panel || !body) return;
 
         panel.setAttribute('role', 'dialog');
         panel.setAttribute('aria-modal', 'true');
@@ -215,33 +303,62 @@
             panel.hidden = true;
         }
 
+        function resolveUrl(sourceBtn) {
+            try {
+                const b = sourceBtn || document.querySelector('#btn-toggle-trains');
+                const fromBtn   = b && (b.getAttribute('data-url') || b.dataset?.url);
+                const fromPanel = panel.getAttribute('data-url') || panel.dataset?.url;
+                if (fromBtn) return fromBtn;
+                if (fromPanel) return fromPanel;
+                return location.pathname.replace(/\/$/, '') + '/trains';
+            } catch(_) {
+                return '/trains';
+            }
+        }
+
+        function urlWithCtx(baseUrl) {
+            try {
+                const url = new URL(baseUrl, location.origin);
+                const ctxForm = body.querySelector('#rtp-ctx');
+                if (ctxForm) {
+                    const fd = new FormData(ctxForm);
+                    for (const [k, v] of fd.entries()) {
+                        if (v != null && String(v) !== '') url.searchParams.set(k, String(v));
+                    }
+                }
+                return url.toString();
+            } catch(_) {
+                return baseUrl;
+            }
+        }
+
+        console.debug('[trains] boundPanels.has(panel)=', boundPanels.has(panel));
         if (!boundPanels.has(panel)) {
             boundPanels.add(panel);
             let lastFocusEl = null;
 
-            function resolveUrl() {
-                const fromBtn   = btn && (btn.getAttribute('data-url') || btn.dataset?.url);
-                const fromPanel = panel.getAttribute('data-url') || panel.dataset?.url;
-                if (fromBtn) return fromBtn;
-                if (fromPanel) return fromPanel;
-                try { return location.pathname.replace(/\/$/, '') + '/trains'; }
-                catch(_) { return '/trains'; }
-            }
-
-            function urlWithCtx(baseUrl) {
-                try {
-                    const url = new URL(baseUrl, location.origin);
-                    const ctxForm = body.querySelector('#rtp-ctx');
-                    if (ctxForm) {
-                        const fd = new FormData(ctxForm);
-                        for (const [k, v] of fd.entries()) {
-                            if (v != null && String(v) !== '') url.searchParams.set(k, String(v));
-                        }
-                    }
-                    return url.toString();
-                } catch(_) {
-                    return baseUrl;
+            function loadOnce(sourceBtn) {
+                const u0 = resolveUrl(sourceBtn);
+                console.debug('[trains] loadOnce() →', u0, 'ctx=', panel.dataset.trainsCtx, 'loaded=', panel.dataset.trainsLoaded);
+                if (panel.dataset.trainsLoaded && panel.dataset.trainsCtx === u0) {
+                    enrichBodyBindings();
+                    return;
                 }
+                fetch(u0, { headers: { 'HX-Request': 'true' } })
+                    .then(r => r.ok ? r.text() : Promise.reject(r))
+                    .then(html => {
+                        console.debug('[trains] loadOnce() ok; html length=', html?.length);
+                        const template = document.createElement('template');
+                        template.innerHTML = html;
+                        if (template.content.firstChild) {
+                            body.innerHTML = html;
+                            if (window.htmx) htmx.process(body);
+                            enrichBodyBindings();
+                            panel.dataset.trainsLoaded = '1';
+                            panel.dataset.trainsCtx = u0;
+                        }
+                    })
+                    .catch(() => { console.debug('[trains] loadOnce() FAILED'); body.innerHTML = '<p>Error al cargar los trenes.</p>'; });
             }
 
             function bindBodyLinks() {
@@ -268,57 +385,36 @@
                 }
             }
 
-            function loadOnce() {
-                if (panel.dataset.loaded) { enrichBodyBindings(); return; }
-                const url = resolveUrl();
-                fetch(url, { headers: { 'HX-Request': 'true' } })
-                    .then(r => r.ok ? r.text() : Promise.reject(r))
-                    .then(html => {
-                        const template = document.createElement('template');
-                        template.innerHTML = html;
-                        if (template.content.firstChild) {
-                            body.innerHTML = html;
-                            if (window.htmx) htmx.process(body);
-                            enrichBodyBindings();
-                            panel.dataset.loaded = '1';
-                        }
-                    })
-                    .catch(() => { body.innerHTML = '<p>Error al cargar los trenes.</p>'; });
-            }
-
-            function openPanel() {
+            function openPanel(sourceBtn) {
+                console.debug('[trains] openPanel()');
                 lastFocusEl = (document.activeElement && document.contains(document.activeElement))
-                    ? document.activeElement : (btn || document.body);
+                    ? document.activeElement : (sourceBtn || document.body);
 
-                const stopDrawer = document.getElementById('stop-drawer');
-                if (stopDrawer && stopDrawer.__closeStopDrawer && stopDrawer.classList.contains('open')) {
-                    stopDrawer.__closeStopDrawer();
+                setDrawerMode('trains');
+                openStaticDrawer();
+                if (sourceBtn) sourceBtn.setAttribute('aria-expanded', 'true');
+                else {
+                    const b = document.querySelector('#btn-toggle-trains');
+                    if (b) b.setAttribute('aria-expanded', 'true');
                 }
-
-                panel.hidden = false;
-                panel.removeAttribute('inert');
-                panel.setAttribute('aria-hidden', 'false');
-                if (btn) btn.setAttribute('aria-expanded', 'true');
-
-                panel.getBoundingClientRect();
-                panel.classList.add('open');
 
                 const focusTarget = panel.querySelector('.drawer-close') || panel;
                 requestAnimationFrame(() => { try { focusTarget.focus(); } catch(_) {} });
 
-                loadOnce();
+                loadOnce(sourceBtn);
                 try { document.dispatchEvent(new CustomEvent('open:trains-drawer')); } catch(_) {}
             }
 
             function closePanel() {
-                const fallback = btn || lastFocusEl || document.body;
+                console.debug('[trains] closePanel()');
+                const fallback = (document.querySelector('#btn-toggle-trains')) || lastFocusEl || document.body;
                 if (panel.contains(document.activeElement)) { try { fallback.focus(); } catch(_) {} }
 
-                panel.classList.remove('open');
-                panel.setAttribute('aria-hidden', 'true');
-                panel.setAttribute('inert', '');
-                if (btn) btn.setAttribute('aria-expanded', 'false');
-                setTimeout(() => { panel.hidden = true; }, 260);
+                closeStaticDrawer();
+                try {
+                    const b = document.querySelector('#btn-toggle-trains');
+                    if (b) b.setAttribute('aria-expanded', 'false');
+                } catch(_) {}
             }
 
             let refreshing = false;
@@ -354,6 +450,8 @@
                                 bodyEl.innerHTML = html;
                                 if (window.htmx) htmx.process(bodyEl);
                                 enrichBodyBindings();
+                                panel.dataset.trainsLoaded = '1';
+                                panel.dataset.trainsCtx = resolveUrl();
                             } else {
                                 bodyEl.innerHTML = '<p>Error al cargar los trenes.</p>';
                             }
@@ -385,132 +483,111 @@
             }
 
             panel.__closeTrainsPanel = closePanel;
+            panel.__openTrainsPanel  = openPanel;
+            console.debug('[trains] expose methods', { open: true, close: true });
+        }
 
-            if (close && !boundButtons.has(close)) {
-                boundButtons.add(close);
-                close.addEventListener('click', closePanel);
-            }
-
-            if (btn && !boundButtons.has(btn)) {
-                boundButtons.add(btn);
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (panel.classList.contains('open')) closePanel();
-                    else openPanel();
-                });
-                if (!btn.hasAttribute('aria-controls')) btn.setAttribute('aria-controls', 'route-trains-panel');
-                if (!btn.hasAttribute('aria-expanded')) btn.setAttribute('aria-expanded', 'false');
-            }
-
-            if (!trainsGlobalHandlersBound) {
-                trainsGlobalHandlersBound = true;
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape' && panel.classList.contains('open')) closePanel();
-                });
-                document.addEventListener('open:stop-drawer', () => {
-                    if (panel.classList.contains('open')) closePanel();
-                });
-                document.addEventListener('htmx:beforeSwap', (e) => {
-                    let tgt = (e && e.detail && e.detail.target) ? e.detail.target : null;
-                    if (tgt && (tgt === body || (tgt.closest && tgt.closest('#route-trains-panel')))) return;
-                    if (panel.classList.contains('open')) closePanel();
-                });
-            }
+        if (btn && !boundButtons.has(btn)) {
+            console.debug('[trains] binding btn listener', btn);
+            boundButtons.add(btn);
+            btn.addEventListener('click', (e) => {
+                console.debug('[trains] btn click; panel open?', document.getElementById('drawer')?.classList.contains('open'), 'mode=', document.getElementById('drawer')?.dataset.mode, 'hasOpenFn?', !!document.getElementById('drawer')?.__openTrainsPanel);
+                e.preventDefault();
+                const p = document.getElementById('drawer');
+                if (!p) return;
+                const isOpen = p.classList.contains('open') && p.dataset.mode === 'trains';
+                if (isOpen && p.__closeTrainsPanel) {
+                    p.__closeTrainsPanel();
+                } else if (p.__openTrainsPanel) {
+                    p.__openTrainsPanel(btn);
+                } else {
+                    bindRouteTrainsPanel(document);
+                    const p2 = document.getElementById('drawer');
+                    if (p2 && p2.__openTrainsPanel) p2.__openTrainsPanel(btn);
+                }
+            });
+            if (!btn.hasAttribute('aria-controls')) btn.setAttribute('aria-controls', 'drawer');
+            if (!btn.hasAttribute('aria-expanded')) btn.setAttribute('aria-expanded', 'false');
         }
     }
 
     // ------------------ Drawer route stops ------------------
     function bindStopDrawer(root = document) {
-        const panel = root.querySelector('#stop-drawer') || document.getElementById('stop-drawer');
+        const panel = document.getElementById('drawer');
         if (!panel) return;
 
-        const body  = panel.querySelector('#stop-drawer-body');
+        const body  = document.getElementById('drawer-content');
         const close = panel.querySelector('.drawer-close');
         if (!body) return;
 
-        // A11y base
-        panel.setAttribute('role', 'dialog');
-        panel.setAttribute('aria-modal', 'true');
-        if (!panel.hasAttribute('tabindex')) panel.setAttribute('tabindex', '-1');
-        if (panel.getAttribute('aria-hidden') !== 'false') {
-            panel.setAttribute('aria-hidden', 'true');
-            panel.setAttribute('inert', '');
-            panel.hidden = true;
+        if (!panel.__a11yInit) {
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('aria-modal', 'true');
+            if (!panel.hasAttribute('tabindex')) panel.setAttribute('tabindex', '-1');
+            if (panel.getAttribute('aria-hidden') !== 'false') {
+                panel.setAttribute('aria-hidden', 'true');
+                panel.setAttribute('inert', '');
+                panel.hidden = true;
+            }
+            panel.__a11yInit = true;
         }
 
         disableBoostForStopLinks(root);
 
-        if (!boundPanels.has(panel)) {
-            boundPanels.add(panel);
-            let lastFocusEl = null;
+        let lastFocusEl = null;
 
-            function openWithUrl(url) {
-                lastFocusEl = (document.activeElement && document.contains(document.activeElement))
-                    ? document.activeElement : document.body;
+        function openWithUrl(url) {
+            lastFocusEl = (document.activeElement && document.contains(document.activeElement))
+                ? document.activeElement : document.body;
 
-                const trainsPanel = document.getElementById('route-trains-panel');
-                if (trainsPanel && trainsPanel.__closeTrainsPanel && trainsPanel.classList.contains('open')) {
-                    trainsPanel.__closeTrainsPanel();
-                }
+            setDrawerMode('stop');
 
-                panel.hidden = false;
-                panel.removeAttribute('inert');
-                panel.setAttribute('aria-hidden', 'false');
+            openStaticDrawer();
 
-                panel.getBoundingClientRect();
-                panel.classList.add('open');
-
-                const focusTarget = panel.querySelector('.drawer-close') || panel;
-                requestAnimationFrame(() => { try { focusTarget.focus(); } catch(_) {} });
-
-                fetch(url, { headers: { 'HX-Request': 'true' } })
-                    .then(r => r.ok ? r.text() : Promise.reject(r))
-                    .then(html => {
-                        const template = document.createElement('template');
-                        template.innerHTML = html;
-                        if (template.content.firstChild) {
-                            body.innerHTML = html;
-                            if (window.htmx) htmx.process(body);
-                            body.querySelectorAll('a[href]').forEach(a => {
-                                a.addEventListener('click', (e) => {
-                                    closePanel();
-                                });
+            fetch(url, { headers: { 'HX-Request': 'true' } })
+                .then(r => r.ok ? r.text() : Promise.reject(r))
+                .then(html => {
+                    const template = document.createElement('template');
+                    template.innerHTML = html;
+                    if (template.content.firstChild) {
+                        body.innerHTML = html;
+                        if (window.htmx) htmx.process(body);
+                        body.querySelectorAll('a[href]').forEach(a => {
+                            a.addEventListener('click', (e) => {
+                                closePanel();
                             });
-                            try { history.replaceState({}, '', url); } catch(_) {}
-                        }
-                    })
-                    .catch(() => { body.innerHTML = '<p>Error al cargar la parada.</p>'; });
+                        });
+                        try { history.replaceState({}, '', url); } catch(_) {}
+                    }
+                })
+                .catch(() => { body.innerHTML = '<p>Error al cargar la parada.</p>'; });
 
-                try { document.dispatchEvent(new CustomEvent('open:stop-drawer')); } catch(_) {}
-            }
+            try { document.dispatchEvent(new CustomEvent('open:stop-drawer')); } catch(_) {}
+        }
 
-            function closePanel() {
-                const fallback = lastFocusEl || document.body;
-                if (panel.contains(document.activeElement)) { try { fallback.focus(); } catch(_) {} }
+        function closePanel() {
+            const fallback = lastFocusEl || document.body;
+            if (panel.contains(document.activeElement)) { try { fallback.focus(); } catch(_) {} }
 
-                panel.classList.remove('open');
-                panel.setAttribute('aria-hidden', 'true');
-                panel.setAttribute('inert', '');
-                setTimeout(() => { panel.hidden = true; }, 260);
+            closeStaticDrawer();
 
-                try {
-                    const base = location.pathname.split('/stops')[0] || location.pathname;
-                    history.replaceState({}, '', base);
-                } catch(_) {}
-            }
+            try {
+                const base = location.pathname.split('/stops')[0] || location.pathname;
+                history.replaceState({}, '', base);
+            } catch(_) {}
+        }
 
-            panel.__openStopWithUrl = openWithUrl;
-            panel.__closeStopDrawer = closePanel;
+        panel.__openStopWithUrl = openWithUrl;
+        panel.__closeStopDrawer = closePanel;
 
-            if (close && !boundButtons.has(close)) {
-                boundButtons.add(close);
-                close.addEventListener('click', closePanel);
-            }
+        if (close && !boundButtons.has(close)) {
+            boundButtons.add(close);
+            close.addEventListener('click', closePanel);
         }
 
         window.AppDrawers = window.AppDrawers || {};
-        window.AppDrawers.openStop  = (url) => { const p = document.getElementById('stop-drawer'); p && p.__openStopWithUrl && p.__openStopWithUrl(url); };
-        window.AppDrawers.closeStop = () => { const p = document.getElementById('stop-drawer'); p && p.__closeStopDrawer && p.__closeStopDrawer(); };
+        window.AppDrawers.openStop  = (url) => { const p = document.getElementById('drawer'); p && p.__openStopWithUrl && p.__openStopWithUrl(url); };
+        window.AppDrawers.closeStop = () => { const p = document.getElementById('drawer'); p && p.__closeStopDrawer && p.__closeStopDrawer(); };
     }
 
     // ------------------ Init & observers ------------------
@@ -526,9 +603,9 @@
             ev.stopPropagation();
             if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
             const href = a.href;
-            const panel = document.getElementById('stop-drawer');
+            const panel = document.getElementById('drawer');
             if (!panel) { location.href = href; return; }
-            if (!boundPanels.has(panel)) { bindStopDrawer(document); }
+            if (!panel.__openStopWithUrl) { bindStopDrawer(document); }
             if (panel.__openStopWithUrl) panel.__openStopWithUrl(href);
             else {
                 fetch(href, { headers: { 'HX-Request': 'true' } })
@@ -537,8 +614,9 @@
                         panel.hidden = false;
                         panel.removeAttribute('inert');
                         panel.setAttribute('aria-hidden', 'false');
+                        setDrawerMode('stop');
                         panel.classList.add('open');
-                        const body = panel.querySelector('#stop-drawer-body');
+                        const body = document.getElementById('drawer-content');
                         if (body) { body.innerHTML = html; if (window.htmx) htmx.process(body); }
                         try { history.replaceState({}, '', href); } catch(_) {}
                     });
@@ -547,6 +625,7 @@
     }
 
     function init(root = document) {
+        console.debug('[init] init(root=)', root);
         root.querySelectorAll('form.search-box, form.search-station-box').forEach(enhanceSearchBox);
         bindSideSheet(root);
         bindReverseToggleDelegated();
@@ -574,8 +653,10 @@
                 }
 
                 if (node.id === 'route-trains-panel' || node.querySelector?.('#route-trains-panel') ||
-                    node.id === 'bottom-nav' || node.querySelector?.('#btn-toggle-trains') || node.matches?.('#btn-toggle-trains') ||
+                    node.id === 'bottom-nav' || node.id === 'bottom-actions-nav' ||
+                    node.querySelector?.('#btn-toggle-trains') || node.matches?.('#btn-toggle-trains') ||
                     node.hasAttribute?.('data-toggle') || node.querySelector?.('[data-toggle="trains"]')) {
+                    console.debug('[trains][MO] rebind triggered by node:', node);
                     bindRouteTrainsPanel(document);
                 }
 
@@ -591,5 +672,43 @@
 
     if (window.htmx) {
         document.body.addEventListener('htmx:afterSwap', (e) => init(e.target));
+        document.body.addEventListener('htmx:beforeSwap', (e) => {
+            const { panel, body } = getStaticDrawer();
+            if (!panel || !body) return;
+            const tgt = (e && e.detail && e.detail.target) ? e.detail.target : null;
+            if (tgt && (tgt === body || (tgt.closest && tgt.closest('#drawer')))) return;
+
+            const mode = panel.dataset.mode;
+            if (panel.classList.contains('open')) {
+                if (mode === 'trains' && panel.__closeTrainsPanel) panel.__closeTrainsPanel();
+                else if (mode === 'stop' && panel.__closeStopDrawer) panel.__closeStopDrawer();
+                else closeStaticDrawer();
+            }
+
+            try {
+                delete panel.dataset.trainsLoaded;
+                delete panel.dataset.trainsCtx;
+                delete panel.dataset.mode;
+            } catch(_) {}
+            panel.classList.remove('drawer-trains','drawer-stop');
+        });
+
+        document.body.addEventListener('htmx:beforeHistorySave', () => {
+            const { panel } = getStaticDrawer();
+            if (!panel) return;
+
+            const mode = panel.dataset.mode;
+            if (panel.classList.contains('open')) {
+                if (mode === 'trains' && panel.__closeTrainsPanel) panel.__closeTrainsPanel();
+                else if (mode === 'stop' && panel.__closeStopDrawer) panel.__closeStopDrawer();
+                else closeStaticDrawer();
+            }
+            try {
+                delete panel.dataset.trainsLoaded;
+                delete panel.dataset.trainsCtx;
+                delete panel.dataset.mode;
+            } catch(_) {}
+            panel.classList.remove('drawer-trains','drawer-stop');
+        });
     }
 })();

@@ -22,6 +22,7 @@
 	hx-boost="true"
 	hx-target="#content"
 	hx-select="#content > *"
+	hx-select-oob="#bottom-nav-items, #topbar-items, #action-buttons-items"
 	hx-push-url="true">
 
 <script src="{{ request.url_for('static', path='js/htmx.min.js') }}"></script>
@@ -39,14 +40,20 @@
 		{% block app_content %}{% endblock %}
 	</section>
 	
-	<nav id="bottom-nav" hx-preserve role="navigation" aria-label="Menú">
+	<aside id="drawer" class="drawer-bottom" hidden aria-hidden="true" hx-preserve>
+		<div id="drawer-content" class="drawer-inner"></div>
+	</aside>
+	
+	<nav id="bottom-nav" role="navigation" aria-label="Menú" hx-preserve>
 		{% block bottom_navbar %}{% include "partials/navbar.html" %}{% endblock %}
 	</nav>
 </main>
 
-<aside id="drawer" aria-hidden="true" hx-preserve>
-	<div id="drawer-content"></div>
-</aside>
+<div id="action-buttons" hx-preserve>
+	<div id="action-buttons-items"></div>
+</div>
+
+{% block action_buttons %}{% endblock %}
 
 {% block config_menu %}{% include "partials/config_menu.html" %}{% endblock %}
 

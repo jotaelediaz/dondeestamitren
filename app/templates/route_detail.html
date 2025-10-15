@@ -38,42 +38,6 @@
 		</div>
 	</section>
 	
-	<section id="stop-drawer" class="drawer-bottom" hidden aria-hidden="true">
-		<div class="drawer-inner">
-			<div class="drawer-header">
-				<h3 class="drawer-title">Detalle de parada</h3>
-				<button type="button" class="drawer-close" aria-label="Cerrar">✕</button>
-			</div>
-			<div id="stop-drawer-body" class="drawer-body">
-				<div class="htmx-indicator">Cargando…</div>
-			</div>
-		</div>
-	</section>
-	
-	<nav id="bottom-actions-nav" role="navigation" aria-label="Menú de ruta" class="navbar-buttons-group">
-		<div class="nav-buttons-group-inner">
-			<button id="btn-toggle-trains"
-			        class="navbar-button"
-			        type="button"
-			        aria-controls="route-trains-panel"
-			        aria-expanded="false"
-			        title="Mostrar/ocultar trenes en la ruta"
-			        data-url="/lines/{{ nucleus.slug }}/{{ route.line_id }}/trains?dir={{ '0' if (route.direction_id or '') in ('', '0') else '1' }}&source_rid={{ route.route_id }}"
-			>
-				<i class="navbar-icon navbar-button-icon material-symbols-rounded">train</i>
-			</button>
-		</div>
-	</nav>
-	
-	<section id="route-trains-panel" class="drawer-bottom" hidden aria-hidden="true">
-		<div class="drawer-inner">
-			<div id="route-trains-body"
-			     data-url="/lines/{{ nucleus.slug }}/{{ route.line_id }}/trains?dir={{ '0' if (route.direction_id or '') in ('', '0') else '1' }}&source_rid={{ route.route_id }}">
-				<div id="trains-loading" class="htmx-indicator">Cargando…</div>
-			</div>
-		</div>
-	</section>
-	
 	{% if open_stop_id %}
 		<script>
         document.addEventListener('DOMContentLoaded', function(){
@@ -82,8 +46,27 @@
         });
 		</script>
 	{% endif %}
-	
 {%- endblock %}
+
+
+{% block action_buttons %}
+	<div id="action-buttons-items" hx-swap-oob="true">
+		<nav id="bottom-actions-nav" role="navigation" aria-label="Menú de ruta" class="navbar-buttons-group">
+			<div class="nav-buttons-group-inner">
+				<button id="btn-toggle-trains"
+				        class="navbar-button"
+				        type="button"
+				        aria-controls="drawer"
+				        aria-expanded="false"
+				        title="Mostrar/ocultar trenes en la ruta"
+				        data-url="/lines/{{ nucleus.slug }}/{{ route.line_id }}/trains?dir={{ '0' if (route.direction_id or '') in ('', '0') else '1' }}&source_rid={{ route.route_id }}">
+					<i class="navbar-icon navbar-button-icon material-symbols-rounded">directions_railway</i>
+				</button>
+			</div>
+		</nav>
+	</div>
+{% endblock %}
+
 
 {%- block extra_stylesheets -%}
 {#	<link rel="preload" href="{{ request.url_for('static', path='fonts/Via-Medium.woff2') }}" as="font" type="font/woff2" crossorigin>

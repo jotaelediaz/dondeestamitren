@@ -195,18 +195,29 @@ main {
 
 #bottom-nav {
     position: fixed;
-    padding: var(--app-margin) var(--app-margin) calc(var(--app-margin) / 1.5);
+    margin: 0 var(--app-margin) calc(var(--app-margin) / 1.5);
     left: 0;
     bottom: 0;
-    z-index: 999;
+    z-index: 999999;
     display: block;
-    width: 100%;
+    width: calc(100% - (var(--app-margin) * 2));
     box-sizing: border-box;
-    background: linear-gradient(
-            to bottom, transparent,
-            color-mix(in srgb, var(--jotaele-background) 50%, transparent),
-            var(--jotaele-background)
-    );
+    overflow: hidden;
+    backdrop-filter: blur(3px);
+    border-radius: 999px;
+}
+
+main:after {
+    background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--jotaele-background) 50%, transparent) 30%, var(--jotaele-background));
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: calc(var(--bottom-nav-height) + var(--app-margin));
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.8;
 }
 
 .backdrop-nav {
@@ -1170,7 +1181,7 @@ ul.chip-list {
 
 /* - Buttons group navbar - */
 
-#bottom-actions-nav {
+#action-buttons-items {
     position: fixed;
     bottom: calc(var(--bottom-nav-height) + (var(--app-margin) * 1.7));
     z-index: 9999;
@@ -1238,21 +1249,18 @@ ul.chip-list {
     z-index: 9999;
     transform: translateY(100%);
     transition: ease 0.2s;
-    background: var(--jotaele-white);
     color: var(--jotaele-black);
-    border-radius: 16px 16px 0 0;
-    box-shadow: 0 -12px 40px rgba(0,0,0,.35);
     max-height: 60vh;
     outline: 0;
-    padding-bottom: calc(var(--bottom-nav-height) + (var(--app-margin) * 1.7));
+    padding-bottom: calc(var(--bottom-nav-height) + (var(--app-margin) * 0.7));
 }
 
 
 .drawer-inner {
-    padding: var(--app-margin) var(--app-margin) 0;
     overflow: auto;
     max-height: 60vh;
     outline: 0;
+    width: 100%;
 }
 
 .drawer-bottom.open {
@@ -1292,6 +1300,7 @@ ul.chip-list {
 #route-trains-body {
     display: flex;
     flex-direction: column-reverse;
+    padding: var(--app-margin);
 }
 
 .drawer-title-group {
@@ -1299,21 +1308,23 @@ ul.chip-list {
     gap: calc(var(--app-margin) / 1.5);
 }
 
-#route-trains-panel.drawer-bottom {
+.drawer-trains.drawer-bottom {
     background: linear-gradient(to bottom, transparent 0%, var(--jotaele-background) 25%, var(--jotaele-background) 80%);
     border-radius: 0;
     height: 12rem;
     max-height: 12rem;
     box-shadow: none;
     z-index: 75;
+    display: flex;
+    align-items: flex-end;
 }
 
 #route-trains-body .drawer-header {
     height: calc(var(--bottom-nav-height) - var(--app-margin));
     display: flex;
     align-items: center;
+    width: calc(100% - var(--bottom-nav-height));
     gap: calc(var(--app-margin) / 2);
-    width: calc(100% - (var(--bottom-nav-height) * 0.8));
 }
 
 #route-trains-body .drawer-header .drawer-title {
@@ -1381,6 +1392,7 @@ ul.chip-list {
 
 .route-train-chip-card .chip-name {
     font-size: 1.1rem;
+    margin-right: 0.5rem;
 }
 
 .route-train-chip-card .route-train-chip-icon {
@@ -1471,15 +1483,11 @@ ul.chip-list {
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-
+    width: 100%;
 }
 
 #route-trains-panel .drawer-inner.is-fading {
     opacity: 0;
-}
-
-.drawer-header .bottom-nav-secondary-button {
-    margin-right: calc(var(--app-margin) / 2);
 }
 
 #route-trains-panel.drawer-bottom {

@@ -1,19 +1,26 @@
 {% set is_home = request.url.path == '/' %}
 
-<header id="app-topbar" role="banner" class="topbar {%- if is_home %} topbar-home{% endif %}">
-	<div class="topbar-inner">
-		<a class="topbar-btn topbar-btn-back {%- if is_home %} disabled{% endif %}" href="{{ back_href or request.headers.get('referer') or request.url_for('home') }}" hx-boost="true" aria-label="Atrás">
-			<i class="material-symbols-rounded">arrow_back</i>
-		</a>
-		
-		<div class="topbar-title {%- if is_home %} disabled{% endif %}">
-			<a href="{{ request.url_for('home') }}">
-				<img src="{{ request.url_for('static', path='img/mitren_short.svg') }}" alt="Logotipo Mi Tren" class="logo-topbar">
+<div id="topbar-items" hx-swap-oob="true">
+	<header id="app-topbar" role="banner" class="topbar{% if is_home %} topbar-home{% endif %}">
+		<div class="topbar-inner">
+			<a class="topbar-btn topbar-btn-back{% if is_home %} disabled{% endif %}"
+			   href="{{ back_href or request.headers.get('referer') or request.url_for('home') }}"
+			   hx-boost="true"
+			   aria-label="Atrás">
+				<i class="material-symbols-rounded">arrow_back</i>
 			</a>
+			
+			<div class="topbar-title{% if is_home %} disabled{% endif %}">
+				<a href="{{ request.url_for('home') }}">
+					<img src="{{ request.url_for('static', path='img/mitren_short.svg') }}"
+					     alt="Logotipo Mi Tren"
+					     class="logo-topbar">
+				</a>
+			</div>
+			
+			<button class="topbar-btn topbar-btn-menu nude-icon" type="button" aria-haspopup="dialog" aria-controls="app-sheet" aria-expanded="false">
+				<i class="material-symbols-rounded">more_vert</i>
+			</button>
 		</div>
-		
-		<button class="topbar-btn topbar-btn-menu nude-icon" type="button" aria-haspopup="dialog" aria-controls="app-sheet" aria-expanded="false">
-			<i class="material-symbols-rounded">more_vert</i>
-		</button>
-	</div>
-</header>
+	</header>
+</div>
