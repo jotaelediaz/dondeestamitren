@@ -4,8 +4,18 @@
 	{% else %}
 		<a href="/alpha/trains/">&larr; Volver a trenes</a>
 	{% endif %}
-	<h1>Tren {{ train.train_id }}</h1>
-	<p>Última actualización: {{ last_snapshot }}</p>
+	<h1>
+		Tren {{ train.train_id }}
+	</h1>
+	{% if confidence %}
+		<span class=" title="{{ confidence.tooltip }}">
+		<span>{{ confidence.icon }}</span>
+		<span>Confianza en la clasificación en rutas del tren: {{ confidence.label }}</span>
+		<small>({{ confidence.source }})</small>
+		</span>
+	{% endif %}
+	<p>Última actualización de la API: {{ last_snapshot }} ({{ last_source or '—' }})</p>
+	<p>Tren visto por última vez: {{ train_seen_iso }} — hace {{ train_seen_age }} s {{ '🔴' if train_seen_age > 900 else '🟡' if train_seen_age > 30 else '🟢'}}</p>
 </header>
 
 <table border="1" cellpadding="6" cellspacing="0">
@@ -20,18 +30,19 @@
 	</tr>
 	</thead>
 	<tbody>
-		<tr>
-			<td><a href="/alpha/routes/{{ nucleus.slug }}/{{ train.route_id }}">{{ train.route_id }}</a></td>
-			<td>{{ train.route_short_name }}</td>
-			<td>→ {{repo.get_stop_name(repo.route_destination(train.route_id)) or '—' }}</td>
-			<td>{{ train.status_human() }}</td>
-			
-			<td>{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i></td>
-			<td>
-				{% if train.lat and train.lon %}
-					{{ '%.5f'|format(train.lat) }}, {{ '%.5f'|format(train.lon) }}
-				{% else %}—{% endif %}
-			</td>
-		</tr>
+	<tr>
+		<td><a href="/alpha/routes/{{ nucleus.slug }}/{{ train.route_id }}">{{ train.route_id }}</a></td>
+		<td>{{ train.route_short_name }}</td>
+		<td>→ {{ repo.get_stop_name(repo.route_destination(train.route_id)) or '—' }}</td>
+		<td>
+			{{ train.status_human() }}
+		</td>
+		<td>{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i></td>
+		<td>
+			{% if train.lat and train.lon %}
+				{{ '%.5f'|format(train.lat) }}, {{ '%.5f'|format(train.lon) }}
+			{% else %}—{% endif %}
+		</td>
+	</tr>
 	</tbody>
 </table>

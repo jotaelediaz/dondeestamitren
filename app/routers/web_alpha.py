@@ -8,6 +8,7 @@ from app.services.live_trains_cache import get_live_trains_cache
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
+from app.services.trips_repo import get_repo as get_trips_repo
 
 router = APIRouter(tags=["web-alpha"])
 templates = Jinja2Templates(directory="app/templates/alpha")
@@ -16,6 +17,91 @@ templates = Jinja2Templates(directory="app/templates/alpha")
 def mk_nucleus(slug: str, repo):
     s = (slug or "").strip().lower()
     return {"slug": s, "name": repo.nucleus_name(s) or (s.capitalize() if s else "")}
+
+
+def compute_confidence_badge(train, routes_repo, trips_repo):
+    trip_id = getattr(train, "trip_id", None) or ""
+    if trip_id:
+        rid = trips_repo.route_id_for_trip(trip_id)
+        if rid:
+            if rid == (train.route_id or ""):
+                return {
+                    "level": "ok",
+                    "label": "Alta",
+                    "icon": "✅",
+                    "tooltip": "Mapeado vía trips.txt (trip_id → route_id)",
+                    "source": "trip_map",
+                }
+            else:
+                pass
+
+    short = (getattr(train, "route_short_name", "") or "").strip().lower()
+    stop = (getattr(train, "stop_id", "") or "").strip()
+    tdir = str(getattr(train, "direction_id", "")).strip()
+
+    candidates = []
+    for (rid, did), lv in routes_repo.by_route_dir.items():
+        if (lv.route_short_name or "").strip().lower() != short:
+            continue
+        if stop:
+            if any((s.stop_id or "").strip() == stop for s in lv.stations):
+                candidates.append((rid, did, lv))
+        else:
+            candidates.append((rid, did, lv))
+
+    if not candidates:
+        return {
+            "level": "low",
+            "label": "Baja",
+            "icon": "❗",
+            "tooltip": "Sin mapeo por trips ni candidatos por línea+parada.",
+            "source": "no_candidates",
+        }
+
+    if tdir in ("0", "1"):
+        filtered = [c for c in candidates if (c[1] or "") == tdir]
+        if filtered:
+            candidates = filtered
+
+    unique_rids = {c[0] for c in candidates}
+    if len(unique_rids) == 1:
+        # Unívoco por corredor (y quizá dirección)
+        rid = next(iter(unique_rids))
+        if rid == (train.route_id or ""):
+            return {
+                "level": "med",
+                "label": "Media",
+                "icon": "⚠️",
+                "tooltip": "Inferido por línea+parada. Candidato unívoco.",
+                "source": "fallback_unique",
+            }
+        else:
+            return {
+                "level": "low",
+                "label": "Baja",
+                "icon": "❗",
+                "tooltip": f"Candidato unívoco {rid} difiere de route_id {train.route_id}.",
+                "source": "fallback_unique_mismatch",
+            }
+
+    max_len = max(len(c[2].stations) for c in candidates)
+    best = [c for c in candidates if len(c[2].stations) == max_len]
+    if len(best) == 1 and best[0][0] == (train.route_id or ""):
+        return {
+            "level": "med",
+            "label": "Media",
+            "icon": "⚠️",
+            "tooltip": "Inferido por heurística (nº de estaciones).",
+            "source": "fallback_heuristic",
+        }
+
+    return {
+        "level": "low",
+        "label": "Baja",
+        "icon": "❗",
+        "tooltip": "Múltiples rutas candidatas en el corredor; asignación ambigua.",
+        "source": "ambiguous",
+    }
 
 
 # --- HOME ---
@@ -402,9 +488,15 @@ def train_detail(request: Request, nucleus: str, train_id: str):
     cache = get_live_trains_cache()
     nucleus = (nucleus or "").lower()
     repo = get_routes_repo()
+    trips = get_trips_repo()
+
     train = cache.get_by_id(train_id)
     if not train:
         raise HTTPException(404, f"Train {train_id} not found. :-(")
+
+    seen = cache.seen_info(train_id) or {}
+    seen_iso = seen.get("source_iso") or seen.get("last_seen_iso") or "—"
+    confidence = compute_confidence_badge(train, repo, trips)
 
     return templates.TemplateResponse(
         "train_detail.html",
@@ -415,5 +507,8 @@ def train_detail(request: Request, nucleus: str, train_id: str):
             "last_source": cache.last_source(),
             "repo": repo,
             "nucleus": mk_nucleus(nucleus, repo),
+            "confidence": confidence,
+            "train_seen_iso": seen_iso,
+            "train_seen_age": seen.get("age_s"),
         },
     )

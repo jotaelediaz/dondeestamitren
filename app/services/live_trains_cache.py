@@ -151,13 +151,11 @@ class LiveTrainsCache:
         if not candidates:
             return
 
-        tdir = (getattr(tp, "direction_id", "") or "").strip()
+        tdir = str(getattr(tp, "direction_id", "")).strip()
         if tdir in ("0", "1"):
-            filtered = [c for c in candidates if (c[1] or "") == tdir]
-            if filtered:
-                candidates = filtered
+            candidates = [c for c in candidates if (c[1] or "") == tdir]
 
-        rid, did, lv = max(candidates, key=lambda c: len(c[2].stations))
+        rid, did, lv = max(candidates, key=lambda c: (len(c[2].stations), c[0]))
         tp.route_id = rid
         tp.nucleus_slug = (lv.nucleus_id or "").strip() or getattr(tp, "nucleus_slug", None)
 
@@ -461,6 +459,27 @@ class LiveTrainsCache:
         if limit <= 0:
             return []
         return list(self._debug)[-limit:]
+
+    def seen_info(self, train_id: str) -> dict | None:
+        e = getattr(self, "_entries", {}).get(train_id)
+        if not e:
+            return None
+        now = int(time.time())
+        last_seen_epoch = int(e.last_seen_wall_s or 0)
+        source_ts = int(e.last_source_ts or 0)
+        return {
+            "last_seen_epoch": last_seen_epoch,
+            "last_seen_iso": (
+                datetime.fromtimestamp(last_seen_epoch, tz=UTC).isoformat()
+                if last_seen_epoch
+                else "-"
+            ),
+            "age_s": max(0, now - last_seen_epoch) if last_seen_epoch else None,
+            "source_ts": source_ts,
+            "source_iso": (
+                datetime.fromtimestamp(source_ts, tz=UTC).isoformat() if source_ts else None
+            ),
+        }
 
 
 _cache_singleton: LiveTrainsCache | None = None
