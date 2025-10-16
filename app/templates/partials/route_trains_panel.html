@@ -1,4 +1,10 @@
 <div class="drawer-space-content drawer-route-trains-panel" id="route-trains-body">
+	<div id="drawer-context"
+	     data-nucleus="{{ nucleus.slug }}"
+	     data-line-id="{{ line.line_id }}"
+	     data-route-id="{{ source_rid|default('') }}"
+	     data-dir="{{ dir|default('0') }}">
+	</div>
 	<div class="drawer-header">
 		<form class="display-none" id="rtp-ctx">
 			<input type="hidden" name="dir" value="{{ dir|default('0') }}">
@@ -14,10 +20,6 @@
 		<button class="navbar-button bottom-nav-secondary-button"
 		        type="button"
 		        id="update-route-train-list"
-		        hx-get="/lines/{{ nucleus.slug }}/{{ line.line_id }}/trains"
-		        hx-target="#route-trains-body"
-		        hx-swap="innerHTML"
-		        hx-include="#rtp-ctx"
 		        title="Actualizar trenes"
 		        aria-label="Actualizar trenes">
 			<i class="material-symbols-rounded" aria-hidden="true">cached</i>
@@ -28,7 +30,7 @@
 		{% if trains %}
 			<ul class="train-list grouped-lists-scroll-horizontal" hx-boost="true">
 				{% for t in trains %}
-					{% set train_route = repo.get_by_route_and_dir(t.route_id, dir) or repo.get_by_route_and_dir(t.route_id, "") %}
+					{% set train_route = repo.get_by_route_and_dir(t.route_id, dir) %}
 					<li class="route-train-chip-card chip-card" style="--train-color: {{ train_route.color_bg }};" data-route-id="{{ train_route.route_id }}" data-train-id="{{ t.train_id }}">
 						<a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}"
 						   hx-target="#content"

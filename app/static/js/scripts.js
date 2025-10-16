@@ -108,6 +108,54 @@
             });
     }
 
+    // ---------- Context helpers ----------
+    const RouteCtx = {
+        getMain() {
+            const n = document.getElementById('route-context');
+            if (!n) return null;
+            return {
+                nucleus:  n.getAttribute('data-nucleus') || '',
+                lineId:   n.getAttribute('data-line-id') || '',
+                routeId:  n.getAttribute('data-route-id') || '',
+                dir:      n.getAttribute('data-dir') || ''
+            };
+        },
+        getDrawerFromHTML(html) {
+            try {
+                const tpl = document.createElement('template');
+                tpl.innerHTML = String(html);
+                const n = tpl.content.querySelector('#drawer-context');
+                if (!n) return null;
+                return {
+                    nucleus:  n.getAttribute('data-nucleus') || '',
+                    lineId:   n.getAttribute('data-line-id') || '',
+                    routeId:  n.getAttribute('data-route-id') || '',
+                    dir:      n.getAttribute('data-dir') || ''
+                };
+            } catch (_) { return null; }
+        },
+        equal(a, b) {
+            if (!a || !b) return false;
+            return a.nucleus === b.nucleus
+                && a.lineId  === b.lineId
+                && a.dir     === b.dir
+                && (!!b.routeId ? a.routeId === b.routeId : true);
+        },
+        appendToURL(url, ctx) {
+            if (!url || !ctx) return url;
+            try {
+                const u = new URL(url, location.origin);
+                if (!u.searchParams.has('dir'))        u.searchParams.set('dir', ctx.dir || '');
+                if (!u.searchParams.has('source_rid')) u.searchParams.set('source_rid', ctx.routeId || '');
+                if (!u.searchParams.has('nucleus'))    u.searchParams.set('nucleus', ctx.nucleus || '');
+                return u.toString();
+            } catch(_) {
+                return url;
+            }
+        }
+    };
+
+
     // ------------------ Search box ------------------
     function enhanceSearchBox(form) {
         if (!form || upgradedForms.has(form)) return;
@@ -338,16 +386,20 @@
             let lastFocusEl = null;
 
             function loadOnce(sourceBtn) {
-                const u0 = resolveUrl(sourceBtn);
-                console.debug('[trains] loadOnce() →', u0, 'ctx=', panel.dataset.trainsCtx, 'loaded=', panel.dataset.trainsLoaded);
-                if (panel.dataset.trainsLoaded && panel.dataset.trainsCtx === u0) {
-                    enrichBodyBindings();
-                    return;
-                }
-                fetch(u0, { headers: { 'HX-Request': 'true' } })
+                const u0  = resolveUrl(sourceBtn);
+                const ctx = RouteCtx.getMain();
+                const url = RouteCtx.appendToURL(u0, ctx);
+
+                fetch(url, { headers: { 'HX-Request': 'true' } })
                     .then(r => r.ok ? r.text() : Promise.reject(r))
                     .then(html => {
-                        console.debug('[trains] loadOnce() ok; html length=', html?.length);
+                        const incoming = RouteCtx.getDrawerFromHTML(html);
+                        const now = RouteCtx.getMain();
+                        if (incoming && now && !RouteCtx.equal(now, incoming)) {
+                            console.warn('[trains] DESCARTADO por contexto: incoming=', incoming, 'now=', now);
+                            return; // no swap
+                        }
+
                         const template = document.createElement('template');
                         template.innerHTML = html;
                         if (template.content.firstChild) {
@@ -355,7 +407,7 @@
                             if (window.htmx) htmx.process(body);
                             enrichBodyBindings();
                             panel.dataset.trainsLoaded = '1';
-                            panel.dataset.trainsCtx = u0;
+                            panel.dataset.trainsCtx = url;
                         }
                     })
                     .catch(() => { console.debug('[trains] loadOnce() FAILED'); body.innerHTML = '<p>Error al cargar los trenes.</p>'; });
@@ -387,6 +439,9 @@
 
             function openPanel(sourceBtn) {
                 console.debug('[trains] openPanel()');
+
+                try { ActiveStop.clear(); } catch(_) {}
+
                 lastFocusEl = (document.activeElement && document.contains(document.activeElement))
                     ? document.activeElement : (sourceBtn || document.body);
 
@@ -429,13 +484,21 @@
                 if (indicator) indicator.style.opacity = '1';
                 bodyEl.querySelectorAll('#update-route-train-list').forEach(b => b.disabled = true);
 
-                const url = urlWithCtx(resolveUrl());
+                const base = resolveUrl();
+                const ctx  = RouteCtx.getMain();
+                const url  = RouteCtx.appendToURL(base, ctx);
 
                 fetch(url, { headers: { 'HX-Request': 'true' } })
                     .then(r => r.ok ? r.text() : Promise.reject(r))
                     .then(html => {
-                        inner.classList.add('is-fading');
+                        const incoming = RouteCtx.getDrawerFromHTML(html);
+                        const now = RouteCtx.getMain();
+                        if (incoming && now && !RouteCtx.equal(now, incoming)) {
+                            console.warn('[trains] REFRESH descartado por contexto');
+                            return;
+                        }
 
+                        inner.classList.add('is-fading');
                         const animEl = panel.querySelector('.drawer-body') || inner;
 
                         let swapped = false;
@@ -451,7 +514,7 @@
                                 if (window.htmx) htmx.process(bodyEl);
                                 enrichBodyBindings();
                                 panel.dataset.trainsLoaded = '1';
-                                panel.dataset.trainsCtx = resolveUrl();
+                                panel.dataset.trainsCtx = url;
                             } else {
                                 bodyEl.innerHTML = '<p>Error al cargar los trenes.</p>';
                             }
@@ -482,9 +545,9 @@
                     });
             }
 
-            panel.__closeTrainsPanel = closePanel;
-            panel.__openTrainsPanel  = openPanel;
-            console.debug('[trains] expose methods', { open: true, close: true });
+            panel.__closeTrainsPanel   = closePanel;
+            panel.__openTrainsPanel    = openPanel;
+            panel.__refreshTrainsPanel = refreshNow;
         }
 
         if (btn && !boundButtons.has(btn)) {
@@ -510,6 +573,62 @@
             if (!btn.hasAttribute('aria-expanded')) btn.setAttribute('aria-expanded', 'false');
         }
     }
+
+    // ---------- Active Stop ----------
+    const ActiveStop = (() => {
+        let currentEl = null;
+        let currentStationId = null;
+
+        function _extractStationIdFromHref(href) {
+            try {
+                const m = String(href).match(/\/stops\/([^\/?#]+)/);
+                return m ? decodeURIComponent(m[1]) : null;
+            } catch (_) { return null; }
+        }
+
+        function _findLiByStationId(sid) {
+            if (!sid) return null;
+            const anchors = document.querySelectorAll('.grid-route-map a[href*="/stops/"]');
+            for (const a of anchors) {
+                const raw = a.getAttribute('href') || a.href || '';
+                const id  = _extractStationIdFromHref(raw);
+                if (id && id === sid) {
+                    return a.closest('li.grid-route-map-station');
+                }
+            }
+            return null;
+        }
+
+        function setByHref(href) {
+            const sid = _extractStationIdFromHref(href);
+            if (!sid) return;
+            setByStationId(sid);
+        }
+
+        function setByStationId(sid) {
+            const li = _findLiByStationId(sid);
+            if (!li) return;
+            if (currentEl === li) return;
+            clear();
+            currentEl = li;
+            currentStationId = sid;
+            li.classList.add('is-active');
+            li.setAttribute('aria-current', 'true');
+        }
+
+        function clear() {
+            if (currentEl) {
+                currentEl.classList.remove('is-active');
+                currentEl.removeAttribute('aria-current');
+            }
+            currentEl = null;
+            currentStationId = null;
+        }
+
+        function get() { return { el: currentEl, stationId: currentStationId }; }
+
+        return { setByHref, setByStationId, clear, get };
+    })();
 
     // ------------------ Drawer route stops ------------------
     function bindStopDrawer(root = document) {
@@ -541,6 +660,7 @@
                 ? document.activeElement : document.body;
 
             setDrawerMode('stop');
+            try { ActiveStop.setByHref(url); } catch(_) {}
 
             openStaticDrawer();
 
@@ -571,6 +691,8 @@
 
             closeStaticDrawer();
 
+            try { ActiveStop.clear(); } catch(_) {}
+
             try {
                 const base = location.pathname.split('/stops')[0] || location.pathname;
                 history.replaceState({}, '', base);
@@ -591,6 +713,32 @@
     }
 
     // ------------------ Init & observers ------------------
+
+    let trainsRefreshDelegatedBound = false;
+    function bindGlobalTrainsRefreshDelegation() {
+        if (trainsRefreshDelegatedBound) return;
+        trainsRefreshDelegatedBound = true;
+
+        document.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('#update-route-train-list');
+            if (!btn) return;
+            const drawer = document.getElementById('drawer');
+            if (!drawer || !drawer.classList.contains('open') || drawer.dataset.mode !== 'trains') return;
+
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+
+            if (typeof drawer.__refreshTrainsPanel === 'function') {
+                drawer.__refreshTrainsPanel();
+            } else {
+                bindRouteTrainsPanel(document);
+                const drawer2 = document.getElementById('drawer');
+                drawer2?.__refreshTrainsPanel?.();
+            }
+        }, { capture: true, passive: false });
+    }
+
     let stopClicksDelegatedBound = false;
     function bindGlobalStopLinkDelegation() {
         if (stopClicksDelegatedBound) return;
@@ -603,6 +751,9 @@
             ev.stopPropagation();
             if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
             const href = a.href;
+
+            try { ActiveStop.setByHref(href); } catch(_) {}
+
             const panel = document.getElementById('drawer');
             if (!panel) { location.href = href; return; }
             if (!panel.__openStopWithUrl) { bindStopDrawer(document); }
@@ -635,6 +786,7 @@
         bindStopDrawer(root);
         disableBoostForStopLinks(root);
         bindGlobalStopLinkDelegation();
+        bindGlobalTrainsRefreshDelegation();
     }
 
     document.addEventListener('DOMContentLoaded', () => init());
@@ -683,6 +835,7 @@
                 if (mode === 'trains' && panel.__closeTrainsPanel) panel.__closeTrainsPanel();
                 else if (mode === 'stop' && panel.__closeStopDrawer) panel.__closeStopDrawer();
                 else closeStaticDrawer();
+                try { ActiveStop.clear(); } catch(_) {}
             }
 
             try {
@@ -702,6 +855,7 @@
                 if (mode === 'trains' && panel.__closeTrainsPanel) panel.__closeTrainsPanel();
                 else if (mode === 'stop' && panel.__closeStopDrawer) panel.__closeStopDrawer();
                 else closeStaticDrawer();
+                try { ActiveStop.clear(); } catch(_) {}
             }
             try {
                 delete panel.dataset.trainsLoaded;

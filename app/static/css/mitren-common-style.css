@@ -1037,7 +1037,27 @@ ul.chip-list {
     color: var(--jotaele-black);
     font-size: 1rem;
     line-height: 1.1em;
-    padding-bottom: 0.2em;
+    display: inline-block;
+    padding: 0.2em 0.3em;
+    position: relative;
+    transition: ease 0.2s;
+}
+
+.grid-route-map-station .grid-route-station-name::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 0;
+    height: 0;
+    transform: translateY(-50%);
+    border-top: 12px solid transparent;
+    border-bottom: 12px solid transparent;
+    border-right: 10px solid var(--jotaele-dark);
+    opacity: 0;
+    z-index: -1;
+    transition: ease 0.2s;
+    transition-delay: 0.2s;
 }
 
 .grid-route-map-station.origin-station .route-line-fragment {
@@ -1105,6 +1125,11 @@ ul.chip-list {
 .grid-route-map .grid-route-connections .line-chip-icon.generic-chip-icon {
     width: var(--connections-icon-size);
     height: var(--connections-icon-size);
+}
+
+.grid-route-map-station a:hover .grid-route-station-name,
+.grid-route-map-station a:active .grid-route-station-name {
+    color: var(--jotaele-teal);
 }
 
 .line-chip-header {
@@ -1522,4 +1547,28 @@ ul.chip-list {
 
 #stop-drawer {
     min-height: 50vh; /* TEMPORAL */
+}
+
+/* -- Active stop marker -- */
+
+.grid-route-map-station.is-active .grid-route-station-name {
+    color: var(--jotaele-white);
+    background: var(--jotaele-dark);
+    margin-left: 12px;
+}
+
+.grid-route-map-station.is-active a:hover .grid-route-station-name,
+.grid-route-map-station.is-active a:active .grid-route-station-name {
+    color: var(--jotaele-white);
+    pointer-events: none;
+}
+
+.grid-route-map-station.is-active .route-dot {
+    border-color: var(--line-color);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--line-color) 25%, transparent);
+}
+
+.grid-route-map-station.is-active .grid-route-station-name::before {
+    opacity: 1;
+    left: -10px;
 }

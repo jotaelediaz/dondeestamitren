@@ -357,6 +357,7 @@ def line_trains(
                 "source_rid": source_rid,
                 "last_snapshot": live.last_snapshot_iso(),
                 "is_stale": live.is_stale(),
+                "dir": eff_dir,
             },
         )
 

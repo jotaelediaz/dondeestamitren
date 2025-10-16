@@ -1,7 +1,6 @@
 {%- extends "base-layout.html" %}
 {%- from "partials/helper_macros.html" import get_cercanias_line_icon, print_station_route_map with context %}
 {%- block app_content %}
-	
 	<section id="line-route" class="line-route app-main-content" aria-label="Ruta de la línea {{ route.route_long_name if route else '' }}">
 		<div class="grouped-lists-scroll">
 			<div class="app-block-padding sticky-title">
@@ -29,7 +28,8 @@
 			<div class="app-block-padding app-block-vertical-padding">
 				<ul class="grid-route-map" data-number-of-stations="{{ route.stations|length }}" style="--number-of-stations: {{ route.stations|length }}; --line-color: {{ route.color_bg }};">
 					{% for stop in route.stations %}
-						<li class="grid-route-map-station {{ 'origin-station' if route.origin.stop_id == stop.stop_id else 'destination-station' if route.destination.stop_id == stop.stop_id else 'mid-station' }}">
+						<li class="grid-route-map-station {{ 'origin-station' if route.origin.stop_id == stop.stop_id else 'destination-station' if route.destination.stop_id == stop.stop_id else 'mid-station' }}"
+						    data-station-id="{{ stop.station_id or stop.stop_id }}">
 							{{ print_station_route_map(stop, route.route_short_name) }}
 						</li>
 					{% endfor %}
@@ -38,11 +38,26 @@
 		</div>
 	</section>
 	
+	<div id="route-context"
+	     data-nucleus="{{ nucleus.slug }}"
+	     data-line-id="{{ route.line_id }}"
+	     data-route-id="{{ route.route_id }}"
+	     data-dir="{{ (route.direction_id or '0') | string }}">
+	</div>
+	
 	{% if open_stop_id %}
 		<script>
         document.addEventListener('DOMContentLoaded', function(){
             const url = "/routes/{{ nucleus.slug }}/{{ route.route_id }}/stops/{{ open_stop_id }}";
             window.AppDrawers?.openStop(url);
+        });
+		</script>
+	{% endif %}
+	
+	{% if open_trains_panel %}
+		<script>
+        document.addEventListener('DOMContentLoaded', function(){
+            document.getElementById('btn-toggle-trains')?.click();
         });
 		</script>
 	{% endif %}

@@ -9,6 +9,11 @@
 		<div class="line-chip-icon image-line-icon">
 			<img src="/static/img/lines-zaragoza/{{ image_name }}.svg" alt="{{ line_code }}">
 		</div>
+	{% elif nucleus_slug == "malaga" and (line_code.lower() in ("c1, c2")) %}
+		{% set image_name = "icon-cercanias-malaga-" + line_code.lower() %}
+		<div class="line-chip-icon image-line-icon">
+			<img src="/static/img/lines-malaga/{{ image_name }}.svg" alt="{{ line_code }}">
+		</div>
 	{%- else %}
 		<div class="line-chip-icon chip-icon generic-chip-icon">
 			<i class="material-symbols-rounded" aria-hidden="true">directions_subway</i>

@@ -67,16 +67,31 @@
     htmx.config.scrollIntoViewOnBoost = true;
 
     document.body.addEventListener('htmx:configRequest', (evt) => {
-        const tgt = evt.detail.elt;
-        if (tgt && (tgt.closest('#drawer') || tgt.id === 'open-drawer')) {
-            evt.detail.parameters['route_id'] = document.getElementById('state-route')?.value || '';
-            evt.detail.parameters['dir']      = document.getElementById('state-dir')?.value || '';
-            evt.detail.parameters['nucleus']  = document.getElementById('state-nuc')?.value || '';
+        const elt = evt.detail.elt;
+        if (!elt) return;
+		    
+        if (elt.closest && elt.closest('#drawer')) {
+            const has = (k) => Object.prototype.hasOwnProperty.call(evt.detail.parameters, k);
+            const ctx = document.getElementById('route-context');
+            if (!ctx) return;
+            if (!has('dir'))        evt.detail.parameters.dir        = ctx.getAttribute('data-dir') || '';
+            if (!has('source_rid')) evt.detail.parameters.source_rid = ctx.getAttribute('data-route-id') || '';
+            if (!has('nucleus'))    evt.detail.parameters.nucleus    = ctx.getAttribute('data-nucleus') || '';
         }
     });
 
     document.body.addEventListener('htmx:afterSwap', (e) => {
-        if (e.target.id === 'content' || e.target.id === 'drawer-content') {
+        if (e.target && e.target.id === 'content') {
+            const ctx = document.getElementById('route-context');
+            if (!ctx) return;
+            const byId = (id) => document.getElementById(id);
+            const set  = (id, val) => { const el = byId(id); if (el) el.value = val ?? ''; };
+            set('state-nuc',   ctx.dataset.nucleus);
+            set('state-route', ctx.dataset.routeId);
+            set('state-dir',   ctx.dataset.dir);
+        }
+
+        if (e.target && (e.target.id === 'content' || e.target.id === 'drawer-content')) {
             window.initDrawers && window.initDrawers();
         }
     });
