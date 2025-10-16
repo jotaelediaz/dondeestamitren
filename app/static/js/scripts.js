@@ -30,8 +30,19 @@
         const { panel } = getStaticDrawer();
         if (!panel) return;
         panel.classList.remove('drawer-trains','drawer-stop');
-        if (mode === 'trains') panel.classList.add('drawer-trains');
-        else if (mode === 'stop') panel.classList.add('drawer-stop');
+
+        if (mode === 'trains') {
+            panel.classList.add('drawer-trains');
+
+            const st = panel.__stopAuto;
+            if (st) {
+                if (st.timerId) { clearTimeout(st.timerId); st.timerId = null; }
+                if (st.abort)   { try { st.abort.abort(); } catch(_) {} st.abort = null; }
+                st.running = false;
+            }
+        } else if (mode === 'stop') {
+            panel.classList.add('drawer-stop');
+        }
         if (mode) panel.dataset.mode = mode; else delete panel.dataset.mode;
     }
 
@@ -152,6 +163,31 @@
             } catch(_) {
                 return url;
             }
+        }
+    };
+
+    // ---------- DrawerCtx for Stop ----------
+    const DrawerStopCtx = {
+        getFromHTML(html) {
+            try {
+                const tpl = document.createElement('template');
+                tpl.innerHTML = String(html);
+                const n = tpl.content.querySelector('#drawer-context');
+                if (!n) return null;
+                return {
+                    nucleus: n.getAttribute('data-nucleus') || '',
+                    lineId:  n.getAttribute('data-line-id') || '',
+                    routeId: n.getAttribute('data-route-id') || '',
+                    dir:     n.getAttribute('data-dir') || '',
+                    stopId:  n.getAttribute('data-stop-id') || ''
+                };
+            } catch (_) { return null; }
+        },
+        equal(a, b) {
+            if (!a || !b) return false;
+            const routeOk = (!!b.routeId ? a.routeId === b.routeId : true);
+            const dirOk   = (!!b.dir     ? a.dir     === b.dir     : true);
+            return a.nucleus === b.nucleus && a.lineId === b.lineId && routeOk && dirOk && a.stopId === b.stopId;
         }
     };
 
@@ -639,6 +675,19 @@
         const close = panel.querySelector('.drawer-close');
         if (!body) return;
 
+        // --- Auto-refresh state for stop drawer ---
+        if (!panel.__stopAuto) {
+            panel.__stopAuto = {
+                timerId: null,
+                abort: null,
+                baseInterval: 60_000, // 1 min
+                maxInterval: 300_000, // 5 min
+                errors: 0,
+                running: false,
+                lastUrl: ''
+            };
+        }
+
         if (!panel.__a11yInit) {
             panel.setAttribute('role', 'dialog');
             panel.setAttribute('aria-modal', 'true');
@@ -655,6 +704,150 @@
 
         let lastFocusEl = null;
 
+        function teardownStopAutoRefresh() {
+            const st = panel.__stopAuto;
+            if (!st) return;
+            if (st.timerId) { clearTimeout(st.timerId); st.timerId = null; }
+            if (st.abort) { try { st.abort.abort(); } catch(_) {} st.abort = null; }
+            st.errors = 0;
+            st.running = false;
+        }
+
+        function scheduleNextStopTick(ms) {
+            const st = panel.__stopAuto;
+            if (!st) return;
+            if (st.timerId) clearTimeout(st.timerId);
+            st.timerId = setTimeout(refreshStopApproachingNow, ms);
+        }
+
+        function startStopAutoRefresh() {
+            const st = panel.__stopAuto;
+            if (!st || st.running) return;
+            st.running = true;
+
+            const now = Date.now();
+            const toNextMinute = 60_000 - (now % 60_000);
+            const jitter = Math.floor(Math.random() * 700); // 0-700ms
+            scheduleNextStopTick(toNextMinute + jitter);
+        }
+
+        if (!stopGlobalHandlersBound) {
+            stopGlobalHandlersBound = true;
+            document.addEventListener('visibilitychange', () => {
+                const st = panel.__stopAuto;
+                if (!st) return;
+                if (document.hidden) {
+                    teardownStopAutoRefresh();
+                } else if (panel.classList.contains('open') && panel.dataset.mode === 'stop') {
+                    startStopAutoRefresh();
+                }
+            }, { passive: true });
+        }
+
+        async function refreshStopApproachingNow() {
+            const st = panel.__stopAuto;
+            if (!st) return;
+
+            const isOpen = panel.classList.contains('open') && panel.dataset.mode === 'stop';
+            if (!isOpen || document.hidden) {
+                scheduleNextStopTick(st.baseInterval);
+                return;
+            }
+
+            const bodyEl = document.getElementById('drawer-content');
+
+            const baseUrl = panel.dataset.stopUrl || location.href;
+            const ctx     = RouteCtx.getMain();
+            const url     = RouteCtx.appendToURL(baseUrl, ctx);
+            st.lastUrl    = url;
+
+            if (st.abort) { try { st.abort.abort(); } catch(_) {} }
+            st.abort = new AbortController();
+
+            let html = '';
+            try {
+                const r = await fetch(url, { headers: { 'HX-Request': 'true' }, signal: st.abort.signal });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                html = await r.text();
+
+                const incomingCtx = DrawerStopCtx.getFromHTML(html);
+                const main = RouteCtx.getMain() || {};
+                const current = {
+                    nucleus: main.nucleus || '',
+                    lineId:  main.lineId || '',
+                    routeId: main.routeId || '',
+                    dir:     main.dir || '',
+                    stopId:  (function(){
+                        try {
+                            const m = String(url).match(/\/stops\/([^\/?#]+)/);
+                            return m ? decodeURIComponent(m[1]) : '';
+                        } catch(_) { return ''; }
+                    })()
+                };
+
+                if (incomingCtx && !DrawerStopCtx.equal(current, incomingCtx)) {
+                    console.warn('[stop-refresh] Descartado por cambio de contexto', { current, incomingCtx });
+                    scheduleNextStopTick(st.baseInterval);
+                    return;
+                }
+
+                const tpl = document.createElement('template');
+                tpl.innerHTML = html;
+
+                let processedNode = null;
+
+                const newWrapper = tpl.content.querySelector('#approaching-trains');
+                const curWrapper = bodyEl.querySelector('#approaching-trains');
+
+                if (newWrapper && curWrapper) {
+                    const incoming = newWrapper;
+                    incoming.style.opacity = '0';
+                    incoming.classList.add('is-fading');
+                    curWrapper.replaceWith(incoming);
+
+                    requestAnimationFrame(() => {
+                        void incoming.offsetWidth;
+                        incoming.style.opacity = '1';
+                    });
+
+                    processedNode = incoming;
+                } else {
+                    const newItems = Array.from(tpl.content.querySelectorAll('.train-approaching'));
+                    const curItems = Array.from(bodyEl.querySelectorAll('.train-approaching'));
+                    if (!curItems.length && !newItems.length) {
+                        scheduleNextStopTick(st.baseInterval);
+                        st.errors = 0;
+                        return;
+                    }
+                    let parent = null;
+                    if (curItems.length) parent = curItems[0].parentElement;
+                    if (!parent) parent = bodyEl.querySelector('.stop-modal-body') || bodyEl;
+
+                    curItems.forEach(n => n.remove());
+                    if (newItems.length) {
+                        const frag = document.createDocumentFragment();
+                        newItems.forEach(n => frag.appendChild(n));
+                        parent.appendChild(frag);
+                    }
+                    processedNode = parent;
+                }
+
+                if (window.htmx && processedNode) {
+                    htmx.process(processedNode);
+                }
+
+                st.errors = 0;
+                scheduleNextStopTick(st.baseInterval);
+            } catch (err) {
+                console.debug('[stop-refresh] Error', err);
+                st.errors = Math.min(st.errors + 1, 6);
+                const penalty = Math.min(st.baseInterval * (2 ** (st.errors - 1)), st.maxInterval);
+                scheduleNextStopTick(penalty);
+            } finally {
+                if (st && st.abort) { st.abort = null; }
+            }
+        }
+
         function openWithUrl(url) {
             lastFocusEl = (document.activeElement && document.contains(document.activeElement))
                 ? document.activeElement : document.body;
@@ -664,7 +857,10 @@
 
             openStaticDrawer();
 
-            fetch(url, { headers: { 'HX-Request': 'true' } })
+            const ctx = RouteCtx.getMain();
+            const effectiveUrl = RouteCtx.appendToURL(url, ctx);
+
+            fetch(effectiveUrl, { headers: { 'HX-Request': 'true' } })
                 .then(r => r.ok ? r.text() : Promise.reject(r))
                 .then(html => {
                     const template = document.createElement('template');
@@ -677,7 +873,11 @@
                                 closePanel();
                             });
                         });
-                        try { history.replaceState({}, '', url); } catch(_) {}
+                        try { history.replaceState({}, '', effectiveUrl); } catch(_) {}
+                        // --- Stop drawer refresh wiring ---
+                        panel.dataset.stopUrl = effectiveUrl;
+                        teardownStopAutoRefresh();
+                        startStopAutoRefresh();
                     }
                 })
                 .catch(() => { body.innerHTML = '<p>Error al cargar la parada.</p>'; });
@@ -688,6 +888,9 @@
         function closePanel() {
             const fallback = lastFocusEl || document.body;
             if (panel.contains(document.activeElement)) { try { fallback.focus(); } catch(_) {} }
+
+            teardownStopAutoRefresh();
+            try { document.dispatchEvent(new CustomEvent('close:stop-drawer')); } catch(_) {}
 
             closeStaticDrawer();
 

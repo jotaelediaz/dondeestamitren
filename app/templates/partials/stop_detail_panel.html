@@ -1,50 +1,47 @@
 <div class="stop-detail">
-	<header class="bottom-card-modal-header">
+	<div id="drawer-context"
+	     data-nucleus="{{ nucleus.slug }}"
+	     data-line-id="{{ route.line_id if route is defined else '' }}"
+	     data-route-id="{{ route.route_id if route is defined else '' }}"
+	     data-dir="{{ request.query_params.get('dir') or route.direction_id or '' }}"
+	     data-stop-id="{{ stop.stop_id }}">
+	</div>
+	<header class="stop-modal-header">
 		<h1 id="stop-modal-title">{{ stop.name }}</h1>
 	</header>
 	
-	<section>
-		<p>➜ <a href="/stations/{{ nucleus.slug }}/{{ stop.station_id | urlencode }}">Ver ficha de estación</a></p>
-		
-		<h2>Tren más cercano a la parada</h2>
+	<section class="stop-modal-body">
 		
 		{% if nearest_trains and nearest_trains|length > 0 %}
-			{# toma el primero: va ordenado por cercanía #}
-			{% set nearest_pair = nearest_trains[0] %}
-			{% set nearest = nearest_pair[0] %}
-			{% set nearest_eta = nearest_pair[1] %}
 			
-			<div class="nearest-train-card chip-card" style="--train-color: {{ route.color_bg }}">
-				<div class="chip-body">
-					<div class="chip-title">
-						<strong>{{ nearest.train.train_id }}</strong>
-						{% set P = (nearest.train.platform_by_stop|default({})).get(stop.stop_id) or nearest.train.platform %}
-						{% if P %} · Vía {{ P }}{% endif %}
-						{% if nearest_eta %}
-							· llega en ~{{ nearest_eta.minutes_rounded }} min
-						{% endif %}
-					</div>
-					<div class="chip-subtitle">
-						{{ '%.1f'|format(nearest.delta_km|float) }} km
-						{% if nearest_eta %}
-							· v≈{{ '%.0f'|format(nearest_eta.speed_kmh_used) }} km/h
-							· {{ nearest_eta.stops_remaining }} parada{{ 's' if nearest_eta.stops_remaining != 1 else '' }}
-						{% endif %}
-					</div>
+			<div id="approaching-trains">
+				{% set nearest_pair = nearest_trains[0] %}
+				{% set nearest = nearest_pair[0] %}
+				{% set nearest_eta = nearest_pair[1] %}
+				
+				<div class="nearest-train-card train-approaching" style="--train-color: {{ route.color_bg }}">
+					{% if nearest_eta %}
+						<div class="train-eta-chip">
+							<div class="train-eta-header">El tren llega en:</div>
+							<div class="train-eta-time">
+								~{{ nearest_eta.minutes_rounded }} min
+							</div>
+						</div>
+					{% endif %}
 				</div>
-			</div>
-			
-			<h3>Próximos trenes</h3>
-			<ul class="lista-proximos">
+				
+				<h2>Próximos trenes</h2>
+				
 				{% for r, r_eta in nearest_trains %}
-					<li>
+					<div class="train-approaching">
 						{% set P = (r.train.platform_by_stop|default({})).get(stop.stop_id) or r.train.platform %}
 						{{ r.train.train_id }} · {{ '%.1f'|format(r.delta_km|float) }} km
 						{% if r_eta %} · ~{{ r_eta.minutes_rounded }} min{% endif %}
 						{% if P %} · Vía {{ P }}{% endif %}
-					</li>
+					</div>
 				{% endfor %}
-			</ul>
+			</div>
+		
 		{% else %}
 			<p>No hay trenes aproximándose en este sentido ahora mismo.</p>
 		{% endif %}

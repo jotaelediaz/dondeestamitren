@@ -1543,12 +1543,6 @@ ul.chip-list {
     color: var(--jotaele-error);
 }
 
-/* - Stop drawer - */
-
-#stop-drawer {
-    min-height: 50vh; /* TEMPORAL */
-}
-
 /* -- Active stop marker -- */
 
 .grid-route-map-station.is-active .grid-route-station-name {
@@ -1572,3 +1566,53 @@ ul.chip-list {
     opacity: 1;
     left: -10px;
 }
+
+/* - Stop drawer - */
+
+#drawer.drawer-stop {
+    z-index: 99991;
+}
+
+#drawer.drawer-stop .drawer-inner {
+    padding: var(--app-margin);
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#stop-modal-title {
+    font-size: 1.3rem;
+    margin: 0 0;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.stop-detail {
+    background: var(--jotaele-white);
+    padding: var(--app-margin);
+    border-radius: 15px;
+    box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
+}
+
+.train-eta-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: calc(var(--app-margin) / 2);
+    flex: 0 0 auto;
+    overflow: hidden;
+}
+
+.train-eta-chip .train-eta-time {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: var(--jotaele-background-accent);
+    border-radius: 10px;
+    padding: var(--app-margin);
+    font-size: 1.5rem;
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+}
+
+#approaching-trains.is-fading { transition: opacity 200ms ease; }
