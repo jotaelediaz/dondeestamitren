@@ -8,6 +8,7 @@
     let   reverseHandlerBound = false;
     let   trainsGlobalHandlersBound = false;
     let   stopGlobalHandlersBound   = false;
+    let   drawerCloseDelegatedBound = false;
 
     // ------------------ Utilities ------------------
     function stripHxAttrs(html) {
@@ -191,6 +192,127 @@
         }
     };
 
+    const RollingNumber = (() => {
+        const IDX_ARROW = 0;
+        const IDX_GT    = 1;
+        const DIGIT_OFF = 2;
+
+        function _parseNumberish(a, t) {
+            const c = [];
+            if (a != null && a !== '') c.push(String(a));
+            if (t != null && t !== '') c.push(String(t));
+            for (const v of c) {
+                const s = v.replace(/[^\d,.\-]/g,'').replace(',','.');
+                const n = Number(s);
+                if (Number.isFinite(n)) return Math.round(n);
+                const m = s.match(/-?\d+/);
+                if (m) return Math.round(Number(m[0]));
+            }
+            return 0;
+        }
+        function _pad2(n){ return String(Math.max(0, Math.min(99, Number(n)||0))).padStart(2,'0'); }
+        function _state(el){ return ((el.getAttribute('data-train-state')||el.getAttribute('data-state')||'')+'').toLowerCase().trim(); }
+        function _isStopped(st){ return st.includes('parado') || st.includes('estación') || st==='stopped' || st==='station_stop'; }
+
+        function _measureStepPx(el){
+            const s = el.querySelector('.rolling-number__digits > span');
+            let px = s ? s.getBoundingClientRect().height : 0;
+            if (!px || !Number.isFinite(px) || px<=0){
+                const fs = parseFloat(getComputedStyle(el).fontSize);
+                px = Number.isFinite(fs)&&fs>0?fs:16;
+            }
+            return px;
+        }
+        function _measureColWidthPx(el){
+            let w = 0;
+            el.querySelectorAll('.rolling-number__digits > span').forEach(s=>{
+                const r = s.getBoundingClientRect().width;
+                if (r > w) w = r;
+            });
+            return w || 0;
+        }
+        function _applyTransformsPx(el, idx0, idx1){
+            const step = el.__rnStepPx || (el.__rnStepPx=_measureStepPx(el));
+            const cols = el.querySelectorAll('.rolling-number__column .rolling-number__digits');
+            const a = [idx0, idx1];
+            for (let i=0;i<2;i++){
+                const dg=cols[i]; const t=a[i];
+                if(!dg || !Number.isFinite(t)) continue;
+                void dg.offsetWidth;
+                dg.style.transform='translateY('+(t*-step)+'px)';
+            }
+        }
+        function _frameIdxPair(val, st){
+            if (val===0 && !_isStopped(st)) return [IDX_GT, DIGIT_OFF + 1];
+            if (val===0 &&  _isStopped(st)) return [IDX_ARROW, IDX_ARROW];
+            const s=_pad2(val);
+            return [DIGIT_OFF + Number(s[0]), DIGIT_OFF + Number(s[1])];
+        }
+        function _unitText(el){ const u = el.querySelector && el.querySelector('.unit'); return u ? u.textContent : 'min'; }
+
+        function _build(el, val){
+            const st=_state(el);
+            const [i0,i1]=_frameIdxPair(val, st);
+            const unit=_unitText(el);
+
+            el.classList.add('rolling-number');
+            el.innerHTML='';
+
+            for (let k=0;k<2;k++){
+                const col=document.createElement('span');
+                col.className='rolling-number__column';
+                const digits=document.createElement('span');
+                digits.className='rolling-number__digits';
+
+                { const s=document.createElement('span'); const i=document.createElement('i'); i.className='material-symbols-rounded'; i.textContent='arrow_downward'; s.appendChild(i); digits.appendChild(s); }
+                { const s=document.createElement('span'); s.textContent='>'; digits.appendChild(s); }
+                for(let d=0; d<=9; d++){ const s=document.createElement('span'); s.textContent=String(d); digits.appendChild(s); }
+
+                col.appendChild(digits);
+                el.appendChild(col);
+            }
+
+            const u=document.createElement('span');
+            u.className='unit';
+            u.textContent=unit;
+            el.appendChild(u);
+
+            requestAnimationFrame(()=>{
+                el.__rnStepPx=_measureStepPx(el);
+                const cw=_measureColWidthPx(el);
+                if (cw) el.style.setProperty('--rn-col-w', cw+'px');
+                _applyTransformsPx(el, i0, i1);
+            });
+
+            el.dataset.value0 = String(i0);
+            el.dataset.value1 = String(i1);
+        }
+
+        function build(el, value){ _build(el, _parseNumberish(value, el.textContent)); }
+
+        function update(el, next){
+            const val=_parseNumberish(next, el.textContent);
+            const st=_state(el);
+            if (!el.classList.contains('rolling-number')){ build(el, val); return; }
+            const [i0,i1]=_frameIdxPair(val, st);
+            if (el.dataset.value0===String(i0) && el.dataset.value1===String(i1)) return;
+            el.dataset.value0=String(i0); el.dataset.value1=String(i1);
+            _applyTransformsPx(el, i0, i1);
+        }
+
+        function ensure(el){
+            const attr=el.getAttribute&&el.getAttribute('data-eta-min');
+            const val=_parseNumberish(attr, el.textContent);
+            if (!el.classList.contains('rolling-number')) build(el, val);
+            else update(el, val);
+        }
+        return { build, update, ensure };
+    })();
+
+    function wireETA(root=document) {
+        const el = root.querySelector ? root.querySelector('#eta-primary') : null;
+        if (el) RollingNumber.ensure(el);
+    }
 
     // ------------------ Search box ------------------
     function enhanceSearchBox(form) {
@@ -727,7 +849,7 @@
 
             const now = Date.now();
             const toNextMinute = 60_000 - (now % 60_000);
-            const jitter = Math.floor(Math.random() * 700); // 0-700ms
+            const jitter = Math.floor(Math.random() * 700);
             scheduleNextStopTick(toNextMinute + jitter);
         }
 
@@ -800,17 +922,53 @@
                 const curWrapper = bodyEl.querySelector('#approaching-trains');
 
                 if (newWrapper && curWrapper) {
-                    const incoming = newWrapper;
-                    incoming.style.opacity = '0';
-                    incoming.classList.add('is-fading');
-                    curWrapper.replaceWith(incoming);
+                    const incomingEtaEl = newWrapper.querySelector('#eta-primary');
+                    const currentEtaEl  = curWrapper.querySelector('#eta-primary');
+                    const incomingState = incomingEtaEl && (incomingEtaEl.getAttribute('data-train-state') || incomingEtaEl.getAttribute('data-state') || '');
+                    if (currentEtaEl && incomingState != null) currentEtaEl.setAttribute('data-train-state', incomingState);
+                    if (incomingEtaEl && currentEtaEl) {
+                        const vAttr = incomingEtaEl.getAttribute('data-eta-min');
+                        const nextVal = (function(a, t){
+                            const s = (a != null && a !== '') ? String(a) : String(t || '');
+                            const norm = s.replace(/[^\d,.\-]/g, '').replace(',', '.');
+                            const n = Number(norm);
+                            if (Number.isFinite(n)) return Math.round(n);
+                            const m = norm.match(/-?\d+/);
+                            return m ? Math.round(Number(m[0])) : 0;
+                        })(vAttr, incomingEtaEl.textContent);
 
-                    requestAnimationFrame(() => {
-                        void incoming.offsetWidth;
-                        incoming.style.opacity = '1';
-                    });
+                        RollingNumber.ensure(currentEtaEl);
+                        RollingNumber.update(currentEtaEl, nextVal);
 
-                    processedNode = incoming;
+                    } else if (incomingEtaEl && !currentEtaEl) {
+                        const where = curWrapper.querySelector('.nearest-train-card .train-eta-chip') || curWrapper.querySelector('.nearest-train-card') || curWrapper;
+                        where.appendChild(incomingEtaEl);
+                        RollingNumber.ensure(incomingEtaEl);
+                    } else if (!incomingEtaEl && currentEtaEl) {
+                        currentEtaEl.remove();
+                    }
+                    const incomingList = newWrapper.querySelector('#approaching-list');
+                    const currentList  = curWrapper.querySelector('#approaching-list');
+                    if (incomingList && currentList) {
+                        incomingList.style.opacity = '0';
+                        currentList.replaceWith(incomingList);
+                        requestAnimationFrame(() => { void incomingList.offsetWidth; incomingList.style.opacity = '1'; });
+                    } else {
+                        const newItems = Array.from(newWrapper.querySelectorAll('.train-approaching:not(.nearest-train-card)'));
+                        const curItems = Array.from(curWrapper.querySelectorAll('.train-approaching:not(.nearest-train-card)'));
+                        curItems.forEach(n => n.remove());
+                        if (newItems.length) {
+                            const frag = document.createDocumentFragment();
+                            newItems.forEach(n => frag.appendChild(n));
+                            const h2 = curWrapper.querySelector('h2');
+                            if (h2 && h2.after) h2.after(frag); else curWrapper.appendChild(frag);
+                        }
+                    }
+                    if (window.htmx) htmx.process(curWrapper);
+                    processedNode = curWrapper;
+                    st.errors = 0;
+                    scheduleNextStopTick(st.baseInterval);
+                    return;
                 } else {
                     const newItems = Array.from(tpl.content.querySelectorAll('.train-approaching'));
                     const curItems = Array.from(bodyEl.querySelectorAll('.train-approaching'));
@@ -868,13 +1026,13 @@
                     if (template.content.firstChild) {
                         body.innerHTML = html;
                         if (window.htmx) htmx.process(body);
+                        wireETA(body);
                         body.querySelectorAll('a[href]').forEach(a => {
                             a.addEventListener('click', (e) => {
                                 closePanel();
                             });
                         });
                         try { history.replaceState({}, '', effectiveUrl); } catch(_) {}
-                        // --- Stop drawer refresh wiring ---
                         panel.dataset.stopUrl = effectiveUrl;
                         teardownStopAutoRefresh();
                         startStopAutoRefresh();
@@ -978,6 +1136,29 @@
         }, { capture: true, passive: false });
     }
 
+    function bindGlobalDrawerCloseDelegation() {
+        if (drawerCloseDelegatedBound) return;
+        drawerCloseDelegatedBound = true;
+
+        document.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('#drawer .drawer-close, #drawer [data-close-sheet]');
+            if (!btn) return;
+
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+
+            const p = document.getElementById('drawer');
+            if (!p) return;
+
+            const mode = p.dataset.mode;
+            if (mode === 'trains' && p.__closeTrainsPanel) p.__closeTrainsPanel();
+            else if (mode === 'stop' && p.__closeStopDrawer) p.__closeStopDrawer();
+            else closeStaticDrawer();
+        }, { capture: true, passive: false });
+    }
+
+
     function init(root = document) {
         console.debug('[init] init(root=)', root);
         root.querySelectorAll('form.search-box, form.search-station-box').forEach(enhanceSearchBox);
@@ -990,6 +1171,7 @@
         disableBoostForStopLinks(root);
         bindGlobalStopLinkDelegation();
         bindGlobalTrainsRefreshDelegation();
+        bindGlobalDrawerCloseDelegation();
     }
 
     document.addEventListener('DOMContentLoaded', () => init());

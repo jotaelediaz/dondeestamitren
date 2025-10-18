@@ -8,6 +8,9 @@
 	</div>
 	<header class="stop-modal-header">
 		<h1 id="stop-modal-title">{{ stop.name }}</h1>
+		<button class="drawer-close nude-icon" type="button" aria-label="Cerrar">
+			<i class="material-symbols-rounded" aria-hidden="true">close</i>
+		</button>
 	</header>
 	
 	<section class="stop-modal-body">
@@ -23,24 +26,25 @@
 					{% if nearest_eta %}
 						<div class="train-eta-chip">
 							<div class="train-eta-header">El tren llega en:</div>
-							<div class="train-eta-time">
-								~{{ nearest_eta.minutes_rounded }} min
+							<div id="eta-primary" class="train-eta-time" data-eta-min="{{ nearest_eta.minutes_rounded|int }} data-train-state="{{ nearest.train.status_text|default('') }}">
+								{{ nearest_eta.minutes_rounded|int }} <span class="unit">min</span>
 							</div>
 						</div>
 					{% endif %}
 				</div>
 				
 				<h2>Próximos trenes</h2>
-				
-				{% for r, r_eta in nearest_trains %}
-					<div class="train-approaching">
-						{% set P = (r.train.platform_by_stop|default({})).get(stop.stop_id) or r.train.platform %}
-						{{ r.train.train_id }} · {{ '%.1f'|format(r.delta_km|float) }} km
-						{% if r_eta %} · ~{{ r_eta.minutes_rounded }} min{% endif %}
-						{% if P %} · Vía {{ P }}{% endif %}
-					</div>
-				{% endfor %}
-			</div>
+				<div id="approaching-list">
+					{% for r, r_eta in nearest_trains %}
+						{% if loop.first %}{% continue %}{% endif %}
+						<div class="train-approaching">
+							{% set P = (r.train.platform_by_stop|default({})).get(stop.stop_id) or r.train.platform %}
+							{{ r.train.train_id }} · {{ '%.1f'|format(r.delta_km|float) }} km
+							{% if r_eta %} · ~{{ r_eta.minutes_rounded }} min{% endif %}
+							{% if P %} · Vía {{ P }}{% endif %}
+						</div>
+					{% endfor %}
+				</div>
 		
 		{% else %}
 			<p>No hay trenes aproximándose en este sentido ahora mismo.</p>

@@ -11,6 +11,7 @@ from app.core.user_prefs import get_current_nucleus
 from app.services.routes_repo import get_repo as get_routes_repo
 
 templates = Jinja2Templates(directory="app/templates")
+templates.env.add_extension("jinja2.ext.loopcontrols")
 
 
 def natural_sort(value, attr=None, reverse=False):
