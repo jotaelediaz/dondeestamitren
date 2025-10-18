@@ -53,6 +53,38 @@ def compute_confidence_badge(train, routes_repo, trips_repo):
         else:
             candidates.append((rid, did, lv))
 
+    try:
+        num = None
+        for field in (
+            getattr(train, "train_number", None),
+            getattr(train, "train_id", None),
+            getattr(train, "label", None),
+        ):
+            if field is None:
+                continue
+            m = _NUM_RE.search(str(field))
+            if m:
+                try:
+                    num = int(m.group(1))
+                    break
+                except Exception:
+                    pass
+        if isinstance(num, int) and candidates:
+            parity = "even" if (num % 2 == 0) else "odd"
+            filtered_by_parity = []
+            for rid, did, lv in candidates:
+                exp_did = routes_repo.dir_for_parity(rid, parity)
+                if exp_did in ("0", "1") and did == exp_did:
+                    filtered_by_parity.append((rid, did, lv))
+            if not filtered_by_parity:
+                for rid, did, lv in candidates:
+                    if routes_repo.dir_for_parity(rid, parity) in ("0", "1"):
+                        filtered_by_parity.append((rid, did, lv))
+            if filtered_by_parity:
+                candidates = filtered_by_parity
+    except Exception:
+        pass
+
     if not candidates:
         badge = {
             "level": "low",
@@ -110,7 +142,6 @@ def compute_confidence_badge(train, routes_repo, trips_repo):
         rid = (getattr(train, "route_id", "") or "").strip()
         did_now = str(getattr(train, "direction_id", "") or "").strip()
         if rid and did_now in ("0", "1"):
-            # extraer número de tren
             num = None
             for field in (
                 getattr(train, "train_number", None),
@@ -130,9 +161,7 @@ def compute_confidence_badge(train, routes_repo, trips_repo):
                 parity = "even" if (num % 2 == 0) else "odd"
                 exp_did = routes_repo.dir_for_parity(rid, parity)
                 if exp_did in ("0", "1"):
-                    status = routes_repo.parity_status(
-                        rid
-                    )  # 'final' | 'tentative' | 'disabled' | 'none'
+                    status = routes_repo.parity_status(rid)
 
                     def set_level(level, label, icon):
                         badge["level"] = level
@@ -150,7 +179,6 @@ def compute_confidence_badge(train, routes_repo, trips_repo):
                             set_level("ok", "Alta", "✅")
                         elif badge["level"] == "low" and status in ("final", "tentative"):
                             set_level("med", "Media", "⚠️")
-                    # mismatch → bajamos un nivel (si se puede)
                     elif exp_did != did_now and status != "disabled":
                         badge["tooltip"] = badge.get("tooltip", "") + " · Paridad NO cuadra"
                         badge["source"] = badge.get("source", "") + "+parity_mismatch"
