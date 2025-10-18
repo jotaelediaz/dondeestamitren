@@ -24,6 +24,7 @@
 			<th>Canónica</th>
 			<th>Terminales (A ↔ B)</th>
 			<th>Dirección</th>
+			<th>Paridad Nº Tren</th>
 			<th>Rutas (route_id)</th>
 			<th>Acciones</th>
 		</tr>
@@ -42,6 +43,7 @@
 						&nbsp;↔&nbsp;
 						{% if b %}<a href="/alpha/stations/{{ nucleus.slug or line.nucleus_id }}/{{ b }}">{{ repo.get_stop_name_or_id(b) }}</a>{% else %}—{% endif %}
 					</td>
+					<td>—</td>
 					<td>—</td>
 					<td>
 						{% for rid in var.route_ids %}
@@ -62,7 +64,15 @@
 								{% if b %}<a href="/alpha/stations/{{ nucleus.slug or line.nucleus_id }}/{{ b }}">{{ repo.get_stop_name_or_id(b) }}</a>{% else %}—{% endif %}
 							</td>
 						{% endif %}
+						
 						<td><strong>{{ did }}</strong></td>
+						
+						{% set rid0 = d.route_ids[0] if d.route_ids and d.route_ids|length else None %}
+						{% set even_did = repo.dir_for_parity(rid0, 'even') if rid0 else None %}
+						{% set odd_did  = repo.dir_for_parity(rid0, 'odd')  if rid0 else None %}
+						{% set parity_text = 'Pares' if did == even_did else 'Impares' if did == odd_did else '?' %}
+						<td>{{ parity_text }}</td>
+						
 						<td>
 							{% if d.route_ids %}
 								<div>

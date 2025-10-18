@@ -62,8 +62,7 @@ class LiveTrainsCache:
 
     @classmethod
     def extract_platform_from_label(cls, label: str | None) -> str | None:
-        """Renfe uses C1-23537-PLATF.(3) in the
-        label field to denote the platform number."""
+        """Renfe usa C1-23537-PLATF.(3) en label para la vía."""
         if not label:
             return None
         m = cls._PLATFORM_RE.search(label)
@@ -159,6 +158,74 @@ class LiveTrainsCache:
         tp.route_id = rid
         tp.nucleus_slug = (lv.nucleus_id or "").strip() or getattr(tp, "nucleus_slug", None)
 
+    # ---------------- Parity helpers ----------------
+    _NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
+    _PLATF_TOKEN_RE = re.compile(r"PLATF\.\(\s*\d+\s*\)", re.IGNORECASE)
+
+    @classmethod
+    def _extract_train_number(cls, tp: TrainPosition) -> int | None:
+        """Best-effort para extraer número de tren (23537, etc.)."""
+        cand_fields = (
+            getattr(tp, "train_number", None),
+            getattr(tp, "train_id", None),
+            getattr(tp, "vehicle_id", None),
+            getattr(tp, "label", None),
+        )
+        for val in cand_fields:
+            if val is None:
+                continue
+            s = str(val)
+            if not s:
+                continue
+            s = cls._PLATF_TOKEN_RE.sub("", s)  # quita "PLATF.(3)"
+            m = cls._NUM_RE.search(s)
+            if m:
+                try:
+                    return int(m.group(1))
+                except Exception:
+                    pass
+        return None
+
+    def _maybe_infer_direction_by_parity(self, tp: TrainPosition) -> dict:
+        """Fija direction_id usando parity_map si procede."""
+        metrics = {"parity_used": 0, "parity_final": 0, "parity_tentative": 0, "parity_no_map": 0}
+
+        did_now = str(getattr(tp, "direction_id", "") or "").strip()
+        trip_id = (getattr(tp, "trip_id", "") or "").strip()
+        if did_now in ("0", "1") and trip_id:
+            return metrics  # ya decidido por trip
+
+        rid = (getattr(tp, "route_id", "") or "").strip()
+        if not rid:
+            return metrics
+
+        num = self._extract_train_number(tp)
+        if num is None:
+            return metrics
+
+        parity = "even" if (num % 2 == 0) else "odd"
+        rrepo = get_lines_repo()
+        did = rrepo.dir_for_parity(rid, parity)
+        if did not in ("0", "1"):
+            metrics["parity_no_map"] += 1
+            return metrics
+
+        if did_now not in ("0", "1"):
+            try:
+                tp.direction_id = did
+                tp.direction_source = "parity_map"
+                status = rrepo.parity_status(rid)
+                tp.dir_confidence = "high" if status == "final" else "med"
+                metrics["parity_used"] += 1
+                if status == "final":
+                    metrics["parity_final"] += 1
+                else:
+                    metrics["parity_tentative"] += 1
+            except Exception:
+                pass
+
+        return metrics
+
     # -------- GTFS protobuf path --------
     def _fetch_pb_once(self):
         t0 = time.time()
@@ -182,6 +249,9 @@ class LiveTrainsCache:
         self._ensure_stop_nucleus_index()
 
         ents = getattr(feed, "entity", []) or []
+        # métricas de paridad para logging
+        p_used = p_final = p_tent = p_nomap = 0
+
         for ent in ents:
             tp = parse_train_gtfs_pb(ent, default_ts=header_ts)
             if not tp:
@@ -195,6 +265,14 @@ class LiveTrainsCache:
             tp.nucleus_slug = self._nucleus_for_stop(tp.stop_id) or (
                 lines_repo.nucleus_for_route_id(rid) if rid else None
             )
+
+            # Inferir direction por paridad (si aplica)
+            m = self._maybe_infer_direction_by_parity(tp)
+            p_used += m["parity_used"]
+            p_final += m["parity_final"]
+            p_tent += m["parity_tentative"]
+            p_nomap += m["parity_no_map"]
+
             self._enrich_platform_from_parsed_train(tp)
             items.append(tp)
 
@@ -203,6 +281,10 @@ class LiveTrainsCache:
             header_ts=header_ts,
             entities=len(ents),
             items=len(items),
+            parity_used=p_used,
+            parity_final=p_final,
+            parity_tentative=p_tent,
+            parity_no_map=p_nomap,
         )
         return header_ts, now_s, items
 
@@ -238,6 +320,9 @@ class LiveTrainsCache:
             trips_repo = get_trips_repo()
             lines_repo = get_lines_repo()
             self._ensure_stop_nucleus_index()
+            # métricas de paridad para logging
+            p_used = p_final = p_tent = p_nomap = 0
+
             for ent in ents:
                 tp = parse_train_gtfs_json(ent, default_ts=header_ts)
                 if not tp:
@@ -251,15 +336,38 @@ class LiveTrainsCache:
                 tp.nucleus_slug = self._nucleus_for_stop(tp.stop_id) or (
                     lines_repo.nucleus_for_route_id(rid) if rid else None
                 )
+
+                # Inferir direction por paridad (si aplica)
+                m = self._maybe_infer_direction_by_parity(tp)
+                p_used += m["parity_used"]
+                p_final += m["parity_final"]
+                p_tent += m["parity_tentative"]
+                p_nomap += m["parity_no_map"]
+
                 self._enrich_platform_from_parsed_train(tp)
                 items.append(tp)
 
-        self._log(
-            "parsed_json",
-            header_ts=header_ts,
-            entities=len(ents) if isinstance(ents, list) else 0,
-            items=len(items),
-        )
+            self._log(
+                "parsed_json",
+                header_ts=header_ts,
+                entities=len(ents) if isinstance(ents, list) else 0,
+                items=len(items),
+                parity_used=p_used,
+                parity_final=p_final,
+                parity_tentative=p_tent,
+                parity_no_map=p_nomap,
+            )
+        else:
+            self._log(
+                "parsed_json",
+                header_ts=header_ts,
+                entities=0,
+                items=0,
+                parity_used=0,
+                parity_final=0,
+                parity_tentative=0,
+                parity_no_map=0,
+            )
         return header_ts, now_s, items
 
     # -------- Internal: merge, sweep, rebuild views --------

@@ -5,6 +5,8 @@
 	Ruta {{ route.route_id }} ➜ {{ route.route_short_name }} · {{ route.route_long_name }}
 </h1>
 
+<p>Paridad de numeración de tren esperada para la ruta: <strong>{{ 'PARES' if expected_parity_bit == 0 else 'IMPARES' if expected_parity_bit == 1 else '?'}}</strong></p>
+
 <table border="1" cellpadding="6" cellspacing="0">
 	<thead>
 	<tr>

@@ -1,4 +1,6 @@
 # app/routers/web_alpha.py
+import re
+
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -12,6 +14,8 @@ from app.services.trips_repo import get_repo as get_trips_repo
 
 router = APIRouter(tags=["web-alpha"])
 templates = Jinja2Templates(directory="app/templates/alpha")
+
+_NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
 
 
 def mk_nucleus(slug: str, repo):
@@ -50,58 +54,114 @@ def compute_confidence_badge(train, routes_repo, trips_repo):
             candidates.append((rid, did, lv))
 
     if not candidates:
-        return {
+        badge = {
             "level": "low",
             "label": "Baja",
             "icon": "❗",
             "tooltip": "Sin mapeo por trips ni candidatos por línea+parada.",
             "source": "no_candidates",
         }
+    else:
+        if tdir in ("0", "1"):
+            filtered = [c for c in candidates if (c[1] or "") == tdir]
+            if filtered:
+                candidates = filtered
 
-    if tdir in ("0", "1"):
-        filtered = [c for c in candidates if (c[1] or "") == tdir]
-        if filtered:
-            candidates = filtered
-
-    unique_rids = {c[0] for c in candidates}
-    if len(unique_rids) == 1:
-        # Unívoco por corredor (y quizá dirección)
-        rid = next(iter(unique_rids))
-        if rid == (train.route_id or ""):
-            return {
-                "level": "med",
-                "label": "Media",
-                "icon": "⚠️",
-                "tooltip": "Inferido por línea+parada. Candidato unívoco.",
-                "source": "fallback_unique",
-            }
+        unique_rids = {c[0] for c in candidates}
+        if len(unique_rids) == 1:
+            rid = next(iter(unique_rids))
+            if rid == (train.route_id or ""):
+                badge = {
+                    "level": "med",
+                    "label": "Media",
+                    "icon": "⚠️",
+                    "tooltip": "Inferido por línea+parada. Candidato unívoco.",
+                    "source": "fallback_unique",
+                }
+            else:
+                badge = {
+                    "level": "low",
+                    "label": "Baja",
+                    "icon": "❗",
+                    "tooltip": f"Candidato unívoco {rid} difiere de route_id {train.route_id}.",
+                    "source": "fallback_unique_mismatch",
+                }
         else:
-            return {
-                "level": "low",
-                "label": "Baja",
-                "icon": "❗",
-                "tooltip": f"Candidato unívoco {rid} difiere de route_id {train.route_id}.",
-                "source": "fallback_unique_mismatch",
-            }
+            max_len = max(len(c[2].stations) for c in candidates)
+            best = [c for c in candidates if len(c[2].stations) == max_len]
+            if len(best) == 1 and best[0][0] == (train.route_id or ""):
+                badge = {
+                    "level": "med",
+                    "label": "Media",
+                    "icon": "⚠️",
+                    "tooltip": "Inferido por heurística (nº de estaciones).",
+                    "source": "fallback_heuristic",
+                }
+            else:
+                badge = {
+                    "level": "low",
+                    "label": "Baja",
+                    "icon": "❗",
+                    "tooltip": "Múltiples rutas candidatas en el corredor; asignación ambigua.",
+                    "source": "ambiguous",
+                }
 
-    max_len = max(len(c[2].stations) for c in candidates)
-    best = [c for c in candidates if len(c[2].stations) == max_len]
-    if len(best) == 1 and best[0][0] == (train.route_id or ""):
-        return {
-            "level": "med",
-            "label": "Media",
-            "icon": "⚠️",
-            "tooltip": "Inferido por heurística (nº de estaciones).",
-            "source": "fallback_heuristic",
-        }
+    try:
+        rid = (getattr(train, "route_id", "") or "").strip()
+        did_now = str(getattr(train, "direction_id", "") or "").strip()
+        if rid and did_now in ("0", "1"):
+            # extraer número de tren
+            num = None
+            for field in (
+                getattr(train, "train_number", None),
+                getattr(train, "train_id", None),
+                getattr(train, "label", None),
+            ):
+                if field is None:
+                    continue
+                m = _NUM_RE.search(str(field))
+                if m:
+                    try:
+                        num = int(m.group(1))
+                        break
+                    except Exception:
+                        pass
+            if isinstance(num, int):
+                parity = "even" if (num % 2 == 0) else "odd"
+                exp_did = routes_repo.dir_for_parity(rid, parity)
+                if exp_did in ("0", "1"):
+                    status = routes_repo.parity_status(
+                        rid
+                    )  # 'final' | 'tentative' | 'disabled' | 'none'
 
-    return {
-        "level": "low",
-        "label": "Baja",
-        "icon": "❗",
-        "tooltip": "Múltiples rutas candidatas en el corredor; asignación ambigua.",
-        "source": "ambiguous",
-    }
+                    def set_level(level, label, icon):
+                        badge["level"] = level
+                        badge["label"] = label
+                        badge["icon"] = icon
+
+                    if exp_did == did_now and status != "disabled":
+                        badge["tooltip"] = badge.get("tooltip", "") + (
+                            " · Paridad coherente (final)"
+                            if status == "final"
+                            else " · Paridad coherente (tentative)"
+                        )
+                        badge["source"] = badge.get("source", "") + "+parity"
+                        if badge["level"] == "med" and status == "final":
+                            set_level("ok", "Alta", "✅")
+                        elif badge["level"] == "low" and status in ("final", "tentative"):
+                            set_level("med", "Media", "⚠️")
+                    # mismatch → bajamos un nivel (si se puede)
+                    elif exp_did != did_now and status != "disabled":
+                        badge["tooltip"] = badge.get("tooltip", "") + " · Paridad NO cuadra"
+                        badge["source"] = badge.get("source", "") + "+parity_mismatch"
+                        if badge["level"] == "ok":
+                            set_level("med", "Media", "⚠️")
+                        elif badge["level"] == "med":
+                            set_level("low", "Baja", "❗")
+    except Exception:
+        pass
+
+    return badge
 
 
 # --- HOME ---
@@ -182,6 +242,15 @@ def route_page_by_id(
 
     trains = cache.get_by_nucleus_and_route(nucleus, route_id)
 
+    # --- expected parity bit for this route+direction (0=even, 1=odd)
+    even_did = repo.dir_for_parity(route_id, "even")
+    odd_did = repo.dir_for_parity(route_id, "odd")
+    expected_parity_bit = None
+    if route.direction_id == (even_did or ""):
+        expected_parity_bit = 0
+    elif route.direction_id == (odd_did or ""):
+        expected_parity_bit = 1
+
     return templates.TemplateResponse(
         "route_detail.html",
         {
@@ -191,6 +260,7 @@ def route_page_by_id(
             "trains": trains,
             "repo": repo,
             "last_source": cache.last_source(),
+            "expected_parity_bit": expected_parity_bit,
             "last_snapshot": cache.last_snapshot_iso(),
         },
     )

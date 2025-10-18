@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 
 from app.config import settings
@@ -20,10 +21,18 @@ class RoutesRepo:
         self._has_nuclei = nuclei_map is not None
         self._nuclei_map = nuclei_map or {}
         self._stop_names: dict[str, str] = {}
-        self._route_colors_by_id: dict[str, tuple[str | None, str | None]] = {}
-        self._route_colors_by_short: dict[str, tuple[str | None, str | None]] = {}
+        self._route_colors_by_id: dict[str | None, tuple[str | None, str | None]] = {}
+        self._route_colors_by_short: dict[str | None, tuple[str | None, str | None]] = {}
         self._line_by_route_id: dict[str, str] = {}
 
+        self._parity_path: str | None = None
+        self._parity_mtime: float = 0.0
+        self._parity_map: dict[str, dict[str, str]] = (
+            {}
+        )  # route_id -> {"even": "0|1", "odd": "0|1"}
+        self._parity_status: dict[str, str] = {}
+
+    # -------------------- Utils --------------------
     def _fnum(self, s: str | None, default="0") -> float:
         if s is None:
             s = default
@@ -48,6 +57,7 @@ class RoutesRepo:
             return None
         return s if s.startswith("#") else f"#{s}"
 
+    # -------------------- GTFS route colors --------------------
     def _load_gtfs_route_colors(self) -> None:
         self._route_colors_by_id.clear()
         self._route_colors_by_short.clear()
@@ -89,6 +99,7 @@ class RoutesRepo:
             if rshort:
                 self._route_colors_by_short[rshort] = (bg, fg)
 
+    # -------------------- main load --------------------
     def load(self) -> None:
         if not os.path.exists(self.csv_path):
             raise FileNotFoundError(f"Doesn't exist {self.csv_path}")
@@ -179,6 +190,11 @@ class RoutesRepo:
             if slug and slug not in self._nuclei_names:
                 self._nuclei_names[slug] = name or slug.capitalize()
 
+        self._parity_mtime = 0.0
+        self._parity_map.clear()
+        self._parity_status.clear()
+
+    # -------------------- query APIs --------------------
     def reload(self) -> None:
         self.load()
 
@@ -482,6 +498,75 @@ class RoutesRepo:
             if (adid or "") == opp or did == "" or opp == "":
                 return candidate.route_id
         return None
+
+    # -------------------- Trains number parity overlay --------------------
+    def _ensure_parity_loaded(self) -> None:
+        path = getattr(settings, "PARITY_OUT_JSON", None)
+        if not path or not os.path.exists(path):
+            self._parity_path = None
+            self._parity_mtime = 0.0
+            self._parity_map.clear()
+            self._parity_status.clear()
+            return
+
+        mtime = os.path.getmtime(path)
+        if self._parity_path == path and mtime <= self._parity_mtime:
+            return
+
+        try:
+            with open(path, encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
+            return
+
+        routes = payload.get("routes") or {}
+        if not isinstance(routes, dict):
+            return
+
+        new_map: dict[str, dict[str, str]] = {}
+        new_status: dict[str, str] = {}
+
+        for rid, obj in routes.items():
+            if not isinstance(obj, dict):
+                continue
+            rid_s = (rid or "").strip()
+            even = str(obj.get("even", "")).strip()
+            odd = str(obj.get("odd", "")).strip()
+            status = (obj.get("status") or "tentative").strip().lower()
+
+            if even not in ("0", "1") or odd not in ("0", "1"):
+                continue
+            if even == odd:
+                continue
+
+            new_map[rid_s] = {"even": even, "odd": odd}
+            if status in ("final", "tentative", "disabled"):
+                new_status[rid_s] = status
+            else:
+                new_status[rid_s] = "tentative"
+
+        self._parity_path = path
+        self._parity_mtime = mtime
+        self._parity_map = new_map
+        self._parity_status = new_status
+
+    def dir_for_parity(self, route_id: str, parity: str) -> str | None:
+        self._ensure_parity_loaded()
+        rid = (route_id or "").strip()
+        p = (parity or "").strip().lower()
+        if p not in ("even", "odd"):
+            return None
+        status = self._parity_status.get(rid, "none")
+        if status == "disabled":
+            return None
+        m = self._parity_map.get(rid)
+        if not m:
+            return None
+        return m.get(p)
+
+    def parity_status(self, route_id: str) -> str:
+        self._ensure_parity_loaded()
+        return self._parity_status.get((route_id or "").strip(), "none")
 
     @property
     def nuclei_names(self):

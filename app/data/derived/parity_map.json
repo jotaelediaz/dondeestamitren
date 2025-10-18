@@ -1,0 +1,385 @@
+{
+  "version": 2,
+  "generated_at": "2025-10-18T03:01:20.307438+00:00",
+  "routes": {
+    "10T0001C1": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0002C1": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0003C10": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0004C10": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "10T0005C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0007C3": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0008C3": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0013C4a": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "10T0014C4a": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "10T0015C4b": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "10T0016C4b": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "10T0017C5": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0018C5": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0026C9": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0051C7": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0052C7": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "10T0061C8a": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "10T0062C8a": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "10T0075C10": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "10T0076C10": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "10T0088C8b": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "20T0001C1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "20T0002C1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "20T0004C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "20T0006C3": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "20T0009C4": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "20T0010C4": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "20T0011C5": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "20T0012C5": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "20T0015C6": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "20T0016C6": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "20T0017C7": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "20T0018C7": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "20T0019C8": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "20T0020C8": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "30T0001C1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "30T0002C1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "30T0009C5": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "31T0001C1": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "31T0002C1": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "31T0005T1": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "31T0006T1": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "32T0001C1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "32T0002C1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "40T0001C1": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "40T0002C1": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "40T0005C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "40T0006C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "40T0013C6": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "40T0014C6": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "40T0033C3": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "41T0001C1": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "41T0004C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "51T0001R1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "51T0002R1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "51T0004R2N": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "51T0007R2S": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "51T0008R2S": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "51T0019R4": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "51T0020R4": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "51T0023R8": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "51T0024R8": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "51T0030R7": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "51T0034R3": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "51T0040R3": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "51T0046R3": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "51T0093R11": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "51T0127R3": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "62T0003C2": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "62T0005C3": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "62T0006C3": {
+      "even": "1",
+      "odd": "0",
+      "status": "tentative"
+    },
+    "70T0001C1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    },
+    "70T0002C1": {
+      "even": "0",
+      "odd": "1",
+      "status": "tentative"
+    }
+  },
+  "meta": {
+    "files_total": 1,
+    "entities_total": 173,
+    "samples_valid": 166,
+    "skipped_missing": 2,
+    "routes_emitted": 73,
+    "routes_missing_dir": 2,
+    "route_stations_csv": "app/data/derived/route_stations.csv",
+    "routes_skipped_count": 2,
+    "routes_skipped": {
+      "51T0047RL4": "missing_dir",
+      "51T0048RL4": "missing_dir"
+    }
+  }
+}

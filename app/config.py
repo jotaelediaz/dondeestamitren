@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     NUCLEI_DATA_CSV: str = "app/data/nucleos_data.csv"
     NUCLEI_MAP_CSV: str | None = "app/data/nucleos_map.csv"
 
+    # --- Routes Parity calibration ---
+    PARITY_INPUTS_GLOB: str = "app/data/raw/vehicle_positions/**/*.json*"
+    PARITY_OUT_JSON: str = "app/data/derived/parity_map.json"
+    PARITY_OVERRIDES_PATH: str | None = "app/data/custom/parity_overrides.json"
+
     # --- Local Additional Data ---
     MADRID_STATIONS_CSV: str | None = "app/data/custom/listado-estaciones-cercanias-madrid.csv"
 
