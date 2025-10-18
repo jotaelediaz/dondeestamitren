@@ -135,6 +135,7 @@ class LiveTrainsCache:
             return
         stop_id = (getattr(tp, "stop_id", "") or "").strip()
 
+        # Candidates (short_name [+ stop_id])
         candidates = []
         for (rid, did), lv in rrepo.by_route_dir.items():
             if (lv.route_short_name or "").strip().lower() != short:
@@ -152,13 +153,41 @@ class LiveTrainsCache:
 
         tdir = str(getattr(tp, "direction_id", "")).strip()
         if tdir in ("0", "1"):
-            candidates = [c for c in candidates if (c[1] or "") == tdir]
+            filtered = [c for c in candidates if (c[1] or "") == tdir]
+            if filtered:
+                candidates = filtered
+
+        num = LiveTrainsCache._extract_train_number(tp)
+        if isinstance(num, int):
+            parity = "even" if (num % 2 == 0) else "odd"
+
+            scored = []
+            for rid, did, lv in candidates:
+                pdid = rrepo.dir_for_parity(rid, parity)
+                if pdid in ("0", "1"):
+                    scored.append((rid, did, lv, pdid, rrepo.parity_status(rid)))
+
+            if scored:
+                exact = [x for x in scored if x[1] == x[3]]
+                pool = exact or scored
+                rid, did, lv, pdid, pstatus = max(pool, key=lambda c: (len(c[2].stations), c[0]))
+                tp.route_id = rid
+                tp.nucleus_slug = (lv.nucleus_id or "").strip() or getattr(tp, "nucleus_slug", None)
+                if tdir not in ("0", "1"):
+                    try:
+                        tp.direction_id = pdid
+                        tp.direction_source = "parity_map"
+                        tp.dir_confidence = "high" if pstatus == "final" else "med"
+                    except Exception:
+                        pass
+                return
 
         rid, did, lv = max(candidates, key=lambda c: (len(c[2].stations), c[0]))
         tp.route_id = rid
         tp.nucleus_slug = (lv.nucleus_id or "").strip() or getattr(tp, "nucleus_slug", None)
 
     # ---------------- Parity helpers ----------------
+
     _NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
     _PLATF_TOKEN_RE = re.compile(r"PLATF\.\(\s*\d+\s*\)", re.IGNORECASE)
 
