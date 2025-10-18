@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generated_at": "2025-10-18T03:01:20.307438+00:00",
+  "generated_at": "2025-10-18T15:21:45.170381+00:00",
   "routes": {
     "10T0001C1": {
       "even": "1",
@@ -15,7 +15,7 @@
     "10T0003C10": {
       "even": "1",
       "odd": "0",
-      "status": "tentative"
+      "status": "final"
     },
     "10T0004C10": {
       "even": "0",
@@ -23,19 +23,19 @@
       "status": "tentative"
     },
     "10T0005C2": {
-      "even": "1",
-      "odd": "0",
-      "status": "tentative"
+      "even": "0",
+      "odd": "1",
+      "status": "final"
     },
     "10T0007C3": {
       "even": "1",
       "odd": "0",
-      "status": "tentative"
+      "status": "final"
     },
     "10T0008C3": {
-      "even": "1",
-      "odd": "0",
-      "status": "tentative"
+      "even": "0",
+      "odd": "1",
+      "status": "final"
     },
     "10T0013C4a": {
       "even": "0",
@@ -70,7 +70,7 @@
     "10T0026C9": {
       "even": "1",
       "odd": "0",
-      "status": "tentative"
+      "status": "final"
     },
     "10T0051C7": {
       "even": "1",
@@ -366,6 +366,56 @@
       "even": "0",
       "odd": "1",
       "status": "tentative"
+    },
+    "10T0006C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "final"
+    },
+    "10T0019C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "final"
+    },
+    "10T0020C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "final"
+    },
+    "10T0037C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "final"
+    },
+    "10T0049C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "final"
+    },
+    "10T0050C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "final"
+    },
+    "10T0083C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "final"
+    },
+    "10T0025C9": {
+      "even": "0",
+      "odd": "1",
+      "status": "final"
+    },
+    "32T0004C2": {
+      "even": "1",
+      "odd": "0",
+      "status": "final"
+    },
+    "32T0003C2": {
+      "even": "0",
+      "odd": "1",
+      "status": "final"
     }
   },
   "meta": {
@@ -373,13 +423,14 @@
     "entities_total": 173,
     "samples_valid": 166,
     "skipped_missing": 2,
-    "routes_emitted": 73,
+    "routes_emitted": 83,
     "routes_missing_dir": 2,
     "route_stations_csv": "app/data/derived/route_stations.csv",
     "routes_skipped_count": 2,
     "routes_skipped": {
       "51T0047RL4": "missing_dir",
       "51T0048RL4": "missing_dir"
-    }
+    },
+    "routes_forced_from_overrides": 10
   }
 }

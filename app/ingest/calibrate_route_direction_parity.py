@@ -566,6 +566,16 @@ def calibrate_v2(
                 "status": ov.get("status", status),
             }
 
+    forced_from_overrides = 0
+    for rid, ov in overrides.items():
+        if rid not in routes_map:
+            routes_map[rid] = {
+                "even": ov["even"],
+                "odd": ov["odd"],
+                "status": ov.get("status", "final"),
+            }
+            forced_from_overrides += 1
+
     metrics = {
         "files_total": files_total,
         "entities_total": entities_total,
@@ -576,6 +586,7 @@ def calibrate_v2(
         "route_stations_csv": str(rs_path) if rs_path else "",
         "routes_skipped_count": len(routes_skipped),
         "routes_skipped": routes_skipped,
+        "routes_forced_from_overrides": forced_from_overrides,
     }
 
     if output_json:
@@ -593,7 +604,7 @@ def calibrate_v2(
     tents = sum(1 for r in routes_map.values() if r.get("status") == "tentative")
     disab = sum(1 for r in routes_map.values() if r.get("status") == "disabled")
     log(
-        f"[OK] parity_map v2 generado: {len(routes_map)} rutas (final={finals}, "
+        f"[OK] parity_map generado: {len(routes_map)} rutas (final={finals}, "
         f"tentative={tents}, disabled={disab}; missing_dir={routes_missing_dir})"
     )
 
