@@ -1306,9 +1306,10 @@ ul.chip-list {
 .drawer-close {
     background: transparent;
     border: 0;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     color: inherit;
     cursor: pointer;
+    padding: 0 0;
 }
 
 .htmx-indicator {
@@ -1579,8 +1580,17 @@ ul.chip-list {
     box-sizing: border-box;
 }
 
+.stop-modal-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(var(--app-margin) / 2);
+    margin-bottom: calc(var(--app-margin) / 2);
+}
+
 #stop-modal-title {
-    font-size: 1.3rem;
+    font-size: 1.2rem;
     margin: 0 0;
     text-overflow: ellipsis;
     overflow: hidden;
@@ -1617,21 +1627,70 @@ ul.chip-list {
 
 #approaching-trains.is-fading { transition: opacity 200ms ease; }
 
+/* - Stops time odometer - */
 
-.rolling-number { display:inline-flex; align-items: baseline; }
-.rolling-number .unit { margin-left:.25em; opacity:.8; }
-.rolling-number__column { position: relative; overflow: hidden; height: 1em; display:inline-block; }
-.rolling-number__digits { display:block; will-change: transform; transition: transform 420ms cubic-bezier(0.12, 1.47, 0.78, 0.97); }
-.rolling-number__digits > span { display:block; line-height:1; height:1em; }
-.train-eta-time .material-symbols-rounded { font-size: 1em; line-height: 1; vertical-align: -0.1em; }
-.rolling-number { position: relative; font-variant-numeric: tabular-nums; }
-.rolling-number__prefix { display:inline-block; width:var(--rn-col-w,1ch); text-align:right; margin-right:.08em; }
-.rolling-number__stopped { position:absolute; left:calc(var(--rn-col-w,1ch) + .08em); top:0; bottom:0; display:grid; grid-template-columns:var(--rn-col-w,1ch) var(--rn-col-w,1ch); align-items:center; justify-items:center; pointer-events:none; opacity:.9; }
-.rolling-number__stopped[hidden]{ display:none; }
-.rolling-number__stopped .material-symbols-rounded { font-size:1em; line-height:1; }
-.rolling-number { display:inline-flex; align-items: baseline; font-variant-numeric: tabular-nums; }
-.rolling-number .unit { margin-left:.25em; opacity:.8; }
-.rolling-number__column { position: relative; overflow: hidden; height: 1em; width: var(--rn-col-w, 1ch); display:inline-block; }
-.rolling-number__digits { will-change: transform; transition: transform 360ms cubic-bezier(.2,.8,.2,1); }
-.rolling-number__digits > span { display:flex; align-items:center; justify-content:center; line-height:1; height:1em; }
-.rolling-number__digits > span .material-symbols-rounded { font-size:1em; line-height:1; }
+.rolling-number {
+    display: inline-flex;
+    align-items: baseline;
+    position: relative;
+    font-variant-numeric: tabular-nums;
+}
+
+.rolling-number .unit {
+    margin-left: 0.25em;
+    opacity: 0.8;
+}
+
+.rolling-number__column {
+    position: relative;
+    overflow: hidden;
+    height: 1em;
+    width: 1ch;
+    display: inline-block;
+}
+
+.rolling-number__digits {
+    display: block;
+    will-change: transform;
+    transition: transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.rolling-number__digits > span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    height: 1em;
+}
+
+.rolling-number__digits > span .material-symbols-rounded,
+.train-eta-time .material-symbols-rounded,
+.rolling-number__stopped .material-symbols-rounded {
+    font-size: 1em;
+    line-height: 1;
+    vertical-align: -0.1em;
+}
+
+.rolling-number__prefix {
+    display: inline-block;
+    width: 1ch;
+    text-align: right;
+    margin-right: 0.08em;
+}
+
+.rolling-number__stopped {
+    position: absolute;
+    left: calc(1ch + 0.08em);
+    top: 0;
+    bottom: 0;
+    display: grid;
+    grid-template-columns: 1ch 1ch;
+    align-items: center;
+    justify-items: center;
+    pointer-events: none;
+    opacity: 0.9;
+}
+
+.rolling-number__stopped[hidden] {
+    display: none;
+}

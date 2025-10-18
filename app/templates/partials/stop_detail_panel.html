@@ -19,32 +19,50 @@
 			
 			<div id="approaching-trains">
 				{% set nearest_pair = nearest_trains[0] %}
-				{% set nearest = nearest_pair[0] %}
+				{% set rec = nearest_pair[0] %}
+				{% set nearest = rec.train %}
 				{% set nearest_eta = nearest_pair[1] %}
+				
+				{% set sid_s = stop.stop_id|string %}
+				{% set map = nearest.platform_by_stop|default({}) %}
+				{% set plat = map.get(sid_s) or map.get(stop.stop_id) or nearest.platform %}
 				
 				<div class="nearest-train-card train-approaching" style="--train-color: {{ route.color_bg }}">
 					{% if nearest_eta %}
 						<div class="train-eta-chip">
-							<div class="train-eta-header">El tren llega en:</div>
-							<div id="eta-primary" class="train-eta-time" data-eta-min="{{ nearest_eta.minutes_rounded|int }} data-train-state="{{ nearest.train.status_text|default('') }}">
+							<div class="train-eta-header">Próximo tren en:</div>
+							<div id="eta-primary"
+							     class="train-eta-time"
+							     data-eta-min="{{ nearest_eta.minutes_rounded|int }}"
+							     data-train-state="{{ nearest.current_status or '' }}">
 								{{ nearest_eta.minutes_rounded|int }} <span class="unit">min</span>
 							</div>
+							
+							{% if plat %}
+								<div class="train-platform-badge">Vía {{ plat }}</div>
+							{% endif %}
 						</div>
 					{% endif %}
 				</div>
 				
 				<h2>Próximos trenes</h2>
 				<div id="approaching-list">
-					{% for r, r_eta in nearest_trains %}
+					{% for rec2, r_eta in nearest_trains %}
 						{% if loop.first %}{% continue %}{% endif %}
+						{% set t = rec2.train %}
+						
+						{# mismo lookup/fallback para cada tren #}
+						{% set map2 = t.platform_by_stop|default({}) %}
+						{% set P = map2.get(sid_s) or map2.get(stop.stop_id) or t.platform %}
+						
 						<div class="train-approaching">
-							{% set P = (r.train.platform_by_stop|default({})).get(stop.stop_id) or r.train.platform %}
-							{{ r.train.train_id }} · {{ '%.1f'|format(r.delta_km|float) }} km
+							{{ t.train_id }} · {{ '%.1f'|format(rec2.delta_km|float) }} km
 							{% if r_eta %} · ~{{ r_eta.minutes_rounded }} min{% endif %}
 							{% if P %} · Vía {{ P }}{% endif %}
 						</div>
 					{% endfor %}
 				</div>
+			</div>
 		
 		{% else %}
 			<p>No hay trenes aproximándose en este sentido ahora mismo.</p>

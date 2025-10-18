@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.services.lines_index import get_index as get_lines_index
-from app.services.live_trains_cache import get_live_trains_cache
+from app.services.live_trains_cache import LiveTrainsCache, get_live_trains_cache
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
@@ -592,6 +592,14 @@ def train_detail(request: Request, nucleus: str, train_id: str):
     if not train:
         raise HTTPException(404, f"Train {train_id} not found. :-(")
 
+    platform = None
+    sid = (getattr(train, "stop_id", "") or "").strip()
+    if sid:
+        mp = getattr(train, "platform_by_stop", {}) or {}
+        platform = mp.get(sid) or getattr(train, "platform", None)
+    if not platform:
+        platform = LiveTrainsCache.extract_platform_from_label(getattr(train, "label", None))
+
     seen = cache.seen_info(train_id) or {}
     seen_iso = seen.get("source_iso") or seen.get("last_seen_iso") or "—"
     confidence = compute_confidence_badge(train, repo, trips)
@@ -608,5 +616,6 @@ def train_detail(request: Request, nucleus: str, train_id: str):
             "confidence": confidence,
             "train_seen_iso": seen_iso,
             "train_seen_age": seen.get("age_s"),
+            "platform": platform,
         },
     )

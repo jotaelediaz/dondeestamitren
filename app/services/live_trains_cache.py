@@ -278,13 +278,21 @@ class LiveTrainsCache:
         self._ensure_stop_nucleus_index()
 
         ents = getattr(feed, "entity", []) or []
-        # métricas de paridad para logging
         p_used = p_final = p_tent = p_nomap = 0
 
         for ent in ents:
             tp = parse_train_gtfs_pb(ent, default_ts=header_ts)
             if not tp:
                 continue
+            if not getattr(tp, "label", None):
+                try:
+                    lbl = getattr(
+                        getattr(getattr(ent, "vehicle", None), "vehicle", None), "label", None
+                    )
+                    if lbl:
+                        tp.label = str(lbl)
+                except Exception:
+                    pass
             rid = trips_repo.route_id_for_trip(tp.trip_id) or ""
             if rid:
                 tp.route_id = rid
@@ -295,7 +303,6 @@ class LiveTrainsCache:
                 lines_repo.nucleus_for_route_id(rid) if rid else None
             )
 
-            # Inferir direction por paridad (si aplica)
             m = self._maybe_infer_direction_by_parity(tp)
             p_used += m["parity_used"]
             p_final += m["parity_final"]
@@ -349,13 +356,19 @@ class LiveTrainsCache:
             trips_repo = get_trips_repo()
             lines_repo = get_lines_repo()
             self._ensure_stop_nucleus_index()
-            # métricas de paridad para logging
             p_used = p_final = p_tent = p_nomap = 0
 
             for ent in ents:
                 tp = parse_train_gtfs_json(ent, default_ts=header_ts)
                 if not tp:
                     continue
+                if not getattr(tp, "label", None):
+                    try:
+                        lbl = ((ent.get("vehicle") or {}).get("vehicle") or {}).get("label")
+                        if lbl:
+                            tp.label = str(lbl)
+                    except Exception:
+                        pass
                 rid = trips_repo.route_id_for_trip(tp.trip_id) or ""
                 if rid:
                     tp.route_id = rid
@@ -366,7 +379,6 @@ class LiveTrainsCache:
                     lines_repo.nucleus_for_route_id(rid) if rid else None
                 )
 
-                # Inferir direction por paridad (si aplica)
                 m = self._maybe_infer_direction_by_parity(tp)
                 p_used += m["parity_used"]
                 p_final += m["parity_final"]

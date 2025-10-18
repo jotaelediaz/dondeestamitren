@@ -26,6 +26,7 @@
 		<th>Destino</th>
 		<th>Estado</th>
 		<th>Parada actual</th>
+		<th>Vía</th>
 		<th>Posición</th>
 	</tr>
 	</thead>
@@ -34,10 +35,9 @@
 		<td><a href="/alpha/routes/{{ nucleus.slug }}/{{ train.route_id }}">{{ train.route_id }}</a></td>
 		<td>{{ train.route_short_name }}</td>
 		<td>→ {{ repo.get_stop_name(repo.route_destination(train.route_id)) or '—' }}</td>
-		<td>
-			{{ train.status_human() }}
-		</td>
+		<td>{{ train.status_human() }}</td>
 		<td>{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i></td>
+		<td>{{ platform or '—' }}</td>
 		<td>
 			{% if train.lat and train.lon %}
 				{{ '%.5f'|format(train.lat) }}, {{ '%.5f'|format(train.lon) }}
