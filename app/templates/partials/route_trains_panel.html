@@ -1,34 +1,51 @@
-<div class="drawer-space-content drawer-route-trains-panel" id="route-trains-body">
+<div class="drawer-space-content drawer-route-trains-panel" id="route-trains-body" role="region" aria-labelledby="rtp-title">
 	<div id="drawer-context"
 	     data-nucleus="{{ nucleus.slug }}"
 	     data-line-id="{{ line.line_id }}"
 	     data-route-id="{{ source_rid|default('') }}"
 	     data-dir="{{ dir|default('0') }}">
 	</div>
+	
 	<div class="drawer-header">
 		<form class="display-none" id="rtp-ctx">
 			<input type="hidden" name="dir" value="{{ dir|default('0') }}">
 			<input type="hidden" name="source_rid" value="{{ source_rid|default('') }}">
 		</form>
+		
 		<div class="drawer-title-group">
-			<span class="live-pill {{ 'is-stale' if is_stale else '' }}" title="{{ 'Datos desactualizados' if is_stale else 'En directo' }}" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i></span>
-			<h3 class="drawer-title">
+      <span class="live-pill {{ 'is-stale' if is_stale else '' }}" role="status" aria-live="polite">
+        <i class="dot" aria-hidden="true"></i>
+        <span class="sr-only">
+          {{ 'Datos desactualizados' if is_stale else 'En directo' }}
+        </span>
+      </span>
+			
+			<h3 class="drawer-title" id="rtp-title">
 				<span class="title-content">Trenes en esta ruta</span>
-				<span class="muted">Actualizado: {{ last_snapshot|fmt_dt('time', 'Europe/Madrid') }}</span>
+				<span class="muted">
+          Actualizado:
+          <time id="rtp-updated"
+                datetime="{{ last_snapshot }}">
+            {{ last_snapshot|fmt_dt('time', 'Europe/Madrid') }}
+          </time>
+        </span>
 			</h3>
 		</div>
+		
 		<button class="navbar-button bottom-nav-secondary-button"
 		        type="button"
 		        id="update-route-train-list"
 		        title="Actualizar trenes"
-		        aria-label="Actualizar trenes">
+		        aria-label="Actualizar trenes"
+		        aria-controls="rtp-list"
+		        aria-describedby="rtp-updated">
 			<i class="material-symbols-rounded" aria-hidden="true">cached</i>
 		</button>
 	</div>
 	
 	<div class="drawer-body">
 		{% if trains %}
-			<ul class="train-list grouped-lists-scroll-horizontal" hx-boost="true">
+			<ul class="train-list grouped-lists-scroll-horizontal" id="rtp-list" aria-live="polite" aria-busy="false">
 				{% for t in trains %}
 					{% set train_route = repo.get_by_route_and_dir(t.route_id, dir) %}
 					<li class="route-train-chip-card chip-card" style="--train-color: {{ train_route.color_bg }};" data-route-id="{{ train_route.route_id }}" data-train-id="{{ t.train_id }}">
@@ -37,24 +54,30 @@
 						   hx-swap="innerHTML transition:true"
 						   hx-push-url="true">
 							<div class="route-train-chip-header">
-								<div class="route-train-chip-icon chip-icon"><i class="material-symbols-rounded" aria-hidden="true">train</i></div>
+								<div class="route-train-chip-icon chip-icon">
+									<i class="material-symbols-rounded" aria-hidden="true">train</i>
+								</div>
 								<h4 class="train-name chip-name">Tren {{ t.train_id }}</h4>
 							</div>
 							<div class="route-train-chip-body">
-								<span class="route-train-chip-stop-name">{{ repo.get_stop_name(t.stop_id) or 'Parada ' + t.stop_id or '—' }}</span>
+                <span class="route-train-chip-stop-name">
+                  {{ repo.get_stop_name(t.stop_id) or ('Parada ' ~ (t.stop_id or '—')) }}
+                </span>
 							</div>
 						</a>
 						<div class="route-train-different-route-indicator">
 							{% if (source_rid != train_route.route_id) %}
-								<i class="material-symbols-rounded" title="Ruta distinta de la visualizada">arrow_split</i>
+								<i class="material-symbols-rounded" aria-hidden="true"
+								   title="Ruta distinta de la visualizada">arrow_split</i>
+								<span class="sr-only">Ruta distinta de la visualizada</span>
 							{% endif %}
 						</div>
 					</li>
 				{% endfor %}
 			</ul>
 		{% else %}
-			<div class="error-drawer no-trains-error">
-				<i class="material-symbols-rounded">hide_source</i>
+			<div class="error-drawer no-trains-error" role="status" aria-live="polite">
+				<i class="material-symbols-rounded" aria-hidden="true">hide_source</i>
 				<span>No se encuentran trenes circulando en este sentido ahora mismo.</span>
 			</div>
 		{% endif %}

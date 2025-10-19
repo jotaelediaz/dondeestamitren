@@ -455,10 +455,22 @@ def stop_detail(
 
     cache = get_live_trains_cache()
 
+    nearest_age: dict[str, int | None] = {}
+    for pair in nearest or []:
+        try:
+            rec, _eta = pair
+        except Exception:
+            continue
+        t = getattr(rec, "train", None)
+        tid = getattr(t, "train_id", None)
+        if not tid:
+            continue
+        s = cache.seen_info(tid) or {}
+        nearest_age[tid] = s.get("age_s")
+
     is_htmx = request.headers.get("HX-Request") == "true"
 
     if is_htmx:
-        # If HTMX, return only modal content
         return render(
             request,
             "/partials/stop_detail_panel.html",
@@ -467,12 +479,12 @@ def stop_detail(
                 "route": route,
                 "stop": stop,
                 "nearest_trains": nearest,
+                "nearest_last_seen": nearest_age,
                 "repo": repo,
                 "last_snapshot": cache.last_snapshot_iso(),
             },
         )
 
-    # Else if HTTP navigation, return route details
     return render(
         request,
         "route_detail.html",
@@ -482,6 +494,7 @@ def stop_detail(
             "repo": repo,
             "last_snapshot": cache.last_snapshot_iso(),
             "nearest_trains": nearest,
+            "nearest_age": nearest_age,
             "open_stop_id": station_id,
         },
     )

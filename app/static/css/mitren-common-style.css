@@ -34,19 +34,21 @@
     --vt-in: 220ms;
     --vt-out: 180ms;
 
-    --jotaele-dark: #2a3b9b;
+    --jotaele-blue: #2a3b9b;
     --jotaele-teal: #18aed7;
     --jotaele-black: #33383c;
     --jotaele-white: #fff;
     --jotaele-background: #e4f0f4;
     --jotaele-background-accent: #d3e4f3;
-    --jotaele-text-grey: #6c757d;
-    --jotaele-text-grey-hover: #9ea4a9;
-    --jotaele-button-grey: #7a99b4;
-    --jotaele-button-grey-hover: #5a7e9e;
+    --jotaele-text-muted: #6c757d;
+    --jotaele-text-subtle: #9ea4a9;
+    --jotaele-color-button: #7a99b4;
+    --jotaele-color-button-accent: #5a7e9e;
     --jotaele-midnight: #001c38;
-    --jotaele-main-hover: #105365;
     --jotaele-error: #e91e43;
+    --jotaele-success: #15a37a;
+    --jotaele-warning: #f59f00;
+    --jotaele-notice: #2f80ed;
 }
 
 html,
@@ -77,6 +79,19 @@ p {
     color: var(--jotaele-black);
     line-height: 1.3em;
     font-size: 1.08rem;
+}
+
+.sr-only {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
 }
 
 .display-none {
@@ -403,7 +418,7 @@ main:after {
 /* -- Home -- */
 
 #app-topbar.topbar-home {
-    background: var(--jotaele-dark);
+    background: var(--jotaele-blue);
 }
 
 #app-topbar.topbar-home .topbar-btn.nude-icon {
@@ -414,7 +429,7 @@ main:after {
     display: flex;
     flex-direction: column;
     padding: 0 calc(var(--app-margin) * 1) calc(var(--app-margin) * 1.5);
-    background: var(--jotaele-dark);
+    background: var(--jotaele-blue);
 }
 
 .hero-home-header {
@@ -457,7 +472,7 @@ main:after {
     font-size: 1.62rem;
     font-weight: 600;
     font-family: Sora, sans-serif;
-    color: var(--jotaele-dark);
+    color: var(--jotaele-blue);
 }
 
 .welcome-message-title {
@@ -553,7 +568,7 @@ main:after {
     justify-content: center;
     height: 2.25rem;
     width: 2.25rem;
-    background: var(--jotaele-button-grey);
+    background: var(--jotaele-color-button);
     border: 0;
     border-radius: 100%;
     box-shadow: none;
@@ -565,7 +580,7 @@ main:after {
 
 .search-box-wrapper .nearby-btn:hover,
 .search-box-wrapper .nearby-btn:active {
-    background: var(--jotaele-button-grey-hover);
+    background: var(--jotaele-color-button-accent);
 }
 
 .nuclei-picker {
@@ -750,7 +765,7 @@ ul.chip-list {
     height: 36px;
     border-radius: 100%;
     flex: 0 0 36px;
-    background: var(--jotaele-button-grey);
+    background: var(--jotaele-color-button);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -787,14 +802,14 @@ ul.chip-list {
     align-items: center;
     justify-content: flex-end;
     font-size: 1.26rem;
-    color: var(--jotaele-dark);
+    color: var(--jotaele-blue);
 }
 
 .chip-card .chip-subtitle {
     display: flex;
     font-family: 'Rubik', sans-serif;
     font-size: 0.9rem;
-    color: var(--jotaele-text-grey);
+    color: var(--jotaele-text-muted);
     margin: 0 0;
     padding: 0 0;
     gap: calc(var(--app-margin) / 3);
@@ -816,7 +831,7 @@ ul.chip-list {
 /* -- Lines list -- */
 
 .line-chip-icon.generic-chip-icon {
-    background: var(--line-color, var(--jotaele-button-grey))
+    background: var(--line-color, var(--jotaele-color-button))
 }
 
 .line-chip-icon.image-line-icon {
@@ -857,11 +872,13 @@ ul.chip-list {
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    padding-bottom: calc((var(--bottom-nav-height) * 3.3) + (var(--app-margin) * 3));
+    padding-bottom: calc((var(--bottom-nav-height) * 3.3) + (var(--app-margin) * 8));
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     touch-action: pan-y;
+    content-visibility: auto;
+    contain-intrinsic-size: 1px 500px;
 }
 
 .sticky-title {
@@ -972,7 +989,7 @@ ul.chip-list {
     --line-route-width: 9px;
     --icon-dot-size: 18px;
     --icon-border-dot-size: 4px;
-    --line-color: var(--jotaele-dark);
+    --line-color: var(--jotaele-blue);
     --station-block-height: 4.5rem;
     --connections-icon-size: 0.85rem;
 
@@ -1035,6 +1052,7 @@ ul.chip-list {
     font-family: Sora, sans-serif;
     font-weight: 700;
     color: var(--jotaele-black);
+    background: transparent;
     font-size: 1rem;
     line-height: 1.1em;
     display: inline-block;
@@ -1053,11 +1071,10 @@ ul.chip-list {
     transform: translateY(-50%);
     border-top: 12px solid transparent;
     border-bottom: 12px solid transparent;
-    border-right: 10px solid var(--jotaele-dark);
+    border-right: 10px solid var(--jotaele-blue);
     opacity: 0;
     z-index: -1;
-    transition: ease 0.2s;
-    transition-delay: 0.2s;
+    transition: opacity 0.18s var(--vt-ease) 0s, left 0.18s var(--vt-ease) 0s;
 }
 
 .grid-route-map-station.origin-station .route-line-fragment {
@@ -1088,9 +1105,13 @@ ul.chip-list {
     transition: ease 0.2s;
 }
 
+.toggle-connections-shown {
+    position: relative;
+}
+
 .toggle-connections-shown:after {
     content: '';
-    border: 1px solid var(--jotaele-text-grey-hover);
+    border: 1px solid var(--jotaele-text-subtle);
     width: 75%;
     left: 3px;
     transform: rotate(-35deg);
@@ -1103,7 +1124,7 @@ ul.chip-list {
 }
 
 .toggle-connections-shown[aria-pressed="false"] {
-    color: var(--jotaele-text-grey-hover);
+    color: var(--jotaele-text-subtle);
 }
 
 
@@ -1136,14 +1157,26 @@ ul.chip-list {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: calc(var(--app-margin) / 2);
+    gap: calc(var(--app-margin) / 1.5);
     flex: 0 0 auto;
     color: white;
     overflow: hidden;
 }
 
 .line-chip-header .line-chip-icon {
-    height: 1.5rem;
+    height: 1.6rem;
+    flex: 1 0 auto;
+}
+
+.line-chip-icon.chip-icon-group {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.line-chip-icon.cercanias-logo-icon img {
+    display: block;
+    height: 100%;
+    width: auto;
 }
 
 .app-block-with-buttons {
@@ -1188,8 +1221,8 @@ ul.chip-list {
     width: 2rem;
     height: 2rem;
     border-radius: 100%;
-    border: 0 solid var(--jotaele-text-grey);
-    color: var(--jotaele-text-grey);
+    border: 0 solid var(--jotaele-text-muted);
+    color: var(--jotaele-text-muted);
     background: var(--jotaele-white);
     cursor: pointer;
     transition: ease 0.3s;
@@ -1201,7 +1234,7 @@ ul.chip-list {
 .line-chip-header-buttons .line-toggle-reverse {
     margin: 0 0;
     background: var(--jotaele-white);
-    color: var(--jotaele-button-grey-hover);
+    color: var(--jotaele-color-button-accent);
 }
 
 /* - Buttons group navbar - */
@@ -1239,8 +1272,8 @@ ul.chip-list {
     width: calc(var(--bottom-nav-height) - var(--app-margin));
     height: calc(var(--bottom-nav-height) - var(--app-margin));
     border-radius: 100%;
-    border: 0 solid var(--jotaele-text-grey);
-    color: var(--jotaele-text-grey);
+    border: 0 solid var(--jotaele-text-muted);
+    color: var(--jotaele-text-muted);
     background: var(--jotaele-white);
     box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
     font-size: 1.7rem;
@@ -1365,7 +1398,7 @@ ul.chip-list {
 
 .drawer-title .muted {
     font-family: 'Rubik', sans-serif;
-    color: var(--jotaele-text-grey);
+    color: var(--jotaele-text-muted);
     font-size: 0.95rem;
     line-height: 1.1em;
     font-weight: 400;
@@ -1426,7 +1459,7 @@ ul.chip-list {
     height: 1.5rem;
     width: 1rem;
     font-size: 1.1rem;
-    background: var(--train-color, var(--jotaele-button-grey));
+    background: var(--train-color, var(--jotaele-color-button));
 }
 
 .route-train-chip-card .route-train-chip-stop-name {
@@ -1452,7 +1485,7 @@ ul.chip-list {
     position: absolute;
     right: calc(var(--app-margin) / 2);
     top: calc(var(--app-margin) / 2);
-    color: var(--jotaele-button-grey);
+    color: var(--jotaele-color-button);
     font-size: 0.9rem !important;
 }
 
@@ -1467,8 +1500,8 @@ ul.chip-list {
     width: var(--size);
     height: var(--size);
     border-radius: 999px;
-    background: #e03131;
-    box-shadow: 0 0 0 .18rem color-mix(in srgb, #e03131 15%, transparent);
+    background: var(--jotaele-teal);
+    box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--jotaele-teal) 15%, transparent);
     animation: live-blink 1.1s var(--vt-ease) infinite;
 }
 
@@ -1477,16 +1510,26 @@ ul.chip-list {
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: #e03131;
+    background: var(--jotaele-teal);
     animation: live-pulse 1.8s ease-out infinite;
     opacity: .45;
 }
 
 .live-pill.is-stale .dot,
 .live-pill.is-stale .dot::after {
-    background: var(--jotaele-text-grey);
+    background: var(--jotaele-text-muted);
     box-shadow: none;
     animation: none;
+}
+
+.live-pill.is-semi-stale .dot {
+    animation: live-blink 6s var(--vt-ease) infinite;
+    box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--jotaele-warning) 10%, transparent);
+    background: var(--jotaele-warning);
+}
+
+.live-pill.is-semi-stale .dot::after {
+    display: none;
 }
 
 @keyframes live-blink {
@@ -1544,28 +1587,28 @@ ul.chip-list {
     color: var(--jotaele-error);
 }
 
+.error-drawer.no-stop-error {
+    margin: 0;
+    padding: 0 0 var(--app-margin) 0;
+}
+
 /* -- Active stop marker -- */
+
+.grid-route-map-station .grid-route-station-name {
+    transition: background-color 0.18s var(--vt-ease) 0.18s, color 0.18s var(--vt-ease) 0.18s;
+}
 
 .grid-route-map-station.is-active .grid-route-station-name {
     color: var(--jotaele-white);
-    background: var(--jotaele-dark);
+    background-color: var(--jotaele-blue);
     margin-left: 12px;
-}
-
-.grid-route-map-station.is-active a:hover .grid-route-station-name,
-.grid-route-map-station.is-active a:active .grid-route-station-name {
-    color: var(--jotaele-white);
-    pointer-events: none;
-}
-
-.grid-route-map-station.is-active .route-dot {
-    border-color: var(--line-color);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--line-color) 25%, transparent);
+    transition-delay: 0s, 0s;
 }
 
 .grid-route-map-station.is-active .grid-route-station-name::before {
     opacity: 1;
     left: -10px;
+    transition-delay: 0.18s, 0.18s;
 }
 
 /* - Stop drawer - */
@@ -1586,7 +1629,24 @@ ul.chip-list {
     align-items: center;
     justify-content: space-between;
     gap: calc(var(--app-margin) / 2);
-    margin-bottom: calc(var(--app-margin) / 2);
+    margin-bottom: calc(var(--app-margin) * 1.2);
+    border-bottom: 2px solid var(--jotaele-background);
+    padding-bottom: calc(var(--app-margin) * 0.8);
+}
+
+.close-button {
+    width: 1.6rem;
+    height: 1.6rem;
+    font-size: 1.4rem;
+    color: var(--jotaele-color-button-accent);
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 100%;
+    margin-left: var(--app-margin);
 }
 
 #stop-modal-title {
@@ -1597,9 +1657,20 @@ ul.chip-list {
     white-space: nowrap;
 }
 
+#stop-modal-title:hover a,
+#stop-modal-title:active a {
+    transition: ease 0.2s;
+    color: var(--jotaele-black);
+}
+
+#stop-modal-title:hover a,
+#stop-modal-title:active a {
+    color: var(--jotaele-teal);
+}
+
 .stop-detail {
     background: var(--jotaele-white);
-    padding: var(--app-margin);
+    padding: var(--app-margin) calc(var(--app-margin) * 1.2);
     border-radius: 15px;
     box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
 }
@@ -1608,7 +1679,7 @@ ul.chip-list {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: calc(var(--app-margin) / 2);
+    gap: calc(var(--app-margin) / 1.5);
     flex: 0 0 auto;
     overflow: hidden;
 }
@@ -1619,13 +1690,106 @@ ul.chip-list {
     align-items: center;
     background: var(--jotaele-background-accent);
     border-radius: 10px;
-    padding: var(--app-margin);
+    padding: calc(var(--app-margin) / 2) calc(var(--app-margin) * 3);
     font-size: 1.5rem;
     font-family: 'Sora', sans-serif;
     font-weight: 700;
+    color: var(--jotaele-black);
 }
 
-#approaching-trains.is-fading { transition: opacity 200ms ease; }
+.nearest-train-card {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+.platform-chip {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: calc(var(--app-margin) / 2);
+    margin-right: 0.5rem;
+    margin-bottom: 0.7rem;
+}
+
+.nearest-train-header {
+    font-size: 1.1rem;
+    font-family: 'Rubik', sans-serif;
+    color: var(--jotaele-black);
+}
+
+.nearest-train-header.eta-header {
+    display: flex;
+    gap: 0.6rem;
+    padding-left: 0.2rem;
+}
+
+.nearest-train-header.platform-header {
+    text-align: center;
+    margin-bottom: 0.8rem;
+}
+
+.platform-badge {
+    background: #f5333f;
+    width: 2.4rem;
+    height: 2.4rem;
+    transform: rotate(45deg);
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.platform-badge .platform-unit {
+    color: #fff;
+    transform: rotate(-45deg);
+    display: block;
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    font-size: 1.5rem;
+}
+
+.second-train-approaching .second-train-label {
+    display: flex;
+    gap: 0.25rem;
+    margin: 0 0;
+    font-family: Rubik, sans-serif;
+    font-weight: 300;
+    line-height: 1.3em;
+    font-size: 1.08rem;
+    color: var(--jotaele-black);
+}
+
+.stop-modal-footer {
+    margin-top: calc(var(--app-margin) * 1.5);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 2rem;
+}
+
+.stop-modal-footer .view-train-link > a {
+    border: 1px solid var(--jotaele-background-accent);
+    border-radius: 9999px;
+    padding: calc(var(--app-margin) / 3) calc(var(--app-margin) * 1);
+    color: var(--jotaele-color-button-accent);
+    font-size: 1rem;
+    font-family: 'Sora', sans-serif;
+    font-weight: 500;
+    display: flex;
+    gap: 0.25rem;
+    transition: ease 0.2s;
+}
+
+.stop-modal-footer .view-train-link > a i {
+    font-size: 1.2rem;
+}
+
+.stop-modal-footer .view-train-link > a:hover,
+.stop-modal-footer .view-train-link > a:active {
+    background: var(--jotaele-background-accent);
+}
 
 /* - Stops time odometer - */
 
@@ -1638,14 +1802,13 @@ ul.chip-list {
 
 .rolling-number .unit {
     margin-left: 0.25em;
-    opacity: 0.8;
 }
 
 .rolling-number__column {
     position: relative;
     overflow: hidden;
     height: 1em;
-    width: 1ch;
+    width: 0.9ch;
     display: inline-block;
 }
 
@@ -1673,18 +1836,18 @@ ul.chip-list {
 
 .rolling-number__prefix {
     display: inline-block;
-    width: 1ch;
+    width: 0.9ch;
     text-align: right;
     margin-right: 0.08em;
 }
 
 .rolling-number__stopped {
     position: absolute;
-    left: calc(1ch + 0.08em);
+    left: calc(0.9ch + 0.08em);
     top: 0;
     bottom: 0;
     display: grid;
-    grid-template-columns: 1ch 1ch;
+    grid-template-columns: 0.9ch 0.9ch;
     align-items: center;
     justify-items: center;
     pointer-events: none;
