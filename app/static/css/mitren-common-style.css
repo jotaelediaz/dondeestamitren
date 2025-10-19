@@ -28,7 +28,7 @@
 
     --app-margin: 14px;
     --topbar-height: 33px;
-    --bottom-nav-height: 60px;
+    --bottom-nav-height: 56px;
 
     --vt-ease: cubic-bezier(.2,0,.2,1);
     --vt-in: 220ms;
@@ -276,12 +276,12 @@ main:after {
     flex: 1 1 0;
     min-width: 0;
     border-radius: 999px;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     transition: ease 0.3s;
 }
 
 #bottom-nav .navbar-item i {
-    font-size: 23px;
+    font-size: 21px;
 }
 
 #bottom-nav .navbar-item:not(.item-active):hover,
@@ -1370,8 +1370,8 @@ ul.chip-list {
 .drawer-trains.drawer-bottom {
     background: linear-gradient(to bottom, transparent 0%, var(--jotaele-background) 25%, var(--jotaele-background) 80%);
     border-radius: 0;
-    height: 12rem;
-    max-height: 12rem;
+    height: 10.8rem;
+    max-height: 10.8rem;
     box-shadow: none;
     z-index: 75;
     display: flex;
@@ -1387,7 +1387,7 @@ ul.chip-list {
 }
 
 #route-trains-body .drawer-header .drawer-title {
-    font-size: 1.2rem;
+    font-size: 1.08rem;
     line-height: 1.1em;
     display: flex;
     flex-direction: column;
@@ -1399,7 +1399,7 @@ ul.chip-list {
 .drawer-title .muted {
     font-family: 'Rubik', sans-serif;
     color: var(--jotaele-text-muted);
-    font-size: 0.95rem;
+    font-size: 0.855rem;
     line-height: 1.1em;
     font-weight: 400;
 }
@@ -1416,18 +1416,18 @@ ul.chip-list {
     margin: 0 0;
     gap: var(--app-margin);
     scrollbar-width: none;
-    min-height: calc(var(--app-margin) + 4.45rem);
+    min-height: calc(var(--app-margin) + 4.005rem);
 }
 
 .route-train-chip-card {
     display: flex;
     flex-direction: column;
-    flex: 0 0 8rem;
-    width: 8rem;
+    flex: 0 0 7.2rem;
+    width: 7.2rem;
     overflow: hidden;
     align-items: flex-start;
     padding: calc(var(--app-margin) * 0.9) var(--app-margin);
-    border-radius: 15px;
+    border-radius: 13px;
     position: relative;
 }
 
@@ -1450,15 +1450,15 @@ ul.chip-list {
 }
 
 .route-train-chip-card .chip-name {
-    font-size: 1.1rem;
-    margin-right: 0.5rem;
+    font-size: 1rem;
+    margin-right: 0.45rem;
 }
 
 .route-train-chip-card .route-train-chip-icon {
-    flex: 0 0 1.5rem;
-    height: 1.5rem;
-    width: 1rem;
-    font-size: 1.1rem;
+    flex: 0 0 1.35rem;
+    height: 1.35rem;
+    width: 0.9rem;
+    font-size: 1rem;
     background: var(--train-color, var(--jotaele-color-button));
 }
 
@@ -1471,7 +1471,7 @@ ul.chip-list {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     letter-spacing: -0.01em;
 }
 
@@ -1486,11 +1486,11 @@ ul.chip-list {
     right: calc(var(--app-margin) / 2);
     top: calc(var(--app-margin) / 2);
     color: var(--jotaele-color-button);
-    font-size: 0.9rem !important;
+    font-size: 0.8rem !important;
 }
 
 .live-pill {
-    --size: .6rem;
+    --size: .55rem;
     display: inline-flex;
     align-items: center;
 }
@@ -1601,7 +1601,7 @@ ul.chip-list {
 .grid-route-map-station.is-active .grid-route-station-name {
     color: var(--jotaele-white);
     background-color: var(--jotaele-blue);
-    margin-left: 12px;
+    margin-left: 10px;
     transition-delay: 0s, 0s;
 }
 
@@ -1635,9 +1635,9 @@ ul.chip-list {
 }
 
 .close-button {
-    width: 1.6rem;
-    height: 1.6rem;
-    font-size: 1.4rem;
+    width: 1.44rem;
+    height: 1.44rem;
+    font-size: 1.26rem;
     color: var(--jotaele-color-button-accent);
     background: transparent;
     cursor: pointer;
@@ -1650,7 +1650,7 @@ ul.chip-list {
 }
 
 #stop-modal-title {
-    font-size: 1.2rem;
+    font-size: 1.1rem;
     margin: 0 0;
     text-overflow: ellipsis;
     overflow: hidden;
@@ -1689,9 +1689,9 @@ ul.chip-list {
     justify-content: center;
     align-items: center;
     background: var(--jotaele-background-accent);
-    border-radius: 10px;
+    border-radius: 9px;
     padding: calc(var(--app-margin) / 2) calc(var(--app-margin) * 3);
-    font-size: 1.5rem;
+    font-size: 1.35rem;
     font-family: 'Sora', sans-serif;
     font-weight: 700;
     color: var(--jotaele-black);
@@ -1701,7 +1701,7 @@ ul.chip-list {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: center;
 }
 
 .platform-chip {
@@ -1709,31 +1709,31 @@ ul.chip-list {
     flex-direction: row;
     align-items: center;
     gap: calc(var(--app-margin) / 2);
-    margin-right: 0.5rem;
-    margin-bottom: 0.7rem;
+    margin-right: 0.45rem;
+    margin-bottom: 0.63rem;
 }
 
 .nearest-train-header {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-family: 'Rubik', sans-serif;
     color: var(--jotaele-black);
 }
 
 .nearest-train-header.eta-header {
     display: flex;
-    gap: 0.6rem;
-    padding-left: 0.2rem;
+    gap: 0.54rem;
+    padding-left: 0.18rem;
 }
 
 .nearest-train-header.platform-header {
     text-align: center;
-    margin-bottom: 0.8rem;
+    margin-bottom: 0.72rem;
 }
 
 .platform-badge {
     background: #f5333f;
-    width: 2.4rem;
-    height: 2.4rem;
+    width: 2.16rem;
+    height: 2.16rem;
     transform: rotate(45deg);
     border-radius: 5px;
     display: flex;
@@ -1747,26 +1747,26 @@ ul.chip-list {
     display: block;
     font-family: 'Sora', sans-serif;
     font-weight: 700;
-    font-size: 1.5rem;
+    font-size: 1.35rem;
 }
 
 .second-train-approaching .second-train-label {
     display: flex;
-    gap: 0.25rem;
+    gap: 0.225rem;
     margin: 0 0;
     font-family: Rubik, sans-serif;
     font-weight: 300;
     line-height: 1.3em;
-    font-size: 1.08rem;
-    color: var(--jotaele-black);
+    font-size: 1rem;
+    color: var(--jotaele-text-muted);
 }
 
 .stop-modal-footer {
-    margin-top: calc(var(--app-margin) * 1.5);
+    margin-top: calc(var(--app-margin) * 1);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 2rem;
+    height: 1.8rem;
 }
 
 .stop-modal-footer .view-train-link > a {
@@ -1774,7 +1774,7 @@ ul.chip-list {
     border-radius: 9999px;
     padding: calc(var(--app-margin) / 3) calc(var(--app-margin) * 1);
     color: var(--jotaele-color-button-accent);
-    font-size: 1rem;
+    font-size: 0.9rem;
     font-family: 'Sora', sans-serif;
     font-weight: 500;
     display: flex;
@@ -1783,12 +1783,34 @@ ul.chip-list {
 }
 
 .stop-modal-footer .view-train-link > a i {
-    font-size: 1.2rem;
+    font-size: 1rem;
 }
 
 .stop-modal-footer .view-train-link > a:hover,
 .stop-modal-footer .view-train-link > a:active {
     background: var(--jotaele-background-accent);
+}
+
+.train-id-chip {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1rem;
+    color: var(--jotaele-text-subtle);
+    font-weight: 400;
+}
+
+.route-train-chip-icon {
+    width: 1.2rem;
+    height: 1.2rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 100%;
+    font-size: 0.9rem;
+    background: var(--train-color, var(--jotaele-color-button));
+    color: var(--jotaele-white);
 }
 
 /* - Stops time odometer - */
@@ -1808,7 +1830,7 @@ ul.chip-list {
     position: relative;
     overflow: hidden;
     height: 1em;
-    width: 0.9ch;
+    width: 0.81ch;
     display: inline-block;
 }
 
@@ -1836,18 +1858,18 @@ ul.chip-list {
 
 .rolling-number__prefix {
     display: inline-block;
-    width: 0.9ch;
+    width: 0.81ch;
     text-align: right;
-    margin-right: 0.08em;
+    margin-right: 0.072em;
 }
 
 .rolling-number__stopped {
     position: absolute;
-    left: calc(0.9ch + 0.08em);
+    left: calc(0.81ch + 0.072em);
     top: 0;
     bottom: 0;
     display: grid;
-    grid-template-columns: 0.9ch 0.9ch;
+    grid-template-columns: 0.81ch 0.81ch;
     align-items: center;
     justify-items: center;
     pointer-events: none;

@@ -53,6 +53,19 @@
 								</time>
 								<span class="unit">min</span>
 							</output>
+							
+							{% set second_pair = nearest_trains[1] if nearest_trains|length > 1 else None %}
+							<div class="second-train-approaching">
+								{% if second_pair %}
+									{% set rec2, r_eta = second_pair %}
+									{% if r_eta %}
+										<p class="second-train-label">
+											<i class="material-symbols-rounded" aria-hidden="true">subdirectory_arrow_right</i>
+											Siguiente en: <span class="second-train-eta"><strong>{{ r_eta.minutes_rounded }} min</strong></span>
+										</p>
+									{% endif %}
+								{% endif %}
+							</div>
 						</div>
 						
 						{% if plat %}
@@ -68,24 +81,19 @@
 					{% endif %}
 				</div>
 				
-				<div class="stop-modal-footer">
-					{% set second_pair = nearest_trains[1] if nearest_trains|length > 1 else None %}
-					<div class="second-train-approaching">
-						{% if second_pair %}
-							{% set rec2, r_eta = second_pair %}
-							{% if r_eta %}
-								<p class="second-train-label">
-									<i class="material-symbols-rounded" aria-hidden="true">keyboard_double_arrow_right</i>
-									Siguiente en: <span class="second-train-eta"><strong>{{ r_eta.minutes_rounded }} min</strong></span>
-								</p>
-							{% endif %}
-						{% endif %}
+				<div class="stop-modal-footer" style="--train-color: {{ route.color_bg }}">
+					<div class="train-id-chip">
+						<div class="route-train-chip-icon chip-icon">
+							<i class="material-symbols-rounded" aria-hidden="true">train</i>
+						</div>
+						<div class="train-id-badge">
+							<data value="{{ nearest.train_id }}">Tren <span class="train-id-unit">{{ nearest.train_id }}</span></data>
+						</div>
 					</div>
-					
 					<div class="view-train-link">
 						<a href="/trains/{{ nucleus.slug }}/{{ nearest.train_id }}"
 						   aria-label="Ver detalle del tren {{ nearest.train_id }}">
-							<i class="material-symbols-rounded" aria-hidden="true">train</i>
+							<i class="material-symbols-rounded" aria-hidden="true">directions_railway</i>
 							Ver tren
 						</a>
 					</div>
