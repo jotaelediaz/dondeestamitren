@@ -6,6 +6,7 @@
 	     data-dir="{{ request.query_params.get('dir') or route.direction_id or '' }}"
 	     data-stop-id="{{ stop.stop_id }}">
 	</div>
+	
 	<header class="stop-modal-header">
 		<h1 id="stop-modal-title">
 			<a href="/stations/{{ nucleus.slug }}/{{ stop.stop_id }}">{{ stop.name }}</a>
@@ -33,11 +34,22 @@
 				<div class="nearest-train-card train-approaching" style="--train-color: {{ route.color_bg }}">
 					{% if nearest_eta %}
 						<div class="train-eta-chip">
+							{% set origin_sid = route.stations[0].stop_id if route.stations else None %}
+							{% set is_origin_stop = (origin_sid and stop.stop_id == origin_sid) %}
+							
+							{% set note = nearest_eta.note or '' %}
+							{% set is_real = note.startswith('tu:') %}
+							{% set is_sched = note.startswith('sched:') %}
+							
 							<div class="nearest-train-header eta-header" id="eta-label-{{ stop.stop_id }}">
-								<span class="live-pill {{ 'is-stale' if is_stale else ('is-semi-stale' if is_semi else '') }}" role="status" aria-live="polite" aria-label="{{ 'Se perdió la pista al tren hace más de 30 segundos' if (is_stale or is_semi) else 'En directo' }}" title="{{ 'Se perdió la pista al tren hace más de 30 segundos' if (is_stale or is_semi) else 'En directo' }}">
-								  <i class="dot" aria-hidden="true"></i>
-								</span>
-								Próximo tren en:
+                <span class="live-pill {{ 'is-stale' if is_stale else ('is-semi-stale' if is_semi else '') }}"
+                      role="status"
+                      aria-live="polite"
+                      aria-label="{{ 'Se perdió la pista al tren hace más de 30 segundos' if (is_stale or is_semi) else 'En directo' }}"
+                      title="{{ 'Se perdió la pista al tren hace más de 30 segundos' if (is_stale or is_semi) else 'En directo' }}">
+                  <i class="dot" aria-hidden="true"></i>
+                </span>
+								{{ 'Sale en:' if is_origin_stop else 'Próximo tren en:' }}
 							</div>
 							
 							<output id="eta-primary"
@@ -53,6 +65,10 @@
 								</time>
 								<span class="unit">min</span>
 							</output>
+							
+							<span class="eta-source-badge {{ 'is-tu' if (nearest_eta.note or '').startswith('tu:') else ('is-sched' if (nearest_eta.note or '').startswith('sched:') else 'is-est') }}" title="{{ nearest_eta.note or '' }}">
+                {{ 'tiempo real' if (nearest_eta.note or '').startswith('tu:') else ('Horario programado' if (nearest_eta.note or '').startswith('sched:') else 'Tiempo calculado') }}
+							</span>
 							
 							{% set second_pair = nearest_trains[1] if nearest_trains|length > 1 else None %}
 							<div class="second-train-approaching">

@@ -265,7 +265,7 @@
                 digits.className='rolling-number__digits';
 
                 { const s=document.createElement('span'); const i=document.createElement('i'); i.className='material-symbols-rounded'; i.textContent='arrow_downward'; s.appendChild(i); digits.appendChild(s); }
-                { const s=document.createElement('span'); s.textContent='>'; digits.appendChild(s); }
+                { const s=document.createElement('span'); s.textContent='<'; digits.appendChild(s); }
                 for(let d=0; d<=9; d++){ const s=document.createElement('span'); s.textContent=String(d); digits.appendChild(s); }
 
                 col.appendChild(digits);

@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from collections.abc import Iterable
+from datetime import datetime, timedelta
 
 from app.config import settings
 
@@ -14,7 +15,12 @@ TRUST_DELIM = bool(getattr(settings, "GTFS_TRUST_DELIMITER", False))
 
 
 class TripsRepo:
-    def __init__(self, trips_csv_path: str, stop_times_csv_path: str | None = None):
+    def __init__(
+        self,
+        trips_csv_path: str,
+        stop_times_csv_path: str | None = None,
+        calendar_csv_path: str | None = None,
+    ):
         self.trips_csv_path = trips_csv_path
         self.stop_times_csv_path = stop_times_csv_path or _default_stop_times_path()
 
@@ -26,6 +32,18 @@ class TripsRepo:
         self._trip_to_direction_up: dict[str, str] = {}
 
         self._directions_ready = False
+
+        self._stop_times_by_stopid: dict[
+            tuple[str, str], tuple[int | None, int | None, int | None]
+        ] = {}
+        self._stop_times_by_seq: dict[tuple[str, int], tuple[str, int | None, int | None]] = {}
+
+        self.calendar_csv_path = calendar_csv_path or _default_calendar_path()
+        self._trip_to_service: dict[str, str] = {}
+        self._calendar_rows: dict[str, dict] = {}
+        self._sched_by_route_stop: dict[
+            tuple[str, str, str], list[tuple[int | None, int | None, str]]
+        ] = {}
 
     # --------------------------- util csv trips ---------------------------
 
@@ -124,6 +142,11 @@ class TripsRepo:
         self._trip_to_direction.clear()
         self._trip_to_direction_up.clear()
         self._directions_ready = False
+        self._stop_times_by_stopid.clear()
+        self._stop_times_by_seq.clear()
+        self._trip_to_service.clear()
+        self._calendar_rows.clear()
+        self._sched_by_route_stop.clear()
 
         if not os.path.exists(self.trips_csv_path):
             raise FileNotFoundError(f"trips.txt not found: {self.trips_csv_path}")
@@ -139,8 +162,15 @@ class TripsRepo:
             if trip_id and did in ("0", "1"):
                 self._trip_to_direction[trip_id] = did
 
+            sid = (row.get("service_id") or "").strip()
+            if trip_id and sid:
+                self._trip_to_service[trip_id] = sid
+
         self._trip_to_route_up = {k.upper(): v for k, v in self._trip_to_route.items()}
         self._trip_to_direction_up = {k.upper(): v for k, v in self._trip_to_direction.items()}
+
+        self._index_stop_times()
+        self._load_calendar()
 
     # ----------------- Infer direction from stop_times -----------------
 
@@ -343,6 +373,251 @@ class TripsRepo:
         source = "trips_repo" if (rid or did) else "unknown"
         return rid, did, source
 
+    def _index_stop_times(self) -> None:
+        rows = self._autodetect_stop_times_rows()
+        for r in rows:
+            tid = (r.get("trip_id") or "").strip()
+            sid = (r.get("stop_id") or "").strip()
+            raw_seq = (r.get("stop_sequence") or r.get("stop_seq") or "").strip()
+            if not (tid and sid and raw_seq):
+                continue
+            try:
+                seq = int(float(raw_seq))
+            except Exception:
+                continue
+            arr_s = self._parse_gtfs_time(r.get("arrival_time"))
+            dep_s = self._parse_gtfs_time(r.get("departure_time"))
+            self._stop_times_by_stopid[(tid, sid)] = (arr_s, dep_s, seq)
+            self._stop_times_by_seq[(tid, seq)] = (sid, arr_s, dep_s)
+            rid = self.route_id_for_trip(tid)
+            did = self.direction_for_trip(tid)
+            if rid and did in ("0", "1"):
+                key = (rid, did, sid)
+                self._sched_by_route_stop.setdefault(key, []).append((arr_s, dep_s, tid))
+        for k in list(self._sched_by_route_stop.keys()):
+            lst = self._sched_by_route_stop[k]
+            lst.sort(
+                key=lambda t: (t[1] if t[1] is not None else (t[0] if t[0] is not None else 10**9))
+            )
+
+    def _parse_gtfs_time(self, t: str | None) -> int | None:
+        s = (t or "").strip()
+        if not s:
+            return None
+        try:
+            parts = s.split(":")
+            if len(parts) != 3:
+                return None
+            hh = int(parts[0])
+            mm = int(parts[1])
+            ss = int(parts[2])
+            return hh * 3600 + mm * 60 + ss
+        except Exception:
+            return None
+
+    def planned_secs_for(
+        self, trip_id: str, *, stop_id: str | None = None, stop_sequence: int | None = None
+    ) -> tuple[int | None, int | None, int | None]:
+        tid = (trip_id or "").strip()
+        if not tid:
+            return None, None, None
+        if stop_id:
+            v = self._stop_times_by_stopid.get((tid, stop_id))
+            if v:
+                return v
+        if isinstance(stop_sequence, int):
+            v2 = self._stop_times_by_seq.get((tid, int(stop_sequence)))
+            if v2:
+                sid, arr, dep = v2
+                return arr, dep, int(stop_sequence)
+        return None, None, None
+
+    def planned_epoch_for(
+        self,
+        trip_id: str,
+        *,
+        stop_id: str | None = None,
+        stop_sequence: int | None = None,
+        service_date: str | None = None,
+    ) -> tuple[int | None, int | None]:
+        arr, dep, _ = self.planned_secs_for(trip_id, stop_id=stop_id, stop_sequence=stop_sequence)
+        if service_date:
+            sd = service_date.strip()
+        else:
+            today = datetime.now().strftime("%Y%m%d")
+            sid = self._trip_to_service.get((trip_id or "").strip())
+            if sid and self._calendar_rows:
+                if self._is_service_active_on(sid, today):
+                    sd = today
+                else:
+                    sd = self._next_active_date(sid, today, 14)
+                    if sd is None:
+                        return None, None
+            else:
+                sd = today
+        try:
+            y, m, d = int(sd[0:4]), int(sd[4:6]), int(sd[6:8])
+        except Exception:
+            now = datetime.now()
+            y, m, d = now.year, now.month, now.day
+        base = datetime(y, m, d)
+        arr_epoch = int(base.timestamp()) + int(arr) if isinstance(arr, int) else None
+        dep_epoch = int(base.timestamp()) + int(dep) if isinstance(dep, int) else None
+        return arr_epoch, dep_epoch
+
+    def _read_calendar_with(self, delimiter: str) -> list[dict]:
+        path = self.calendar_csv_path
+        if not path or not os.path.exists(path):
+            return []
+        enc = getattr(settings, "GTFS_ENCODING", "utf-8") or "utf-8"
+        with open(path, encoding=enc, newline="") as f:
+            r = csv.DictReader(f, delimiter=delimiter)
+            if r.fieldnames:
+                r.fieldnames = [h.strip().lstrip("\ufeff") for h in r.fieldnames]
+            rows = list(r)
+        return rows
+
+    def _autodetect_calendar_rows(self) -> list[dict]:
+        path = self.calendar_csv_path
+        if not path or not os.path.exists(path):
+            return []
+        preferred = getattr(settings, "GTFS_DELIMITER", ",") or ","
+        if TRUST_DELIM:
+            try:
+                rows = self._read_calendar_with(preferred)
+                if rows and {"service_id", "start_date", "end_date"} <= set(rows[0].keys()):
+                    return rows
+            except Exception:
+                return []
+            return []
+        candidates: Iterable[str] = (preferred, ",", ";", "\t", "|")
+        for d in candidates:
+            try:
+                rows = self._read_calendar_with(d)
+                if rows and {"service_id", "start_date", "end_date"} <= set(rows[0].keys()):
+                    return rows
+            except Exception:
+                pass
+        try:
+            with open(path, "rb") as fb:
+                sample = fb.read(4096)
+            enc = getattr(settings, "GTFS_ENCODING", "utf-8") or "utf-8"
+            sample_txt = sample.decode(enc, errors="ignore")
+            dialect = csv.Sniffer().sniff(sample_txt, delimiters=[",", ";", "\t", "|"])
+            rows = self._read_calendar_with(dialect.delimiter)
+            if rows and {"service_id", "start_date", "end_date"} <= set(rows[0].keys()):
+                return rows
+        except Exception:
+            pass
+        return []
+
+    def _load_calendar(self) -> None:
+        rows = self._autodetect_calendar_rows()
+        for r in rows:
+            sid = (r.get("service_id") or "").strip()
+            if not sid:
+                continue
+            try:
+                sd = (r.get("start_date") or "").strip()
+                ed = (r.get("end_date") or "").strip()
+                monday = int((r.get("monday") or "0").strip() or "0")
+                tuesday = int((r.get("tuesday") or "0").strip() or "0")
+                wednesday = int((r.get("wednesday") or "0").strip() or "0")
+                thursday = int((r.get("thursday") or "0").strip() or "0")
+                friday = int((r.get("friday") or "0").strip() or "0")
+                saturday = int((r.get("saturday") or "0").strip() or "0")
+                sunday = int((r.get("sunday") or "0").strip() or "0")
+            except Exception:
+                continue
+            self._calendar_rows[sid] = {
+                "start_date": sd,
+                "end_date": ed,
+                "dow": [monday, tuesday, wednesday, thursday, friday, saturday, sunday],
+            }
+
+    def _is_service_active_on(self, service_id: str, yyyymmdd: str) -> bool:
+        if not service_id or not yyyymmdd:
+            return True
+        row = self._calendar_rows.get(service_id)
+        if not row:
+            return True
+        try:
+            y, m, d = int(yyyymmdd[0:4]), int(yyyymmdd[4:6]), int(yyyymmdd[6:8])
+            dt = datetime(y, m, d)
+        except Exception:
+            return True
+        sd = row.get("start_date") or ""
+        ed = row.get("end_date") or ""
+        if sd and yyyymmdd < sd:
+            return False
+        if ed and yyyymmdd > ed:
+            return False
+        idx = dt.weekday()
+        dow = row.get("dow") or [1, 1, 1, 1, 1, 1, 1]
+        try:
+            return bool(int(dow[idx]))
+        except Exception:
+            return True
+
+    def _next_active_date(
+        self, service_id: str, start_yyyymmdd: str, horizon_days: int = 14
+    ) -> str | None:
+        try:
+            y, m, d = int(start_yyyymmdd[0:4]), int(start_yyyymmdd[4:6]), int(start_yyyymmdd[6:8])
+            base = datetime(y, m, d)
+        except Exception:
+            base = datetime.now()
+        for i in range(0, max(0, int(horizon_days)) + 1):
+            cand = base + timedelta(days=i)
+            ymd = cand.strftime("%Y%m%d")
+            if self._is_service_active_on(service_id, ymd):
+                return ymd
+        return None
+
+    def next_scheduled_for_stop(
+        self,
+        route_id: str,
+        direction_id: str,
+        stop_id: str,
+        since_ts: int | None = None,
+        horizon_days: int = 2,
+    ) -> tuple[str | None, int | None, str | None]:
+        if not route_id or direction_id not in ("0", "1") or not stop_id:
+            return None, None, None
+        key = (route_id, direction_id, stop_id)
+        lst = self._sched_by_route_stop.get(key) or []
+        if not lst:
+            return None, None, None
+        if since_ts is None:
+            since_ts = int(datetime.now().timestamp())
+        base_dt = datetime.fromtimestamp(int(since_ts))
+        best_trip = None
+        best_epoch = None
+        best_kind = None
+        for d in range(0, max(0, int(horizon_days)) + 1):
+            day_dt = base_dt + timedelta(days=d)
+            ymd = day_dt.strftime("%Y%m%d")
+            midnight = datetime(day_dt.year, day_dt.month, day_dt.day)
+            mid_epoch = int(midnight.timestamp())
+            for arr_s, dep_s, tid in lst:
+                sid = self._trip_to_service.get(tid)
+                if sid and not self._is_service_active_on(sid, ymd):
+                    continue
+                pref = dep_s if dep_s is not None else arr_s
+                if pref is None:
+                    continue
+                when = mid_epoch + int(pref)
+                if when < since_ts:
+                    continue
+                kind = "departure" if dep_s is not None else "arrival"
+                if best_epoch is None or when < best_epoch:
+                    best_epoch = when
+                    best_trip = tid
+                    best_kind = kind
+            if best_epoch is not None:
+                break
+        return best_trip, best_epoch, best_kind
+
 
 _repo: TripsRepo | None = None
 
@@ -355,6 +630,11 @@ def _default_trips_path() -> str:
 def _default_stop_times_path() -> str:
     base = getattr(settings, "GTFS_RAW_DIR", "app/data/gtfs/raw")
     return os.path.join(base.rstrip("/"), "stop_times.txt")
+
+
+def _default_calendar_path() -> str:
+    base = getattr(settings, "GTFS_RAW_DIR", "app/data/gtfs/raw")
+    return os.path.join(base.rstrip("/"), "calendar.txt")
 
 
 def get_repo() -> TripsRepo:

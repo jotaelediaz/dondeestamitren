@@ -1,4 +1,3 @@
-# app/services/trip_updates_cache.py
 from __future__ import annotations
 
 import logging
@@ -20,6 +19,9 @@ MAX_STALE_SECONDS = 180
 
 # Trips are preserved for 15 minutes if they are not present in the snapshot
 MISSING_TTL_SECONDS = 15 * 60
+
+# Prefer departure when train is already at the platform (anti-flicker margin)
+DEPARTURE_PREFERENCE_FUDGE_S = 45
 
 
 # ---------------------- Data models ----------------------
@@ -591,6 +593,68 @@ class TripUpdatesCache:
     def trip_delay_seconds(self, trip_id: str) -> int | None:
         it = self._by_trip_id.get((trip_id or "").strip())
         return int(it.delay) if (it and isinstance(it.delay, int)) else None
+
+    # ---------- ETA helper for stops (Trip Updates) ----------
+
+    def eta_for_trip_to_stop(
+        self, trip_id: str, stop_id: str, now_ts: int | None = None
+    ) -> tuple[int | None, dict]:
+        tid = (trip_id or "").strip()
+        sid = str(stop_id).strip() if stop_id is not None else ""
+        if not tid or not sid:
+            return None, {"reason": "bad_args"}
+
+        it = self._by_trip_id.get(tid)
+        if not it:
+            return None, {"reason": "no_tu"}
+
+        rel_trip = (getattr(it, "schedule_relationship", "") or "").strip().upper()
+        if rel_trip in {"CANCELED", "CANCELLED"}:
+            return None, {"canceled": True, "level": "trip"}
+
+        stu = self._by_trip_stopid.get((tid, sid))
+        if not stu:
+            return None, {"reason": "no_stop"}
+
+        rel_stop = (getattr(stu, "schedule_relationship", "") or "").strip().upper()
+        if rel_stop == "SKIPPED":
+            return None, {"skipped": True, "level": "stop"}
+
+        if now_ts is None:
+            now_ts = int(time.time())
+
+        arr_ts = int(getattr(stu, "arrival_time", 0) or 0) or None
+        dep_ts = int(getattr(stu, "departure_time", 0) or 0) or None
+
+        field = None
+        ts = None
+        delay = None
+        if dep_ts is not None and (
+            arr_ts is None or now_ts >= (arr_ts - DEPARTURE_PREFERENCE_FUDGE_S)
+        ):
+            ts = dep_ts
+            field = "departure"
+            delay = getattr(stu, "departure_delay", None)
+        elif arr_ts is not None:
+            ts = arr_ts
+            field = "arrival"
+            delay = getattr(stu, "arrival_delay", None)
+        elif dep_ts is not None:
+            ts = dep_ts
+            field = "departure"
+            delay = getattr(stu, "departure_delay", None)
+        else:
+            return None, {"reason": "no_time", "rel": rel_stop or None}
+
+        eta_s = max(0, int(ts) - int(now_ts))
+        meta = {
+            "source": "trip_updates",
+            "field": field,
+            "delay": (int(delay) if delay is not None else None),
+            "uncertainty": getattr(stu, "uncertainty", None),
+            "rel": rel_stop or None,
+        }
+        return int(eta_s), meta
 
     # ---------- Freshness / Debug ----------
 
