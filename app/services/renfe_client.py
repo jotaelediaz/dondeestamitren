@@ -1,3 +1,4 @@
+# app/services/renfe_client.py
 from __future__ import annotations
 
 import gzip
@@ -15,12 +16,22 @@ class RenfeClient:
         json_url: str | None = None,
         timeout: float = 7.0,
     ):
+        # --- Vehicle Positions (GTFS-RT) ---
         self.pb_url = (
             pb_url or getattr(settings, "RENFE_VEHICLE_POSITIONS_PB_URL", "") or ""
         ).strip()
         self.json_url = (
             json_url or getattr(settings, "RENFE_VEHICLE_POSITIONS_JSON_URL", "") or ""
         ).strip()
+
+        # --- Trip Updates (GTFS-RT) ---
+        self.trip_updates_pb_url = (
+            getattr(settings, "RENFE_TRIP_UPDATES_PB_URL", "") or ""
+        ).strip()
+        self.trip_updates_json_url = (
+            getattr(settings, "RENFE_TRIP_UPDATES_JSON_URL", "") or ""
+        ).strip()
+
         self.timeout = float(getattr(settings, "RENFE_HTTP_TIMEOUT", None) or timeout or 7.0)
 
         self._session = requests.Session()
@@ -46,6 +57,25 @@ class RenfeClient:
         if not self.json_url:
             raise RuntimeError("RENFE_VEHICLE_POSITIONS_JSON_URL no está configurada")
         r = self._session.get(self.json_url, timeout=self.timeout)
+        r.raise_for_status()
+        return r.json()
+
+    def fetch_trip_updates_pb(self) -> gtfs_realtime_pb2.FeedMessage:
+        if not self.trip_updates_pb_url:
+            raise RuntimeError("RENFE_TRIP_UPDATES_PB_URL no está configurada")
+        r = self._session.get(self.trip_updates_pb_url, timeout=self.timeout)
+        r.raise_for_status()
+        content = r.content
+        if r.headers.get("Content-Encoding", "").lower() == "gzip":
+            content = gzip.decompress(content)
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.ParseFromString(content)
+        return feed
+
+    def fetch_trip_updates_raw(self) -> dict:
+        if not self.trip_updates_json_url:
+            raise RuntimeError("RENFE_TRIP_UPDATES_JSON_URL no está configurada")
+        r = self._session.get(self.trip_updates_json_url, timeout=self.timeout)
         r.raise_for_status()
         return r.json()
 

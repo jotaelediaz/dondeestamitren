@@ -1,3 +1,4 @@
+# app/services/live_trains_cache.py
 from __future__ import annotations
 
 import contextlib
@@ -216,7 +217,6 @@ class LiveTrainsCache:
         return None
 
     def _maybe_infer_direction_by_parity(self, tp: TrainPosition) -> dict:
-        """Fija direction_id usando parity_map si procede."""
         metrics = {"parity_used": 0, "parity_final": 0, "parity_tentative": 0, "parity_no_map": 0}
 
         did_now = str(getattr(tp, "direction_id", "") or "").strip()

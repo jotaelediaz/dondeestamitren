@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     # --- API / Renfe ---
     RENFE_VEHICLE_POSITIONS_PB_URL: str | None = None
     RENFE_VEHICLE_POSITIONS_JSON_URL: str | None = None
+    RENFE_TRIP_UPDATES_PB_URL: str | None = None
+    RENFE_TRIP_UPDATES_JSON_URL: str | None = None
+    ENABLE_TRIP_UPDATES_POLL: bool = False
+    TRIP_UPDATES_POLL_SECONDS: int | None = None
     RENFE_HTTP_TIMEOUT: float = 7.0
     POLL_SECONDS: int = 8
     POLL_JITTER_S: int = 0

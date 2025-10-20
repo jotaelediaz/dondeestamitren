@@ -1,9 +1,8 @@
-# app/main.py
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
@@ -25,16 +24,22 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 def build_scheduler() -> BackgroundScheduler:
     s = BackgroundScheduler(timezone="UTC")
+
     get_live_trains_cache().refresh()
+    if getattr(settings, "ENABLE_TRIP_UPDATES_POLL", False):
+        with suppress(Exception):
+            from app.services.trip_updates_cache import get_trip_updates_cache
+
+            get_trip_updates_cache().refresh()
     base = int(settings.POLL_SECONDS)
 
-    def job():
+    def job_live():
         cache = get_live_trains_cache()
         cache.refresh()
         return
 
     s.add_job(
-        job,
+        job_live,
         "interval",
         seconds=base,
         jitter=getattr(settings, "POLL_JITTER_S", 0) or None,
@@ -43,6 +48,27 @@ def build_scheduler() -> BackgroundScheduler:
         coalesce=True,
         replace_existing=True,
     )
+
+    if getattr(settings, "ENABLE_TRIP_UPDATES_POLL", False):
+        tu_seconds = int(getattr(settings, "TRIP_UPDATES_POLL_SECONDS", None) or base)
+
+        def job_tu():
+            from app.services.trip_updates_cache import get_trip_updates_cache
+
+            get_trip_updates_cache().refresh()
+            return
+
+        s.add_job(
+            job_tu,
+            "interval",
+            seconds=tu_seconds,
+            jitter=getattr(settings, "POLL_JITTER_S", 0) or None,
+            id="refresh_trip_updates",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+
     return s
 
 

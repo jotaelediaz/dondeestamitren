@@ -1,0 +1,57 @@
+<h1 class="h2">Trip Updates{% if nucleus %} en {{ nucleus.name }}{% endif %}</h1>
+<p class="text-muted">Snapshot: {{ last_snapshot }}</p>
+<p class="text-muted">Viajes con update: {{ trips|length }}</p>
+<p class="text-muted">Fuente: {{ (last_source or '—')|upper }}</p>
+
+{% if not nucleus and nuclei %}
+	<h2>Por núcleos</h2>
+	<ul>
+		{% for n in nuclei %}
+			<li><a href="/alpha/trip-updates/{{ n.slug }}">{{ n.name }}</a></li>
+		{% endfor %}
+	</ul>
+	<hr>
+{% endif %}
+
+{% if not trips %}
+	<p>No hay datos ahora mismo de trip updates.</p>
+{% else %}
+	<table class="table" style="width:100%; max-width:1100px;">
+		<thead>
+		<tr>
+			<th>Ruta</th>
+			<th>Trip</th>
+			<th>Sentido</th>
+			<th>Origen</th>
+			<th>Estado viaje</th>
+			<th>Delay (s)</th>
+			<th>Siguientes paradas (preview)</th>
+			<th>Timestamp</th>
+		</tr>
+		</thead>
+		<tbody>
+		{% for r in trips %}
+			{% set resolved_ctx = (r.resolved if r.resolved is defined else none) %}
+			{% set rid_eff = (resolved_ctx.route_id if resolved_ctx else (r.resolved_route_id if r.resolved_route_id is defined else none)) or r.route_id %}
+			{% set did_eff = (resolved_ctx.direction_id if resolved_ctx else (r.resolved_direction_id if r.resolved_direction_id is defined else none)) or r.direction_id %}
+			{% set by_eff  = (resolved_ctx.resolved_by if resolved_ctx else (r.resolved_by if r.resolved_by is defined else none)) %}
+			<tr>
+				<td>{{ r.route_short_name or rid_eff or "—" }}</td>
+				<td><a href="/alpha/trip-updates/trip/{{ r.trip_id }}">{{ r.trip_id }}</a></td>
+				<td>{{ did_eff if did_eff is not none else "—" }}</td>
+				<td>{{ (by_eff or "—")|upper }}</td>
+				<td>{{ r.schedule_relationship or "SCHEDULED" }}</td>
+				<td>{{ r.delay if r.delay is not none else "—" }}</td>
+				<td>
+					{% if r.preview and r.preview|length > 0 %}
+						{{ r.preview|join(", ") }}
+					{% else %}—{% endif %}
+				</td>
+				<td>{{ r.timestamp or "—" }}</td>
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+{% endif %}
+
+<p><a href="/alpha/">← Volver</a></p>

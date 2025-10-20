@@ -20,7 +20,7 @@ def _slugify(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", s).strip("-").lower()
 
 
-DEFAULT_EFFECTIVE_SPEED_KMH = 45.0  # Average speed for Cercanías trains (I need to test it)
+DEFAULT_EFFECTIVE_SPEED_KMH = 49.5  # Average speed for Cercanías trains (I need to test it)
 DEFAULT_DWELL_PER_STOP_SEC = 20  # Average time the train spends at a stop (Hopefully)
 
 

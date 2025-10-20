@@ -1,0 +1,37 @@
+<h1 class="h2">Trip {{ trip_id }}</h1>
+<p class="text-muted">Línea: {{ route_short_name or route_id or "—" }} · Dir: {{ direction_id or "—" }}</p>
+<p class="text-muted">Estado: {{ schedule_relationship or "SCHEDULED" }} · Delay viaje: {{ delay if delay is not none else "—" }}</p>
+<p class="text-muted">Snapshot: {{ last_snapshot }} · Fuente: {{ (last_source or '—')|upper }}</p>
+
+<table class="table" border="1" cellpadding="6" cellspacing="0">
+	<thead>
+	<tr>
+		<th>Seq</th>
+		<th>Parada</th>
+		<th>Stop ID</th>
+		<th>Arr (epoch)</th>
+		<th>Arr Δ (s)</th>
+		<th>Dep (epoch)</th>
+		<th>Dep Δ (s)</th>
+		<th>σ (s)</th>
+		<th>Rel</th>
+	</tr>
+	</thead>
+	<tbody>
+	{% for r in rows %}
+		<tr>
+			<td>{{ r.stop_sequence if r.stop_sequence is not none else "—" }}</td>
+			<td>{{ r.stop_name }}</td>
+			<td>{{ r.stop_id or "—" }}</td>
+			<td>{{ r.arr_time or "—" }}</td>
+			<td>{{ r.arr_delay if r.arr_delay is not none else "—" }}</td>
+			<td>{{ r.dep_time or "—" }}</td>
+			<td>{{ r.dep_delay if r.dep_delay is not none else "—" }}</td>
+			<td>{{ r.uncertainty if r.uncertainty is not none else "—" }}</td>
+			<td>{{ r.rel or "SCHEDULED" }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+<p><a href="/alpha/trip-updates/">← Volver al listado</a></p>

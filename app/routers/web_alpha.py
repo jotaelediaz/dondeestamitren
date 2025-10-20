@@ -1,5 +1,7 @@
 # app/routers/web_alpha.py
 import re
+import time
+from contextlib import suppress
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
@@ -10,6 +12,7 @@ from app.services.live_trains_cache import LiveTrainsCache, get_live_trains_cach
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
+from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
 
 router = APIRouter(tags=["web-alpha"])
@@ -190,6 +193,102 @@ def compute_confidence_badge(train, routes_repo, trips_repo):
         pass
 
     return badge
+
+
+def _stu_epoch(stu):
+    return getattr(stu, "arrival_time", None) or getattr(stu, "departure_time", None)
+
+
+def _attach_origin_preview_and_timestamp(it, now_epoch: int, limit: int = 3):
+    from contextlib import suppress
+
+    routes_repo = get_routes_repo()
+    trips_repo = get_trips_repo()
+    stops_repo = get_stops_repo()
+
+    try:
+        origin_name = None
+        tl = None
+        trip_id = getattr(it, "trip_id", None)
+        if trip_id:
+            with suppress(Exception):
+                tl = trips_repo.get_trip_lite(trip_id)
+
+        if tl and getattr(tl, "stop_ids_in_order", None):
+            origin_sid = tl.stop_ids_in_order[0]
+            origin_name = routes_repo.get_stop_name(str(origin_sid)) or (
+                getattr(stops_repo.get_by_id(origin_sid), "name", None)
+                if stops_repo.get_by_id(origin_sid)
+                else None
+            )
+
+        if origin_name is None:
+            stus_any = list(
+                getattr(it, "stop_updates", None) or getattr(it, "stop_time_updates", None) or []
+            )
+            if stus_any:
+                with suppress(Exception):
+                    stus_any.sort(key=lambda s: (s.stop_sequence is None, (s.stop_sequence or 0)))
+                first_sid = getattr(stus_any[0], "stop_id", None)
+                if first_sid:
+                    origin_name = routes_repo.get_stop_name(str(first_sid)) or first_sid
+
+        preview_names = []
+        preview_sids = []
+
+        stus = list(
+            getattr(it, "stop_updates", None) or getattr(it, "stop_time_updates", None) or []
+        )
+        if stus:
+            with suppress(Exception):
+                stus.sort(key=lambda s: (s.stop_sequence is None, (s.stop_sequence or 0)))
+            future = [
+                s
+                for s in stus
+                if (_stu_epoch(s) or 0) >= now_epoch
+                and (getattr(s, "schedule_relationship", "SCHEDULED") or "SCHEDULED") != "CANCELED"
+            ]
+            cand = future or [
+                s
+                for s in stus
+                if (getattr(s, "schedule_relationship", "SCHEDULED") or "SCHEDULED") != "CANCELED"
+            ]
+            preview_sids = [
+                getattr(s, "stop_id", None) for s in cand if getattr(s, "stop_id", None)
+            ]
+            preview_sids = preview_sids[:limit]
+        elif tl and getattr(tl, "stop_ids_in_order", None):
+            preview_sids = tl.stop_ids_in_order[:limit]
+
+        for sid in preview_sids:
+            with suppress(Exception):
+                name = routes_repo.get_stop_name(str(sid))
+                if not name:
+                    st = stops_repo.get_by_id(sid)
+                    name = getattr(st, "name", None) if st else None
+                preview_names.append(name or sid)
+
+        with suppress(Exception):
+            ts = getattr(it, "timestamp", None) or getattr(it, "header_timestamp", None)
+            if ts is None:
+                it.timestamp = now_epoch
+
+        with suppress(Exception):
+            if getattr(it, "delay", None) is None and stus:
+                nxt = next((s for s in stus if (_stu_epoch(s) or 0) >= now_epoch), None)
+                if nxt:
+                    d = getattr(nxt, "arrival_delay", None)
+                    if d is None:
+                        d = getattr(nxt, "departure_delay", None)
+                    if d is not None:
+                        it.delay = d
+
+        with suppress(Exception):
+            it.origin_name = origin_name
+            it.preview = preview_names
+            it.preview_names = preview_names
+    except Exception:
+        pass
 
 
 # --- HOME ---
@@ -617,5 +716,148 @@ def train_detail(request: Request, nucleus: str, train_id: str):
             "train_seen_iso": seen_iso,
             "train_seen_age": seen.get("age_s"),
             "platform": platform,
+        },
+    )
+
+
+# --- TRIP UPDATES ---
+
+
+@router.get("/trip-updates/", response_class=HTMLResponse)
+def trip_updates_list(request: Request):
+    repo = get_routes_repo()
+    nuclei = repo.list_nuclei()
+
+    cache = get_trip_updates_cache()
+    if not cache.list_all() or cache.is_stale():
+        with suppress(Exception):
+            cache.refresh()
+
+    trips_repo = get_trips_repo()
+    trips = cache.list_all()
+
+    now_epoch = int(time.time())
+    for it in trips:
+        rid, did, _ = trips_repo.resolve_route_and_direction(getattr(it, "trip_id", "") or "")
+        if not getattr(it, "route_id", None) and rid:
+            it.route_id = rid
+        if not getattr(it, "direction_id", None) and did in ("0", "1"):
+            it.direction_id = did
+
+        _attach_origin_preview_and_timestamp(it, now_epoch)
+
+    return templates.TemplateResponse(
+        "trip_updates.html",
+        {
+            "request": request,
+            "trips": trips,
+            "last_snapshot": cache.last_snapshot_iso(),
+            "last_source": cache.last_source(),
+            "nuclei": nuclei,
+            "nucleus": None,
+            "repo": repo,
+        },
+    )
+
+
+@router.get("/trip-updates/{nucleus}", response_class=HTMLResponse)
+def trip_updates_by_nucleus(request: Request, nucleus: str):
+    repo = get_routes_repo()
+    nucleus = (nucleus or "").strip().lower()
+    nuclei = repo.list_nuclei()
+    if nucleus not in [n.get("slug") for n in nuclei]:
+        raise HTTPException(404, "That nucleus doesn't exist.")
+
+    cache = get_trip_updates_cache()
+    if not cache.list_all() or cache.is_stale():
+        with suppress(Exception):
+            cache.refresh()
+
+    trips_repo = get_trips_repo()
+    all_trips = cache.list_all()
+
+    now_epoch = int(time.time())
+    for it in all_trips:
+        rid, did, _ = trips_repo.resolve_route_and_direction(getattr(it, "trip_id", "") or "")
+        if not getattr(it, "route_id", None) and rid:
+            it.route_id = rid
+        if not getattr(it, "direction_id", None) and did in ("0", "1"):
+            it.direction_id = did
+
+        _attach_origin_preview_and_timestamp(it, now_epoch)
+
+    def _belongs(it) -> bool:
+        rid = (getattr(it, "route_id", "") or "").strip()
+        if not rid:
+            return False
+        n = (repo.nucleus_for_route_id(rid) or "").strip().lower()
+        return n == nucleus
+
+    trips = [it for it in all_trips if _belongs(it)]
+
+    return templates.TemplateResponse(
+        "trip_updates.html",
+        {
+            "request": request,
+            "trips": trips,
+            "last_snapshot": cache.last_snapshot_iso(),
+            "last_source": cache.last_source(),
+            "repo": repo,
+            "nucleus": mk_nucleus(nucleus, repo),
+            "nuclei": nuclei,
+        },
+    )
+
+
+@router.get("/trip-updates/trip/{trip_id}", response_class=HTMLResponse)
+def trip_update_detail(request: Request, trip_id: str):
+    tuc = get_trip_updates_cache()
+    repo = get_routes_repo()
+    trips_repo = get_trips_repo()
+
+    it = tuc.get_by_trip_id(trip_id)
+    if not it:
+        raise HTTPException(404, f"TripUpdate {trip_id} not found")
+
+    rid0, did0, _ = trips_repo.resolve_route_and_direction(trip_id)
+    rid = getattr(it, "route_id", None) or rid0
+    did = getattr(it, "direction_id", None) or did0
+    lv = repo.get_by_route_and_dir(rid or "", did or "") or repo.get_by_route_and_dir(rid or "", "")
+
+    stus = list(getattr(it, "stop_updates", []) or [])
+    with suppress(Exception):
+        stus.sort(key=lambda s: (s.stop_sequence is None, (s.stop_sequence or 0)))
+
+    rows = []
+    for s in stus:
+        stop_name = repo.get_stop_name(str(getattr(s, "stop_id", "") or "")) or "-"
+        rows.append(
+            {
+                "stop_id": getattr(s, "stop_id", None),
+                "stop_sequence": getattr(s, "stop_sequence", None),
+                "stop_name": stop_name,
+                "arr_time": getattr(s, "arrival_time", None),
+                "arr_delay": getattr(s, "arrival_delay", None),
+                "dep_time": getattr(s, "departure_time", None),
+                "dep_delay": getattr(s, "departure_delay", None),
+                "uncertainty": getattr(s, "uncertainty", None),
+                "rel": getattr(s, "schedule_relationship", None),
+            }
+        )
+
+    return templates.TemplateResponse(
+        "trip_update_detail.html",
+        {
+            "request": request,
+            "trip_id": trip_id,
+            "route_id": rid,
+            "route_short_name": getattr(lv, "route_short_name", None),
+            "direction_id": did,
+            "schedule_relationship": getattr(it, "schedule_relationship", None),
+            "delay": getattr(it, "delay", None),
+            "timestamp": getattr(it, "timestamp", None),
+            "rows": rows,
+            "last_snapshot": tuc.last_snapshot_iso(),
+            "last_source": tuc.last_source(),
         },
     )
