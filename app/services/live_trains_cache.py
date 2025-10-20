@@ -16,6 +16,7 @@ from app.domain.live_models import (
 )
 from app.services.renfe_client import get_client
 from app.services.routes_repo import get_repo as get_lines_repo
+from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
 
 # Fast retries to avoid intermittent failures.
@@ -255,6 +256,30 @@ class LiveTrainsCache:
 
         return metrics
 
+    def _enrich_route_and_direction_from_trip(self, tp: TrainPosition) -> None:
+        trip_id = (getattr(tp, "trip_id", "") or "").strip()
+        if not trip_id:
+            return
+        with contextlib.suppress(Exception):
+            ctx = get_trip_updates_cache().get_resolved_ctx(trip_id)
+            if ctx:
+                if not getattr(tp, "route_id", None) and getattr(ctx, "route_id", None):
+                    tp.route_id = ctx.route_id
+                did = getattr(ctx, "direction_id", None)
+                if str(getattr(tp, "direction_id", "")) not in ("0", "1") and did in ("0", "1"):
+                    tp.direction_id = did
+                    tp.direction_source = "trip_updates"
+        if (not getattr(tp, "route_id", None)) or (
+            str(getattr(tp, "direction_id", "")) not in ("0", "1")
+        ):
+            with contextlib.suppress(Exception):
+                rid, did, src = get_trips_repo().resolve_route_and_direction(trip_id)
+                if not getattr(tp, "route_id", None) and rid:
+                    tp.route_id = rid
+                if str(getattr(tp, "direction_id", "")) not in ("0", "1") and did in ("0", "1"):
+                    tp.direction_id = did
+                    tp.direction_source = "trips_repo"
+
     # -------- GTFS protobuf path --------
     def _fetch_pb_once(self):
         t0 = time.time()
@@ -299,8 +324,10 @@ class LiveTrainsCache:
                 tp.nucleus_slug = lines_repo.nucleus_for_route_id(rid)
             else:
                 self._fill_route_from_short_and_stop(tp)
+            self._enrich_route_and_direction_from_trip(tp)
+            rid_eff = getattr(tp, "route_id", None) or rid
             tp.nucleus_slug = self._nucleus_for_stop(tp.stop_id) or (
-                lines_repo.nucleus_for_route_id(rid) if rid else None
+                lines_repo.nucleus_for_route_id(rid_eff) if rid_eff else None
             )
 
             m = self._maybe_infer_direction_by_parity(tp)
@@ -375,8 +402,10 @@ class LiveTrainsCache:
                     tp.nucleus_slug = lines_repo.nucleus_for_route_id(rid)
                 else:
                     self._fill_route_from_short_and_stop(tp)
+                self._enrich_route_and_direction_from_trip(tp)
+                rid_eff = getattr(tp, "route_id", None) or rid
                 tp.nucleus_slug = self._nucleus_for_stop(tp.stop_id) or (
-                    lines_repo.nucleus_for_route_id(rid) if rid else None
+                    lines_repo.nucleus_for_route_id(rid_eff) if rid_eff else None
                 )
 
                 m = self._maybe_infer_direction_by_parity(tp)

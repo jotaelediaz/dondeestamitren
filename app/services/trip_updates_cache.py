@@ -53,6 +53,15 @@ class TripUpdateItem:
 
 
 @dataclass
+class TripResolvedCtx:
+    trip_id: str
+    route_id: str | None = None
+    direction_id: str | None = None  # "0" | "1" | None
+    resolved_by: str = "unknown"  # "trip_updates" | "trips_repo" | "unknown"
+    resolved_at: float = field(default_factory=time.time)
+
+
+@dataclass
 class _Entry:
     item: TripUpdateItem
     last_seen_wall_s: float
@@ -76,6 +85,8 @@ class TripUpdatesCache:
 
         self._last_fetch_kind: str | None = None
         self._last_fetch_took_s: float = 0.0
+
+        self._resolved_by_trip_id: dict[str, TripResolvedCtx] = {}
 
     # ---------------------- Helpers: enrichment ----------------------
 
@@ -121,6 +132,52 @@ class TripUpdatesCache:
                 it.route_id = best[2]
         except Exception:
             pass
+
+    # ---------- Resolution helpers (for LiveTrains enrichment) ----------
+
+    def _norm_did(self, v) -> str | None:
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s if s in ("0", "1") else None
+
+    def _resolve_and_cache_trip_ctx(self, trip_id: str) -> TripResolvedCtx:
+        tid = (trip_id or "").strip()
+        if not tid:
+            return TripResolvedCtx(trip_id=tid)
+
+        hit = self._resolved_by_trip_id.get(tid)
+        if hit:
+            return hit
+
+        it = self._by_trip_id.get(tid)
+        route_id = getattr(it, "route_id", None) if it else None
+        direction_id = self._norm_did(getattr(it, "direction_id", None) if it else None)
+        source = "trip_updates" if (route_id or direction_id) else "unknown"
+
+        if (route_id is None) or (direction_id is None):
+            try:
+                rid, did, _ = get_trips_repo().resolve_route_and_direction(tid)
+                if route_id is None and rid:
+                    route_id = rid
+                    source = "trips_repo"
+                if direction_id is None and self._norm_did(did):
+                    direction_id = self._norm_did(did)
+                    source = "trips_repo"
+            except Exception:
+                pass
+
+        ctx = TripResolvedCtx(
+            trip_id=tid,
+            route_id=route_id,
+            direction_id=direction_id,
+            resolved_by=source or "unknown",
+        )
+        self._resolved_by_trip_id[tid] = ctx
+        return ctx
+
+    def get_resolved_ctx(self, trip_id: str) -> TripResolvedCtx:
+        return self._resolve_and_cache_trip_ctx(trip_id)
 
     # ---------------------- Fetch & parse ----------------------
 
@@ -467,7 +524,7 @@ class TripUpdatesCache:
                 raw, err_json = self._fetch_json_once()
                 if raw is not None:
                     break
-                if i < FAST_RERetry_ATTEMPTS:
+                if i < FAST_RETRY_ATTEMPTS:
                     time.sleep(FAST_RETRY_DELAY)
 
             if raw is None:
