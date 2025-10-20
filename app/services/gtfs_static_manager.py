@@ -32,6 +32,8 @@ STATE_FILE = STORE_ROOT / "state.json"
 CKAN_API = _env("RENFE_CKAN_API", "https://data.renfe.com/api/3/action")
 RESOURCE_ID = _env("RENFE_GTFS_RESOURCE_ID", "6f1523c6-a9e3-48e3-9ace-bb107a762be6")
 
+GTFS_RELEASES_KEEP = int(_env("GTFS_RELEASES_KEEP", "7"))
+
 HTTP_TIMEOUT = float(_env("REQUEST_TIMEOUT_S", "20.0"))
 
 REQUIRED_FILES = {
@@ -86,7 +88,6 @@ def _save_state(state: dict) -> None:
 
 
 def _client_headers(extra: dict | None = None) -> dict:
-    # Sin User-Agent personalizado (lo pediste así). Dejamos un Accept básico.
     h = {"Accept": "application/json"}
     if extra:
         h.update(extra)
@@ -137,7 +138,7 @@ def _atomic_activate(active_dir: Path, new_release_dir: Path) -> None:
     if backup.exists():
         shutil.rmtree(backup, ignore_errors=True)
     if active_dir.exists():
-        os.replace(active_dir, backup)  # rename rápido
+        os.replace(active_dir, backup)
     os.replace(new_release_dir, active_dir)
     with contextlib.suppress(Exception):
         shutil.rmtree(backup, ignore_errors=True)
@@ -269,6 +270,42 @@ def materialize_release(
     return release_dir
 
 
+def prune_old_releases(keep: int | None = None) -> int:
+    keep = int(keep or GTFS_RELEASES_KEEP)
+    if keep <= 0:
+        return 0
+
+    if not RELEASES_DIR.exists():
+        return 0
+    releases = [p for p in RELEASES_DIR.iterdir() if p.is_dir()]
+    if len(releases) <= keep:
+        return 0
+
+    releases.sort(key=lambda p: p.name)
+
+    state = _load_state()
+    active_path = Path(state.get("active_release", "")) if state else None
+    active_real = str(active_path.resolve()) if active_path and active_path.exists() else None
+
+    deleted = 0
+    if active_real and any(str(p.resolve()) == active_real for p in releases):
+        candidates = [p for p in releases if str(p.resolve()) != active_real]
+        over = max(0, len(candidates) - (keep - 1))
+        targets = candidates[:over]
+    else:
+        over = max(0, len(releases) - keep)
+        targets = releases[:over]
+
+    for p in targets:
+        try:
+            shutil.rmtree(p, ignore_errors=True)
+            deleted += 1
+        except Exception:
+            pass
+
+    return deleted
+
+
 def activate_release(release_dir: Path) -> None:
     _atomic_activate(ACTIVE_DIR, release_dir)
 
@@ -309,6 +346,8 @@ def check_and_update() -> dict:
             }
         )
         _save_state(state)
+        with contextlib.suppress(Exception):
+            prune_old_releases()
 
         return {
             "changed": True,
