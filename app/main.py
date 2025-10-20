@@ -97,9 +97,9 @@ def build_scheduler() -> BackgroundScheduler:
 
                     get_stops_repo().reload()
                 with suppress(Exception):
-                    from app.services.lines_repo import get_repo as get_lines_repo
+                    from app.services.routes_repo import get_repo as get_routes_repo
 
-                    get_lines_repo().reload()
+                    get_routes_repo().reload()
         except Exception:
             log.exception("Error vigilando GTFS estático")
 

@@ -1,6 +1,7 @@
 # app/services/stops_repo.py
 from __future__ import annotations
 
+import threading
 import time as _time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -26,9 +27,7 @@ def _slugify(s: str) -> str:
 
 DEFAULT_EFFECTIVE_SPEED_KMH = 49.5  # Average speed for Cercanías trains (to be tuned)
 DEFAULT_DWELL_PER_STOP_SEC = 20  # Average dwell time per stop (to be tuned)
-DEPARTURE_PREFERENCE_FUDGE_S = (
-    45  # Prefer departure when train is already at the platform (anti-flicker margin)
-)
+DEPARTURE_PREFERENCE_FUDGE_S = 45  # Prefer departure when train is already at the platform
 
 
 @dataclass
@@ -64,6 +63,7 @@ class StopsRepo:
         self._by_slug: dict[tuple[str, str, str], Stop] = {}
         self._by_route_dir: dict[tuple[str, str], list[Stop]] = defaultdict(list)
         self._by_station: dict[tuple[str, str], list[Stop]] = defaultdict(list)
+        self._lock = threading.RLock()
 
     def load(self) -> None:
         self._by_key.clear()
@@ -634,6 +634,10 @@ class StopsRepo:
             self._by_station.get(((nucleus_slug or "").lower(), (station_id or "").strip()), [])
         )
 
+    def reload(self) -> None:
+        with self._lock:
+            self.load()
+
 
 _repo: StopsRepo | None = None
 
@@ -649,4 +653,4 @@ def get_repo() -> StopsRepo:
 def reload_repo() -> None:
     global _repo
     if _repo is not None:
-        _repo.load()
+        _repo.reload()

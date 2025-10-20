@@ -42,16 +42,24 @@
 							{% set is_sched = note.startswith('sched:') %}
 							
 							<div class="nearest-train-header eta-header" id="eta-label-{{ stop.stop_id }}">
-                <span class="live-pill {{ 'is-stale' if is_stale else ('is-semi-stale' if is_semi else '') }}"
+{#                <span class="live-pill {{ 'is-stale' if is_stale else ('is-semi-stale' if is_semi else '') }}"
                       role="status"
                       aria-live="polite"
                       aria-label="{{ 'Se perdió la pista al tren hace más de 30 segundos' if (is_stale or is_semi) else 'En directo' }}"
                       title="{{ 'Se perdió la pista al tren hace más de 30 segundos' if (is_stale or is_semi) else 'En directo' }}">
                   <i class="dot" aria-hidden="true"></i>
+                </span>#}
+								{%- set live_label = 'En tiempo real' if (nearest_eta.note or '').startswith('tu:') else ('Tren programado' if (nearest_eta.note or '').startswith('sched:') else 'Tiempo aproximado') -%}
+								<span class="live-pill {{ 'is-tu' if (nearest_eta.note or '').startswith('tu:') else ('is-sched' if (nearest_eta.note or '').startswith('sched:') else 'is-est') }}"
+                      role="status"
+                      aria-live="polite"
+								      aria-label="{{ live_label }}"
+                      title="{{ live_label }}">
+                  <i class="dot" aria-hidden="true"></i>
                 </span>
-								{{ 'Sale en:' if is_origin_stop else 'Próximo tren en:' }}
+								{{ 'Salida del tren en:' if is_origin_stop else 'Próximo tren en:' }}
 							</div>
-							
+						<div class="train-eta-output-wrapper">
 							<output id="eta-primary"
 							        class="train-eta-time"
 							        role="status"
@@ -66,9 +74,19 @@
 								<span class="unit">min</span>
 							</output>
 							
-							<span class="eta-source-badge {{ 'is-tu' if (nearest_eta.note or '').startswith('tu:') else ('is-sched' if (nearest_eta.note or '').startswith('sched:') else 'is-est') }}" title="{{ nearest_eta.note or '' }}">
-                {{ 'tiempo real' if (nearest_eta.note or '').startswith('tu:') else ('Horario programado' if (nearest_eta.note or '').startswith('sched:') else 'Tiempo calculado') }}
-							</span>
+							<output id="eta-clock"
+							        class="train-eta-time is-clock"
+							        role="status"
+							        aria-live="polite"
+							        aria-atomic="true"
+							        aria-labelledby="eta-label-{{ stop.stop_id }}"
+							        data-eta-min="{{ nearest_eta.minutes_rounded|int }}"
+							        data-train-state="{{ nearest.current_status or '' }}"
+							        hidden aria-hidden="true" inert>
+								<time datetime="">--:--</time>
+								<span class="unit">h</span>
+							</output>
+						</div>
 							
 							{% set second_pair = nearest_trains[1] if nearest_trains|length > 1 else None %}
 							<div class="second-train-approaching">
@@ -103,7 +121,10 @@
 							<i class="material-symbols-rounded" aria-hidden="true">train</i>
 						</div>
 						<div class="train-id-badge">
+							<a href="/trains/{{ nucleus.slug }}/{{ nearest.train_id }}"
+							   aria-label="Ver detalle del tren {{ nearest.train_id }}">
 							<data value="{{ nearest.train_id }}">Tren <span class="train-id-unit">{{ nearest.train_id }}</span></data>
+							</a>
 						</div>
 					</div>
 					<div class="view-train-link">

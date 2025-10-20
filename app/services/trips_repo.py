@@ -5,6 +5,7 @@ import csv
 import logging
 import os
 import re
+import threading
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
@@ -44,6 +45,8 @@ class TripsRepo:
         self._sched_by_route_stop: dict[
             tuple[str, str, str], list[tuple[int | None, int | None, str]]
         ] = {}
+
+        self._lock = threading.RLock()
 
     # --------------------------- util csv trips ---------------------------
 
@@ -617,6 +620,10 @@ class TripsRepo:
             if best_epoch is not None:
                 break
         return best_trip, best_epoch, best_kind
+
+    def reload(self) -> None:
+        with self._lock:
+            self.load()
 
 
 _repo: TripsRepo | None = None

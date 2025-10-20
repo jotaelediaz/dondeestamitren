@@ -1495,7 +1495,8 @@ ul.chip-list {
     align-items: center;
 }
 
-.live-pill .dot {
+.live-pill .dot,
+.live-pill.is-tu .dot {
     position: relative;
     width: var(--size);
     height: var(--size);
@@ -1505,7 +1506,8 @@ ul.chip-list {
     animation: live-blink 1.1s var(--vt-ease) infinite;
 }
 
-.live-pill .dot::after {
+.live-pill .dot:after,
+.live-pill.is-tu .dot:after {
     content: "";
     position: absolute;
     inset: 0;
@@ -1516,19 +1518,23 @@ ul.chip-list {
 }
 
 .live-pill.is-stale .dot,
-.live-pill.is-stale .dot::after {
+.live-pill.is-stale .dot:after,
+.live-pill.is-sched .dot,
+.live-pill.is-sched .dot:after {
     background: var(--jotaele-text-muted);
     box-shadow: none;
     animation: none;
 }
 
-.live-pill.is-semi-stale .dot {
+.live-pill.is-semi-stale .dot,
+.live-pill.is-est .dot {
     animation: live-blink 6s var(--vt-ease) infinite;
     box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--jotaele-warning) 10%, transparent);
     background: var(--jotaele-warning);
 }
 
-.live-pill.is-semi-stale .dot::after {
+.live-pill.is-semi-stale .dot:after,
+.live-pill.is-est .dot:after {
     display: none;
 }
 
@@ -1536,6 +1542,7 @@ ul.chip-list {
     0%, 100% { transform: scale(1);    opacity: 1; }
     50%      { transform: scale(.86);  opacity: .55; }
 }
+
 @keyframes live-pulse {
     0%   { transform: scale(1);    opacity: .45; }
     70%  { transform: scale(2.1);  opacity: 0;   }
@@ -1801,6 +1808,14 @@ ul.chip-list {
     font-weight: 400;
 }
 
+.train-id-chip a {
+    color: var(--jotaele-text-subtle);
+}
+
+.train-id-chip a:hover {
+    color: var(--jotaele-color-button-accent);
+}
+
 .route-train-chip-icon {
     width: 1.2rem;
     height: 1.2rem;
@@ -1878,4 +1893,65 @@ ul.chip-list {
 
 .rolling-number__stopped[hidden] {
     display: none;
+}
+
+.train-eta-output-wrapper {
+    display: flex;
+    align-items: center;
+    position: relative;
+    height: 2.7rem;
+    width: 11rem;
+}
+
+.train-eta-output-wrapper .train-eta-time {
+    position: absolute;
+    width: 5.5rem;
+    height: 1.7rem;
+    cursor: pointer;
+}
+
+.train-eta-chip #eta-primary,
+.train-eta-chip #eta-clock {
+    display: inline-flex !important;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.3s var(--vt-ease), visibility 0.3s var(--vt-ease);
+}
+
+.train-eta-chip #eta-clock {
+    opacity: 0;
+    visibility: hidden;
+    background: #d3f3e6;
+}
+
+.train-eta-chip #eta-clock .unit {
+    display: none;
+}
+
+.train-eta-chip[data-view="clock"] #eta-clock {
+    opacity: 1;
+    visibility: visible;
+}
+
+.train-eta-chip[data-view="clock"] #eta-primary {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.train-eta-chip #eta-primary[aria-hidden="true"],
+.train-eta-chip #eta-clock[aria-hidden="true"] {
+    pointer-events: none;
+}
+
+.train-eta-chip [hidden] {
+    display: inline-flex !important;
+}
+
+.rolling-number__sep {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.6ch;
+    margin: 0 0.05ch;
+    line-height: 1;
 }

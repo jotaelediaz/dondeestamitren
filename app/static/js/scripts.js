@@ -10,7 +10,7 @@
     let   stopGlobalHandlersBound   = false;
     let   drawerCloseDelegatedBound = false;
 
-    // ------------------ Utilities ------------------
+// ------------------ Utilities ------------------
     function stripHxAttrs(html) {
         return String(html).replace(/\s(hx-(target|swap|indicator|trigger))(=(".*?"|'.*?'|[^\s>]+))?/gi, "");
     }
@@ -120,7 +120,7 @@
             });
     }
 
-    // ---------- Context helpers ----------
+// ---------- Context helpers ----------
     const RouteCtx = {
         getMain() {
             const n = document.getElementById('route-context');
@@ -167,7 +167,7 @@
         }
     };
 
-    // ---------- DrawerCtx for Stop ----------
+// ---------- DrawerCtx for Stop ----------
     const DrawerStopCtx = {
         getFromHTML(html) {
             try {
@@ -309,12 +309,210 @@
         return { build, update, ensure };
     })();
 
+    const RollingClock = (() => {
+        const DIGIT_OFF = 2;
+
+        function _pad2(n){ return String(Math.max(0, Math.min(99, Number(n)||0))).padStart(2,'0'); }
+        function _measureStepPx(el){
+            const s = el.querySelector('.rolling-number__digits > span');
+            let px = s ? s.getBoundingClientRect().height : 0;
+            if (!px || !Number.isFinite(px) || px<=0){
+                const fs = parseFloat(getComputedStyle(el).fontSize);
+                px = Number.isFinite(fs)&&fs>0?fs:16;
+            }
+            return px;
+        }
+        function _measureColWidthPx(el){
+            let w = 0;
+            el.querySelectorAll('.rolling-number__digits > span').forEach(s=>{
+                const r = s.getBoundingClientRect().width;
+                if (r > w) w = r;
+            });
+            return w || 0;
+        }
+        function _apply4(el, idxs){
+            const step = el.__rcStepPx || (el.__rcStepPx=_measureStepPx(el));
+            const cols = el.querySelectorAll('.rolling-number__column .rolling-number__digits');
+            for (let i=0;i<4;i++){
+                const dg=cols[i]; const t=idxs[i];
+                if(!dg || !Number.isFinite(t)) continue;
+                void dg.offsetWidth;
+                dg.style.transform='translateY('+(t*-step)+'px)';
+            }
+        }
+
+        function _build(el, minutes){
+            const mins = Math.max(0, Math.round(Number(minutes)||0));
+            const dt = new Date(Date.now() + mins*60000);
+            const hh = _pad2(dt.getHours());
+            const mm = _pad2(dt.getMinutes());
+            const idxs = [
+                DIGIT_OFF + Number(hh[0]),
+                DIGIT_OFF + Number(hh[1]),
+                DIGIT_OFF + Number(mm[0]),
+                DIGIT_OFF + Number(mm[1]),
+            ];
+
+            const unitNode = el.querySelector && el.querySelector('.unit');
+            const unitText = unitNode ? unitNode.textContent : 'h';
+
+            el.classList.add('rolling-number','rolling-clock');
+            el.innerHTML = '';
+
+            function col(){
+                const c=document.createElement('span');
+                c.className='rolling-number__column';
+                const d=document.createElement('span');
+                d.className='rolling-number__digits';
+                { const s=document.createElement('span'); const i=document.createElement('i'); i.className='material-symbols-rounded'; i.textContent='arrow_downward'; s.appendChild(i); d.appendChild(s); }
+                { const s=document.createElement('span'); s.textContent='<'; d.appendChild(s); }
+                for(let k=0;k<=9;k++){ const s=document.createElement('span'); s.textContent=String(k); d.appendChild(s); }
+                c.appendChild(d);
+                return c;
+            }
+
+            el.appendChild(col());
+            el.appendChild(col());
+
+            const sep = document.createElement('span');
+            sep.className = 'rolling-number__sep';
+            sep.textContent = ':';
+            el.appendChild(sep);
+
+            el.appendChild(col());
+            el.appendChild(col());
+
+            const u=document.createElement('span');
+            u.className='unit';
+            u.textContent=unitText;
+            el.appendChild(u);
+
+            requestAnimationFrame(()=>{
+                el.__rcStepPx = _measureStepPx(el);
+                const cw=_measureColWidthPx(el);
+                if (cw) el.style.setProperty('--rn-col-w', cw+'px');
+                _apply4(el, idxs);
+            });
+
+            el.dataset.clockIdxs = JSON.stringify(idxs);
+        }
+
+        function _ensure(el){
+            const attr=el.getAttribute && el.getAttribute('data-eta-min');
+            const minutes = Math.max(0, Math.round(Number(attr)||0));
+            if (!el.classList.contains('rolling-clock')) _build(el, minutes);
+            else _update(el, minutes);
+        }
+
+        function _update(el, minutes){
+            const mins = Math.max(0, Math.round(Number(minutes)||0));
+            const dt = new Date(Date.now() + mins*60000);
+            const hh = _pad2(dt.getHours());
+            const mm = _pad2(dt.getMinutes());
+            const next = [
+                DIGIT_OFF + Number(hh[0]),
+                DIGIT_OFF + Number(hh[1]),
+                DIGIT_OFF + Number(mm[0]),
+                DIGIT_OFF + Number(mm[1]),
+            ];
+            try {
+                const prev = JSON.parse(el.dataset.clockIdxs || '[]');
+                if (prev.length===4 && prev.every((v,i)=>v===next[i])) return;
+            } catch(_) {}
+            el.dataset.clockIdxs = JSON.stringify(next);
+            _apply4(el, next);
+        }
+
+        return { ensure:_ensure, update:_update };
+    })();
+
+
     function wireETA(root=document) {
-        const el = root.querySelector ? root.querySelector('#eta-primary') : null;
-        if (el) RollingNumber.ensure(el);
+        const chip = root.querySelector ? root.querySelector('.train-eta-chip') : null;
+        if (!chip) return;
+
+        const minEl   = chip.querySelector ? chip.querySelector('#eta-primary') : null;
+        let   clockEl = chip.querySelector ? chip.querySelector('#eta-clock')   : null;
+
+        if (minEl)   RollingNumber.ensure(minEl);
+
+        if (!clockEl) {
+            clockEl = document.createElement('span');
+            clockEl.id = 'eta-clock';
+            const attr = minEl && minEl.getAttribute ? minEl.getAttribute('data-eta-min') : null;
+            if (attr != null) clockEl.setAttribute('data-eta-min', attr);
+            clockEl.hidden = true;
+            clockEl.setAttribute('aria-hidden','true');
+            clockEl.setAttribute('inert','');
+            chip.appendChild(clockEl);
+        }
+
+        if (clockEl) RollingClock.ensure(clockEl);
+
+        function setVisible(showClock){
+            const minNode   = chip.querySelector('#eta-primary');
+            const clockNode = chip.querySelector('#eta-clock');
+            const hasClock  = !!clockNode;
+            const wantClock = !!showClock && hasClock;
+            const wantMin   = !showClock || !hasClock;
+
+            chip.setAttribute('data-view', wantClock ? 'clock' : 'min');
+
+            if (minNode){
+                minNode.hidden = !wantMin;
+                minNode.setAttribute('aria-hidden', wantMin ? 'false' : 'true');
+                minNode.toggleAttribute('inert', !wantMin);
+            }
+            if (clockNode){
+                clockNode.hidden = !wantClock;
+                clockNode.setAttribute('aria-hidden', wantClock ? 'false' : 'true');
+                clockNode.toggleAttribute('inert', !wantClock);
+            }
+        }
+
+        setVisible(false);
     }
 
-    // ------------------ Search box ------------------
+    let etaDelegatedBound = false;
+    function bindGlobalEtaToggleDelegation() {
+        if (etaDelegatedBound) return;
+        etaDelegatedBound = true;
+
+        document.addEventListener('click', (ev) => {
+            const chip = ev.target.closest('.train-eta-chip');
+            if (!chip) return;
+
+            const minEl   = chip.querySelector('#eta-primary');
+            const clockEl = chip.querySelector('#eta-clock');
+
+            if (minEl)   RollingNumber.ensure(minEl);
+            if (clockEl) {
+                const mm = (minEl && (minEl.getAttribute('data-eta-min') || minEl.textContent)) || clockEl.getAttribute('data-eta-min') || '0';
+                clockEl.setAttribute('data-eta-min', String(mm).replace(/[^\d,.\-]/g,'').replace(',','.'));
+                RollingClock.ensure(clockEl);
+            }
+
+            const currentView = chip.getAttribute('data-view') || (clockEl && !clockEl.hidden ? 'clock' : 'min');
+            const nextIsClock = currentView !== 'clock';
+
+            const wantClock = !!nextIsClock && !!clockEl;
+            const wantMin   = !nextIsClock || !clockEl;
+
+            if (minEl){
+                minEl.hidden = !wantMin;
+                minEl.setAttribute('aria-hidden', wantMin ? 'false' : 'true');
+                minEl.toggleAttribute('inert', !wantMin);
+            }
+            if (clockEl){
+                clockEl.hidden = !wantClock;
+                clockEl.setAttribute('aria-hidden', wantClock ? 'false' : 'true');
+                clockEl.toggleAttribute('inert', !wantClock);
+            }
+            chip.setAttribute('data-view', wantClock ? 'clock' : 'min');
+        }, { passive: true });
+    }
+
+// ------------------ Search box ------------------
     function enhanceSearchBox(form) {
         if (!form || upgradedForms.has(form)) return;
         upgradedForms.add(form);
@@ -384,7 +582,7 @@
         }
     }
 
-    // ------------------ Side sheet ------------------
+// ------------------ Side sheet ------------------
     function bindSideSheet(root = document) {
         const btn = root.querySelector('.topbar-btn-menu') || document.querySelector('.topbar-btn-menu');
         const dlg = (root.getElementById && root.getElementById('app-sheet')) || document.getElementById('app-sheet');
@@ -435,7 +633,7 @@
         }
     }
 
-    // ---------- Toggle line direction cards ----------
+// ---------- Toggle line direction cards ----------
     function bindReverseToggleDelegated() {
         if (reverseHandlerBound) return;
         reverseHandlerBound = true;
@@ -467,7 +665,7 @@
         }, { passive: true });
     }
 
-    // ---------- Toggle de correspondencias ----------
+// ---------- Toggle de correspondencias ----------
     function bindConnectionsToggleDelegated() {
         document.addEventListener('click', function (ev) {
             const btn = ev.target.closest('.toggle-connections-shown');
@@ -490,7 +688,7 @@
         }, { passive: true });
     }
 
-    // ------------------ Drawer Train routes ------------------
+// ------------------ Drawer Train routes ------------------
     function bindRouteTrainsPanel(root = document) {
         console.debug('[trains] bindRouteTrainsPanel() called. root=', root);
         const btn   = root.querySelector('#btn-toggle-trains') || document.querySelector('#btn-toggle-trains');
@@ -555,7 +753,7 @@
                         const now = RouteCtx.getMain();
                         if (incoming && now && !RouteCtx.equal(now, incoming)) {
                             console.warn('[trains] DESCARTADO por contexto: incoming=', incoming, 'now=', now);
-                            return; // no swap
+                            return;
                         }
 
                         const template = document.createElement('template');
@@ -732,7 +930,7 @@
         }
     }
 
-    // ---------- Active Stop ----------
+// ---------- Active Stop ----------
     const ActiveStop = (() => {
         let currentEl = null;
         let currentStationId = null;
@@ -788,7 +986,7 @@
         return { setByHref, setByStationId, clear, get };
     })();
 
-    // ------------------ Drawer route stops ------------------
+// ------------------ Drawer route stops ------------------
     function bindStopDrawer(root = document) {
         const panel = document.getElementById('drawer');
         if (!panel) return;
@@ -797,13 +995,12 @@
         const close = panel.querySelector('.drawer-close');
         if (!body) return;
 
-        // --- Auto-refresh state for stop drawer ---
         if (!panel.__stopAuto) {
             panel.__stopAuto = {
                 timerId: null,
                 abort: null,
-                baseInterval: 60_000, // 1 min
-                maxInterval: 300_000, // 5 min
+                baseInterval: 60_000,
+                maxInterval: 300_000,
                 errors: 0,
                 running: false,
                 lastUrl: ''
@@ -922,10 +1119,14 @@
                 const curWrapper = bodyEl.querySelector('#approaching-trains');
 
                 if (newWrapper && curWrapper) {
-                    const incomingEtaEl = newWrapper.querySelector('#eta-primary');
-                    const currentEtaEl  = curWrapper.querySelector('#eta-primary');
-                    const incomingState = incomingEtaEl && (incomingEtaEl.getAttribute('data-train-state') || incomingEtaEl.getAttribute('data-state') || '');
+                    const prevClockEl    = curWrapper.querySelector('#eta-clock');
+                    const prevShowClock  = !!(prevClockEl && !prevClockEl.hidden);
+
+                    const incomingEtaEl  = newWrapper.querySelector('#eta-primary');
+                    const currentEtaEl   = curWrapper.querySelector('#eta-primary');
+                    const incomingState  = incomingEtaEl && (incomingEtaEl.getAttribute('data-train-state') || incomingEtaEl.getAttribute('data-state') || '');
                     if (currentEtaEl && incomingState != null) currentEtaEl.setAttribute('data-train-state', incomingState);
+
                     if (incomingEtaEl && currentEtaEl) {
                         const vAttr = incomingEtaEl.getAttribute('data-eta-min');
                         const nextVal = (function(a, t){
@@ -940,13 +1141,59 @@
                         RollingNumber.ensure(currentEtaEl);
                         RollingNumber.update(currentEtaEl, nextVal);
 
+                        const incomingClockEl = newWrapper.querySelector('#eta-clock');
+                        const currentClockEl  = curWrapper.querySelector('#eta-clock');
+                        if (currentClockEl) {
+                            currentClockEl.setAttribute('data-eta-min', String(nextVal));
+                            if (incomingState != null) currentClockEl.setAttribute('data-train-state', incomingState);
+                            if (typeof RollingClock !== 'undefined') {
+                                RollingClock.ensure(currentClockEl);
+                                RollingClock.update(currentClockEl, nextVal);
+                            }
+                        } else if (incomingClockEl) {
+                            const where = curWrapper.querySelector('.nearest-train-card .train-eta-chip') || curWrapper.querySelector('.nearest-train-card') || curWrapper;
+                            where.appendChild(incomingClockEl);
+                            if (typeof RollingClock !== 'undefined') {
+                                RollingClock.ensure(incomingClockEl);
+                                RollingClock.update(incomingClockEl, nextVal);
+                            }
+                        }
+
                     } else if (incomingEtaEl && !currentEtaEl) {
                         const where = curWrapper.querySelector('.nearest-train-card .train-eta-chip') || curWrapper.querySelector('.nearest-train-card') || curWrapper;
                         where.appendChild(incomingEtaEl);
                         RollingNumber.ensure(incomingEtaEl);
+
+                        const incomingClockEl = newWrapper.querySelector('#eta-clock');
+                        if (incomingClockEl) {
+                            where.appendChild(incomingClockEl);
+                            if (typeof RollingClock !== 'undefined') RollingClock.ensure(incomingClockEl);
+                        }
+
                     } else if (!incomingEtaEl && currentEtaEl) {
                         currentEtaEl.remove();
+                        const currentClockEl = curWrapper.querySelector('#eta-clock');
+                        if (currentClockEl) currentClockEl.remove();
                     }
+
+                    (function preserveVisibility(){
+                        const nowMin   = curWrapper.querySelector('#eta-primary');
+                        const nowClock = curWrapper.querySelector('#eta-clock');
+                        if (prevClockEl && (nowMin || nowClock)) {
+                            const showClock = prevShowClock;
+                            if (nowMin) {
+                                nowMin.hidden = showClock;
+                                nowMin.setAttribute('aria-hidden', showClock ? 'true' : 'false');
+                                nowMin.toggleAttribute('inert', showClock);
+                            }
+                            if (nowClock) {
+                                nowClock.hidden = !showClock;
+                                nowClock.setAttribute('aria-hidden', showClock ? 'false' : 'true');
+                                nowClock.toggleAttribute('inert', !showClock);
+                            }
+                        }
+                    })();
+
                     const incomingList = newWrapper.querySelector('#approaching-list');
                     const currentList  = curWrapper.querySelector('#approaching-list');
                     if (incomingList && currentList) {
@@ -965,6 +1212,25 @@
                         }
                     }
                     if (window.htmx) htmx.process(curWrapper);
+
+                    try {
+                        wireETA(curWrapper);
+                        if (prevClockEl) {
+                            const nowMin   = curWrapper.querySelector('#eta-primary');
+                            const nowClock = curWrapper.querySelector('#eta-clock');
+                            const showClock = prevShowClock;
+                            if (nowMin) {
+                                nowMin.hidden = showClock;
+                                nowMin.setAttribute('aria-hidden', showClock ? 'true' : 'false');
+                                nowMin.toggleAttribute('inert', showClock);
+                            }
+                            if (nowClock) {
+                                nowClock.hidden = !showClock;
+                                nowClock.setAttribute('aria-hidden', showClock ? 'false' : 'true');
+                                nowClock.toggleAttribute('inert', !showClock);
+                            }
+                        }
+                    } catch(_) {}
                     processedNode = curWrapper;
                     st.errors = 0;
                     scheduleNextStopTick(st.baseInterval);
@@ -1073,7 +1339,7 @@
         window.AppDrawers.closeStop = () => { const p = document.getElementById('drawer'); p && p.__closeStopDrawer && p.__closeStopDrawer(); };
     }
 
-    // ------------------ Init & observers ------------------
+// ------------------ Init & observers ------------------
 
     let trainsRefreshDelegatedBound = false;
     function bindGlobalTrainsRefreshDelegation() {
@@ -1172,6 +1438,9 @@
         bindGlobalStopLinkDelegation();
         bindGlobalTrainsRefreshDelegation();
         bindGlobalDrawerCloseDelegation();
+        bindGlobalEtaToggleDelegation();
+
+        wireETA(root);
     }
 
     document.addEventListener('DOMContentLoaded', () => init());
@@ -1201,6 +1470,10 @@
                     node.querySelector?.('a[href*="/stops/"]')) {
                     bindStopDrawer(document);
                     disableBoostForStopLinks(node);
+                }
+
+                if (node.querySelector?.('.train-eta-chip') || node.matches?.('.train-eta-chip')) {
+                    wireETA(node);
                 }
             });
         }
