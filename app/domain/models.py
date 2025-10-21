@@ -102,7 +102,7 @@ class Station:
     cor_tren_ld: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass
 class Stop:
     stop_id: str
     station_id: str
@@ -116,6 +116,11 @@ class Stop:
     nucleus_id: str | None = None
     slug: str | None = None
 
+    habitual_platform: str | None = None
+    habitual_confidence: float | None = None
+    habitual_publishable: bool = False
+    habitual_last_seen_epoch: float | None = None
+
     def distance_km_to(self, lat: float, lon: float) -> float:
         if self.lat is None or self.lon is None:
             return float("inf")
@@ -126,6 +131,11 @@ class Stop:
         a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
         c = 2 * asin(sqrt(a))
         return R * c
+
+    @property
+    def habitual_display(self) -> str:
+        p = (self.habitual_platform or "").strip()
+        return p if (self.habitual_publishable and p) else "?"
 
 
 @dataclass(frozen=True)

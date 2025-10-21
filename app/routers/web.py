@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 
 from app.services.lines_index import get_index as get_lines_index
 from app.services.live_trains_cache import get_live_trains_cache
+from app.services.platform_habits import get_service as get_platform_habits
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
@@ -468,6 +469,15 @@ def stop_detail(
         s = cache.seen_info(tid) or {}
         nearest_age[tid] = s.get("age_s")
 
+    habits = get_platform_habits()
+    pred = habits.habitual_for(
+        nucleus=nucleus,
+        route_id=route.route_id,
+        stop_id=stop.stop_id,
+    )
+    habitual_platform = pred.primary if pred and pred.publishable else None
+    habitual_publishable = bool(pred.publishable) if pred else False
+
     is_htmx = request.headers.get("HX-Request") == "true"
 
     if is_htmx:
@@ -482,6 +492,8 @@ def stop_detail(
                 "nearest_last_seen": nearest_age,
                 "repo": repo,
                 "last_snapshot": cache.last_snapshot_iso(),
+                "habitual_platform": habitual_platform,
+                "habitual_publishable": habitual_publishable,
             },
         )
 
@@ -496,6 +508,8 @@ def stop_detail(
             "nearest_trains": nearest,
             "nearest_age": nearest_age,
             "open_stop_id": station_id,
+            "habitual_platform": habitual_platform,
+            "habitual_publishable": habitual_publishable,
         },
     )
 

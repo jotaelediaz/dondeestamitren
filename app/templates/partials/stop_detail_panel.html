@@ -26,7 +26,13 @@
 				
 				{% set sid_s = stop.stop_id|string %}
 				{% set map = nearest.platform_by_stop|default({}) %}
-				{% set plat = map.get(sid_s) or map.get(stop.stop_id) or nearest.platform %}
+				{% set live_plat = map.get(sid_s) or map.get(stop.stop_id) %}
+				{% set habitual_plat = habitual_platform %}
+				
+				{% set show_plat = (live_plat or habitual_plat or '?') %}
+				{% set is_live_for_this_stop = live_plat is not none and live_plat|string %}
+				{% set platform_src = 'live' if is_live_for_this_stop else ('habitual' if habitual_plat else 'none') %}
+				
 				{% set age = (nearest_last_seen or {}).get(nearest.train_id) %}
 				{% set is_stale = (age or 0) > 900 %}
 				{% set is_semi = not is_stale and (age or 0) > 30 %}
@@ -38,55 +44,54 @@
 							{% set is_origin_stop = (origin_sid and stop.stop_id == origin_sid) %}
 							
 							{% set note = nearest_eta.note or '' %}
-							{% set is_real = note.startswith('tu:') %}
-							{% set is_sched = note.startswith('sched:') %}
+							{% set live_label = 'En tiempo real' if note.startswith('tu:') else ('Tren programado' if note.startswith('sched:') else 'Tiempo aproximado') %}
 							
 							<div class="nearest-train-header eta-header" id="eta-label-{{ stop.stop_id }}">
-{#                <span class="live-pill {{ 'is-stale' if is_stale else ('is-semi-stale' if is_semi else '') }}"
+								{#                <span class="live-pill {{ 'is-stale' if is_stale else ('is-semi-stale' if is_semi else '') }}"
                       role="status"
                       aria-live="polite"
                       aria-label="{{ 'Se perdió la pista al tren hace más de 30 segundos' if (is_stale or is_semi) else 'En directo' }}"
                       title="{{ 'Se perdió la pista al tren hace más de 30 segundos' if (is_stale or is_semi) else 'En directo' }}">
                   <i class="dot" aria-hidden="true"></i>
                 </span>#}
-								{%- set live_label = 'En tiempo real' if (nearest_eta.note or '').startswith('tu:') else ('Tren programado' if (nearest_eta.note or '').startswith('sched:') else 'Tiempo aproximado') -%}
-								<span class="live-pill {{ 'is-tu' if (nearest_eta.note or '').startswith('tu:') else ('is-sched' if (nearest_eta.note or '').startswith('sched:') else 'is-est') }}"
+                <span class="live-pill {{ 'is-tu' if note.startswith('tu:') else ('is-sched' if note.startswith('sched:') else 'is-est') }}"
                       role="status"
                       aria-live="polite"
-								      aria-label="{{ live_label }}"
+                      aria-label="{{ live_label }}"
                       title="{{ live_label }}">
                   <i class="dot" aria-hidden="true"></i>
                 </span>
 								{{ 'Salida del tren en:' if is_origin_stop else 'Próximo tren en:' }}
 							</div>
-						<div class="train-eta-output-wrapper">
-							<output id="eta-primary"
-							        class="train-eta-time"
-							        role="status"
-							        aria-live="polite"
-							        aria-atomic="true"
-							        aria-labelledby="eta-label-{{ stop.stop_id }}"
-							        data-eta-min="{{ nearest_eta.minutes_rounded|int }}"
-							        data-train-state="{{ nearest.current_status or '' }}">
-								<time datetime="PT{{ nearest_eta.minutes_rounded|int }}M">
-									{{ nearest_eta.minutes_rounded|int }}
-								</time>
-								<span class="unit">min</span>
-							</output>
 							
-							<output id="eta-clock"
-							        class="train-eta-time is-clock"
-							        role="status"
-							        aria-live="polite"
-							        aria-atomic="true"
-							        aria-labelledby="eta-label-{{ stop.stop_id }}"
-							        data-eta-min="{{ nearest_eta.minutes_rounded|int }}"
-							        data-train-state="{{ nearest.current_status or '' }}"
-							        hidden aria-hidden="true" inert>
-								<time datetime="">--:--</time>
-								<span class="unit">h</span>
-							</output>
-						</div>
+							<div class="train-eta-output-wrapper">
+								<output id="eta-primary"
+								        class="train-eta-time"
+								        role="status"
+								        aria-live="polite"
+								        aria-atomic="true"
+								        aria-labelledby="eta-label-{{ stop.stop_id }}"
+								        data-eta-min="{{ nearest_eta.minutes_rounded|int }}"
+								        data-train-state="{{ nearest.current_status or '' }}">
+									<time datetime="PT{{ nearest_eta.minutes_rounded|int }}M">
+										{{ nearest_eta.minutes_rounded|int }}
+									</time>
+									<span class="unit">min</span>
+								</output>
+								
+								<output id="eta-clock"
+								        class="train-eta-time is-clock"
+								        role="status"
+								        aria-live="polite"
+								        aria-atomic="true"
+								        aria-labelledby="eta-label-{{ stop.stop_id }}"
+								        data-eta-min="{{ nearest_eta.minutes_rounded|int }}"
+								        data-train-state="{{ nearest.current_status or '' }}"
+								        hidden aria-hidden="true" inert>
+									<time datetime="">--:--</time>
+									<span class="unit">h</span>
+								</output>
+							</div>
 							
 							{% set second_pair = nearest_trains[1] if nearest_trains|length > 1 else None %}
 							<div class="second-train-approaching">
@@ -102,16 +107,20 @@
 							</div>
 						</div>
 						
-						{% if plat %}
-							<div class="platform-chip">
-								<div class="train-platform-badge" aria-labelledby="platform-label-{{ stop.stop_id }}">
-									<div class="nearest-train-header platform-header" id="platform-label-{{ stop.stop_id }}">Vía</div>
-									<div class="platform-badge" data-platform="{{ plat }}">
-										<data value="{{ plat }}"><span class="platform-unit">{{ plat }}</span></data>
-									</div>
+						<div class="platform-chip">
+							{% set base_cls = 'is-live' if platform_src=='live' else ('is-habitual' if platform_src=='habitual' else 'is-unknown') %}
+							{% set live_norm = (live_plat or '')|string|trim|upper %}
+							{% set habit_norm = (habitual_platform or '')|string|trim|upper %}
+							{% set has_habitual = habit_norm and habit_norm != '?' %}
+							<div class="train-platform-badge" aria-labelledby="platform-label-{{ stop.stop_id }}">
+								<div class="nearest-train-header platform-header" id="platform-label-{{ stop.stop_id }}">
+									Vía
+								</div>
+								<div class="platform-badge {{ base_cls }}{% if platform_src=='live' and has_habitual and live_norm and live_norm != habit_norm %} exceptional-platform{% endif %}" data-platform="{{ show_plat }}" data-src="{{ platform_src }}">
+									<data value="{{ show_plat }}"><span class="platform-unit">{{ show_plat }}</span></data>
 								</div>
 							</div>
-						{% endif %}
+						</div>
 					{% endif %}
 				</div>
 				
@@ -123,7 +132,7 @@
 						<div class="train-id-badge">
 							<a href="/trains/{{ nucleus.slug }}/{{ nearest.train_id }}"
 							   aria-label="Ver detalle del tren {{ nearest.train_id }}">
-							<data value="{{ nearest.train_id }}">Tren <span class="train-id-unit">{{ nearest.train_id }}</span></data>
+								<data value="{{ nearest.train_id }}">Tren <span class="train-id-unit">{{ nearest.train_id }}</span></data>
 							</a>
 						</div>
 					</div>

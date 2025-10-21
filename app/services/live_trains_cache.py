@@ -14,6 +14,7 @@ from app.domain.live_models import (
     parse_train_gtfs_json,
     parse_train_gtfs_pb,
 )
+from app.services.platform_habits import get_service as get_platform_habits
 from app.services.renfe_client import get_client
 from app.services.routes_repo import get_repo as get_lines_repo
 from app.services.trip_updates_cache import get_trip_updates_cache
@@ -75,6 +76,46 @@ class LiveTrainsCache:
             return None
         return val
 
+    def _maybe_record_platform_habit(self, tp: TrainPosition, platform: str) -> None:
+        try:
+            status = (
+                getattr(tp, "current_status", None)
+                or getattr(tp, "currentStatus", None)
+                or getattr(tp, "status", None)
+                or ""
+            )
+            status = str(status).upper()
+            if status not in {"INCOMING_AT", "STOPPED_AT"}:
+                return
+
+            stop_id = (getattr(tp, "stop_id", None) or "").strip()
+            if not stop_id:
+                return
+
+            route_id = (getattr(tp, "route_id", None) or "").strip()
+            if not route_id:
+                return
+
+            nucleus = (
+                getattr(tp, "nucleus_slug", None) or self._nucleus_for_stop(stop_id) or ""
+            ).strip()
+
+            epoch = None
+            with contextlib.suppress(Exception):
+                t = int(getattr(tp, "timestamp", 0) or 0)
+                epoch = float(t) if t > 0 else None
+
+            svc = get_platform_habits()
+            svc.observe(
+                nucleus=nucleus,
+                route_id=route_id,
+                stop_id=stop_id,
+                platform=str(platform),
+                epoch=epoch,
+            )
+        except Exception:
+            pass
+
     def _enrich_platform_from_parsed_train(self, tp: TrainPosition) -> None:
         label = getattr(tp, "label", None)
         platform = self.extract_platform_from_label(label)
@@ -90,6 +131,7 @@ class LiveTrainsCache:
                     mapping = {}
                     tp.platform_by_stop = mapping
                 mapping[str(sid)] = platform
+                self._maybe_record_platform_habit(tp, platform)
 
     # -------- Internals: logging --------
     def _log(self, stage: str, **kv) -> None:
@@ -191,7 +233,7 @@ class LiveTrainsCache:
     # ---------------- Parity helpers ----------------
 
     _NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
-    _PLATF_TOKEN_RE = re.compile(r"PLATF\.\(\s*\d+\s*\)", re.IGNORECASE)
+    _PLATF_TOKEN_RE = re.compile(r"PLATF\.\(\s*[0-9A-Z]+\s*\)", re.IGNORECASE)
 
     @classmethod
     def _extract_train_number(cls, tp: TrainPosition) -> int | None:

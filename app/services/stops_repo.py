@@ -1,6 +1,7 @@
 # app/services/stops_repo.py
 from __future__ import annotations
 
+import contextlib
 import threading
 import time as _time
 from collections import defaultdict
@@ -11,6 +12,7 @@ from typing import Any
 
 from app.domain.models import Stop
 from app.services.live_trains_cache import get_live_trains_cache
+from app.services.platform_habits import get_service as get_platform_habits
 from app.services.routes_repo import get_repo as get_lines_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.trips_repo import get_repo as get_trips_repo
@@ -124,6 +126,82 @@ class StopsRepo:
             self._by_route_dir[(rid, did_norm)].sort(key=lambda x: x.seq)
 
     # ---------- internals: helpers ----------
+
+    def _build_platform_info_for(
+        self,
+        nucleus_slug: str,
+        route_id: str,
+        direction_id: str,
+        stop: Stop,
+        train: Any,
+    ) -> dict:
+        svc = get_platform_habits()
+
+        try:
+            observed = (getattr(train, "platform_by_stop", {}) or {}).get(stop.stop_id)
+        except Exception:
+            observed = None
+
+        line_id = ""
+        with contextlib.suppress(Exception):
+            lrepo = get_lines_repo()
+            lv = lrepo._by_route_dir.get(
+                (route_id or "", direction_id or "")
+            ) or lrepo._by_route_dir.get((route_id or "", ""))
+            if lv:
+                line_id = (getattr(lv, "line_id", "") or "").strip()
+
+        pred = svc.habitual_for(
+            nucleus=(nucleus_slug or "").strip().lower(),
+            route_id=(route_id or ""),
+            direction_id=str(direction_id or ""),
+            line_id=str(line_id or ""),
+            stop_id=stop.stop_id,
+            station_id=str(getattr(stop, "station_id", "") or ""),
+        )
+
+        predicted_label = None
+        predicted_alt = None
+        if pred.primary:
+            try:
+                f1 = float(pred.all_freqs.get(pred.primary, 0.0))
+                f2 = float(pred.all_freqs.get(pred.secondary, 0.0)) if pred.secondary else 0.0
+            except Exception:
+                f1, f2 = pred.confidence, 0.0
+
+            if (pred.confidence < 0.6) and pred.secondary and (f1 - f2) < 0.15:
+                predicted_alt = f"{pred.primary} ó {pred.secondary}"
+            else:
+                predicted_label = pred.primary
+
+        source = "predicted"
+        changed = False
+
+        if observed:
+            source = "observed"
+            if predicted_label and observed != predicted_label:
+                changed = True
+        elif pred.publishable and (predicted_label or predicted_alt):
+            source = "predicted"
+        else:
+            pass
+
+        info = {
+            "observed": observed,
+            "predicted": predicted_label,
+            "predicted_alt": predicted_alt,
+            "confidence": round(float(pred.confidence or 0.0), 3),
+            "n_effective": round(float(pred.n_effective or 0.0), 2),
+            "last_seen_epoch": pred.last_seen_epoch,
+            "publishable": bool(pred.publishable),
+            "source": source,
+            "changed": bool(changed),
+        }
+
+        with contextlib.suppress(Exception):
+            train.platform_info_for_selected_stop = info
+
+        return info
 
     def _variant_stops(self, rid: str, did: str) -> list[Stop]:
         return self._by_route_dir.get(((rid or ""), (did or "")), [])
@@ -528,6 +606,16 @@ class StopsRepo:
             results = results[:limit]
 
         if not include_eta:
+            nuc = str(getattr(stop, "nucleus_id", "") or "").strip().lower()
+            for r in results:
+                with contextlib.suppress(Exception):
+                    self._build_platform_info_for(
+                        nucleus_slug=nuc,
+                        route_id=r.route_id,
+                        direction_id=r.direction_id,
+                        stop=stop,
+                        train=r.train,
+                    )
             return results
 
         try:
@@ -593,6 +681,17 @@ class StopsRepo:
                     out.append((r, eta))
             except Exception:
                 pass
+        nuc = str(getattr(stop, "nucleus_id", "") or "").strip().lower()
+
+        for r, _eta in out:
+            with contextlib.suppress(Exception):
+                self._build_platform_info_for(
+                    nucleus_slug=nuc,
+                    route_id=r.route_id,
+                    direction_id=r.direction_id,
+                    stop=stop,
+                    train=r.train,
+                )
 
         return out
 

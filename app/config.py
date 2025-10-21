@@ -32,10 +32,15 @@ class Settings(BaseSettings):
     # --- Routes Parity calibration ---
     PARITY_INPUTS_GLOB: str = "app/data/raw/vehicle_positions/**/*.json*"
     PARITY_OUT_JSON: str = "app/data/derived/parity_map.json"
-    PARITY_OVERRIDES_PATH: str | None = "app/data/custom/parity_overrides.json"
+    PARITY_OVERRIDES_PATH: str | None = "app/data/custom/paridad_trenes_renfe.json"
 
     # --- Local Additional Data ---
     MADRID_STATIONS_CSV: str | None = "app/data/custom/listado-estaciones-cercanias-madrid.csv"
+
+    # --- Live polling mode ---
+    LIVE_POLL_MODE: str = "adaptive"
+    IDLE_SLEEP_SECONDS: int = 600  # 10 min without traffic -> sleep
+    FRESHNESS_TOLERANCE_S: int = 35
 
     model_config = SettingsConfigDict(
         env_file=".env",

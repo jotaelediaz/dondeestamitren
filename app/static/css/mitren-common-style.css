@@ -1713,7 +1713,7 @@ ul.chip-list {
 
 .platform-chip {
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
     align-items: center;
     gap: calc(var(--app-margin) / 2);
     margin-right: 0.45rem;
@@ -1755,6 +1755,24 @@ ul.chip-list {
     font-family: 'Sora', sans-serif;
     font-weight: 700;
     font-size: 1.35rem;
+}
+
+.platform-badge.is-unknown {
+    background: var(--jotaele-text-muted);
+}
+
+.platform-badge.exceptional-platform .platform-unit {
+    animation: 0.9s blink-animation-effect infinite;
+}
+
+@keyframes blink-animation-effect {
+    0%, 54%, 100% {
+        opacity: 1;
+    }
+
+    72%, 82% {
+        opacity: 0;
+    }
 }
 
 .second-train-approaching .second-train-label {
