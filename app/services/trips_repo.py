@@ -1,4 +1,3 @@
-# app/services/trips_repo.py
 from __future__ import annotations
 
 import csv
@@ -47,6 +46,7 @@ class TripsRepo:
         ] = {}
 
         self._lock = threading.RLock()
+        self._trip_to_train_number: dict[str, str] = {}
 
     # --------------------------- util csv trips ---------------------------
 
@@ -150,6 +150,7 @@ class TripsRepo:
         self._trip_to_service.clear()
         self._calendar_rows.clear()
         self._sched_by_route_stop.clear()
+        self._trip_to_train_number.clear()
 
         if not os.path.exists(self.trips_csv_path):
             raise FileNotFoundError(f"trips.txt not found: {self.trips_csv_path}")
@@ -168,6 +169,14 @@ class TripsRepo:
             sid = (row.get("service_id") or "").strip()
             if trip_id and sid:
                 self._trip_to_service[trip_id] = sid
+
+            short_name = (row.get("trip_short_name") or "").strip()
+            block_id = (row.get("block_id") or "").strip()
+            headsign = (row.get("trip_headsign") or "").strip()
+            if trip_id:
+                tn = short_name or _extract_train_number(block_id, trip_id, headsign)
+                if tn:
+                    self._trip_to_train_number[trip_id] = tn
 
         self._trip_to_route_up = {k.upper(): v for k, v in self._trip_to_route.items()}
         self._trip_to_direction_up = {k.upper(): v for k, v in self._trip_to_direction.items()}
@@ -625,6 +634,29 @@ class TripsRepo:
         with self._lock:
             self.load()
 
+    def train_number_for_trip(self, trip_id: str) -> str | None:
+        if not trip_id:
+            return None
+        v = self._trip_to_train_number.get(trip_id)
+        if v:
+            return v
+        for cand in self._variants(trip_id):
+            v = self._trip_to_train_number.get(cand)
+            if v:
+                return v
+            v = self._trip_to_train_number.get(cand.upper())
+            if v:
+                return v
+        m = re.match(r"^\d{4}D(.+)$", trip_id.strip(), re.IGNORECASE)
+        if m:
+            suffix = m.group(1).upper()
+            hits = [
+                (k, n) for k, n in self._trip_to_train_number.items() if k.upper().endswith(suffix)
+            ]
+            if len(hits) == 1:
+                return hits[0][1]
+        return None
+
 
 _repo: TripsRepo | None = None
 
@@ -652,3 +684,23 @@ def get_repo() -> TripsRepo:
         _repo = TripsRepo(trips_path, stop_times_csv_path=stop_times_path)
         _repo.load()
     return _repo
+
+
+_NUM_AT_END = re.compile(r"(\d{4,6})(?!.*\d)")
+_NUM_ANY = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
+
+
+def _extract_train_number(*candidates: str | None) -> str | None:
+    for s in candidates:
+        if not s:
+            continue
+        m = _NUM_AT_END.search(s)
+        if m:
+            return m.group(1)
+    for s in candidates:
+        if not s:
+            continue
+        m = _NUM_ANY.search(s)
+        if m:
+            return m.group(1)
+    return None

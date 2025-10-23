@@ -1061,22 +1061,6 @@ ul.chip-list {
     transition: ease 0.2s;
 }
 
-.grid-route-map-station .grid-route-station-name::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 50%;
-    width: 0;
-    height: 0;
-    transform: translateY(-50%);
-    border-top: 12px solid transparent;
-    border-bottom: 12px solid transparent;
-    border-right: 10px solid var(--jotaele-blue);
-    opacity: 0;
-    z-index: -1;
-    transition: opacity 0.18s var(--vt-ease) 0s, left 0.18s var(--vt-ease) 0s;
-}
-
 .grid-route-map-station.origin-station .route-line-fragment {
     height: calc(100% - (var(--icon-dot-size) / 2));
     bottom: 0;
@@ -1610,6 +1594,22 @@ ul.chip-list {
     background-color: var(--jotaele-blue);
     margin-left: 10px;
     transition-delay: 0s, 0s;
+}
+
+.grid-route-map-station .grid-route-station-name::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 0;
+    height: 0;
+    transform: translateY(-50%);
+    border-top: 12px solid transparent;
+    border-bottom: 12px solid transparent;
+    border-right: 10px solid var(--jotaele-blue);
+    opacity: 0;
+    z-index: -1;
+    transition: left 0.18s var(--vt-ease) 0s;
 }
 
 .grid-route-map-station.is-active .grid-route-station-name::before {

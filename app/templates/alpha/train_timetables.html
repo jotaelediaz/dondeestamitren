@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+	<meta charset="utf-8">
+	<title>{{ title or 'Trenes Programados' }}</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+      .meta { color: #666; margin-bottom: 1rem; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border-bottom: 1px solid #ddd; padding: .4rem .5rem; text-align: left; }
+      th { position: sticky; top: 0; background: #fafafa; }
+      .muted { color: #666; font-size: .9em; }
+      .nowrap { white-space: nowrap; }
+      .pager { margin-top: .75rem; display:flex; gap:.5rem; align-items:center; }
+      .pager a { text-decoration:none; padding:.35rem .6rem; border:1px solid #ddd; border-radius:.4rem; }
+	</style>
+</head>
+<body>
+<h1>{{ title or 'Trenes programados' }}</h1>
+<div class="meta">
+	Fecha servicio: <strong>{{ yyyymmdd }}</strong>
+	{% if nucleus %} · Núcleo: <strong>{{ nucleus.name }}</strong>{% endif %}
+	{% if route %} · Ruta: <strong>{{ route.route_id }}</strong> (dir {{ route.direction_id or '—' }}){% endif %}
+	· Resultados: <strong>{{ total }}</strong>
+</div>
+
+<table>
+	<thead>
+	<tr>
+		<th>Nº Tren</th>
+		<th>Salida</th>
+		<th>Ruta</th>
+		<th>Headsign</th>
+		<th>Origen → Destino</th>
+		<th>Trip</th>
+		<th class="nowrap">Paradas</th>
+		<th>Núcleo</th>
+	</tr>
+	</thead>
+	<tbody>
+	{% for r in rows %}
+		<tr>
+			<td class="nowrap">{{ r.train_number or '—' }}</td>
+			<td class="nowrap">{{ r.first_hhmm }} <span class="muted">→ {{ r.last_hhmm }}</span></td>
+			<td class="nowrap"><span class="chip">{{ r.route_id }}</span></td>
+			<td>{{ r.headsign or '—' }}</td>
+			<td class="nowrap">{{ r.origin_name }} <span class="muted">→</span> {{ r.dest_name }}</td>
+			<td class="nowrap"><code>{{ r.trip_id }}</code></td>
+			<td class="nowrap">{{ r.stops_count }}</td>
+			<td class="nowrap">{{ r.nucleus or '—' }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+<div class="pager">
+	{% set base_qs = ('?date=' ~ yyyymmdd ~ '&page_size=' ~ page_size) %}
+	{% if page > 1 %}
+		<a href="{{ request.url.path ~ base_qs ~ '&page=' ~ (page - 1) }}">← Anterior</a>
+	{% endif %}
+	<span class="muted">Página {{ page }}</span>
+	{% if (page * page_size) < total %}
+		<a href="{{ request.url.path ~ base_qs ~ '&page=' ~ (page + 1) }}">Siguiente →</a>
+	{% endif %}
+</div>
+</body>
+</html>

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 @dataclass(frozen=True)
@@ -200,3 +202,141 @@ class ServiceLine:
 
         self._canonical_route_cache = None
         return None
+
+
+@dataclass(frozen=True)
+class ScheduledCall:
+    stop_id: str  # GTFS stop_id
+    stop_sequence: int  # GTFS stop_sequence
+
+    arrival_time: int | None = None
+    departure_time: int | None = None
+
+    stop_headsign: str | None = None
+    pickup_type: int | None = None
+    drop_off_type: int | None = None
+    timepoint: int | None = None
+
+    platform_code: str | None = None
+
+    @property
+    def time_s(self) -> int | None:
+        return self.departure_time if self.departure_time is not None else self.arrival_time
+
+
+@dataclass
+class ScheduledTrain:
+    unique_id: str  # Ephemeral unique id: "{YYYYMMDD}:{trip_id}"
+    trip_id: str
+    service_id: str
+    route_id: str
+    direction_id: str
+    service_date: int
+    headsign: str | None = None
+    train_number: str | None = None
+    nucleus_id: str | None = None
+
+    calls: list[ScheduledCall] = field(default_factory=list)
+
+    bound_live_train_id: str | None = None
+
+    _tz_cache: ZoneInfo | None = field(default=None, repr=False, compare=False)
+    _first_epoch_cache: int | None = field(default=None, repr=False, compare=False)
+    _last_epoch_cache: int | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def is_bound_to_live(self) -> bool:
+        return bool((self.bound_live_train_id or "").strip())
+
+    @property
+    def ordered_calls(self) -> list[ScheduledCall]:
+        return sorted(self.calls, key=lambda c: (c.stop_sequence, c.time_s or 0))
+
+    @property
+    def origin_id(self) -> str | None:
+        oc = self._first_call()
+        return oc.stop_id if oc else None
+
+    @property
+    def destination_id(self) -> str | None:
+        lc = self._last_call()
+        return lc.stop_id if lc else None
+
+    def has_stop(self, stop_id: str) -> bool:
+        sid = (stop_id or "").strip()
+        return any(c.stop_id == sid for c in self.calls)
+
+    def first_departure_epoch(self, tz_name: str = "Europe/Madrid") -> int | None:
+        if self._first_epoch_cache is not None:
+            return self._first_epoch_cache
+        oc = self._first_call()
+        if not oc or (oc.time_s is None):
+            self._first_epoch_cache = None
+            return None
+        self._first_epoch_cache = self._date_time_to_epoch(self.service_date, oc.time_s, tz_name)
+        return self._first_epoch_cache
+
+    def last_arrival_epoch(self, tz_name: str = "Europe/Madrid") -> int | None:
+        if self._last_epoch_cache is not None:
+            return self._last_epoch_cache
+        lc = self._last_call()
+        if not lc or (lc.time_s is None):
+            self._last_epoch_cache = None
+            return None
+        self._last_epoch_cache = self._date_time_to_epoch(self.service_date, lc.time_s, tz_name)
+        return self._last_epoch_cache
+
+    def is_active_window(
+        self, now_epoch: int, tz_name: str = "Europe/Madrid", pad_secs: int = 60 * 10
+    ) -> bool:
+        a = self.first_departure_epoch(tz_name)
+        b = self.last_arrival_epoch(tz_name)
+        if a is None or b is None:
+            return False
+        return (a - pad_secs) <= now_epoch <= (b + pad_secs)
+
+    def stop_epoch(self, stop_id: str, tz_name: str = "Europe/Madrid") -> int | None:
+        call = self._call_for_stop(stop_id)
+        if not call or call.time_s is None:
+            return None
+        return self._date_time_to_epoch(self.service_date, call.time_s, tz_name)
+
+    def eta_seconds(
+        self, stop_id: str, now_epoch: int, tz_name: str = "Europe/Madrid"
+    ) -> int | None:
+        t = self.stop_epoch(stop_id, tz_name)
+        if t is None:
+            return None
+        return t - now_epoch
+
+    def _first_call(self) -> ScheduledCall | None:
+        return (
+            min(self.calls, key=lambda c: (c.stop_sequence, c.time_s or 0)) if self.calls else None
+        )
+
+    def _last_call(self) -> ScheduledCall | None:
+        return (
+            max(self.calls, key=lambda c: (c.stop_sequence, c.time_s or 0)) if self.calls else None
+        )
+
+    def _call_for_stop(self, stop_id: str) -> ScheduledCall | None:
+        sid = (stop_id or "").strip()
+        for c in self.calls:
+            if c.stop_id == sid:
+                return c
+        return None
+
+    def _date_time_to_epoch(self, yyyymmdd: int, seconds_since_midnight: int, tz_name: str) -> int:
+        tz = self._tz_cache or ZoneInfo(tz_name)
+        if self._tz_cache is None:
+            self._tz_cache = tz
+
+        y = yyyymmdd // 10000
+        m = (yyyymmdd % 10000) // 100
+        d = yyyymmdd % 100
+
+        days_offset, secs = divmod(max(0, seconds_since_midnight), 24 * 3600)
+
+        base = datetime(y, m, d, tzinfo=tz)
+        dt_local = base + timedelta(days=days_offset, seconds=secs)
+        return int(dt_local.timestamp())

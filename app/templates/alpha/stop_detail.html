@@ -12,7 +12,9 @@
 		<li><strong>Punto kilométrico:</strong> {{ '%.1f'|format(stop.km) }} km</li>
 		<li><strong>Destino de la ruta:</strong>→ {{repo.get_stop_name(repo.route_destination(route.route_id)) or '—' }}</li>
 		<li class="coords"><strong>Coordenadas:</strong> {{ '%.5f'|format(stop.lat) }}, {{ '%.5f'|format(stop.lon) }}</li>
+		<li><strong>Vía habitual:</strong> {% if habitual_platform %}{{ habitual_platform.primary }} <i>(Confianza: {{ (habitual_platform.confidence * 100)|round(2) }}% — Publicada: {{ 'Sí' if habitual_platform.publishable else 'No' }})</i> {% if habitual_platform.secondary %} | Secundaria: {{ habitual_platform.secondary }} {% endif %}</li>{% else %}???{% endif %}
 	</ul>
+	
 	<p>➜ <a href="/alpha/stations/{{ nucleus.slug }}/{{ stop.station_id | urlencode }}">Ver ficha de estación</a></p>
 </header>
 

@@ -17,6 +17,7 @@ from app.routers.lines_api import router as lines_api
 from app.routers.live_api import router as live_api_router
 from app.routers.prefs_api import router as prefs_router
 from app.routers.web import router as web_router
+from app.routers.web_admin import router as web_admin_router
 from app.routers.web_alpha import router as web_alpha_router
 from app.services.gtfs_static_manager import STORE_ROOT
 from app.services.live_trains_cache import get_live_trains_cache
@@ -189,3 +190,6 @@ app.include_router(prefs_router)
 alpha_app = FastAPI(docs_url=None, redoc_url=None)
 alpha_app.include_router(web_alpha_router)
 app.mount("/alpha", alpha_app)
+
+# --- Admin endpoints ---
+app.include_router(web_admin_router)

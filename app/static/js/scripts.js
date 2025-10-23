@@ -212,7 +212,7 @@
         }
         function _pad2(n){ return String(Math.max(0, Math.min(99, Number(n)||0))).padStart(2,'0'); }
         function _state(el){ return ((el.getAttribute('data-train-state')||el.getAttribute('data-state')||'')+'').toLowerCase().trim(); }
-        function _isStopped(st){ return st.includes('parado') || st.includes('estación') || st==='stopped' || st==='station_stop'; }
+        function _isStopped(st){ return st.includes('stopped_at'); }
 
         function _measureStepPx(el){
             const s = el.querySelector('.rolling-number__digits > span');

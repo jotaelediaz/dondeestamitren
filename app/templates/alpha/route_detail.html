@@ -15,10 +15,11 @@
 		<th>KM</th>
 		<th>Coordenadas</th>
 		<th>% línea</th>
+		<th>Vía habitual</th>
 	</tr>
 	</thead>
 	<tbody>
-	{% for s in route.stations %}
+	{% for s in stops %}
 		{% set pct = (s.km / (route.length_km or 1)) * 100 %}
 		<tr>
 			<td>{{ s.seq + 1 }}</td>
@@ -31,6 +32,7 @@
 			<td>{{ '%.1f'|format(s.km) }}</td>
 			<td>{{ '%.5f'|format(s.lat) }}, {{ '%.5f'|format(s.lon) }}</td>
 			<td>{{ '%.0f'|format(pct) }}%</td>
+			<td>{{ 'Vía ' + s.habitual_platform if s.habitual_platform else '' }}</td>
 		</tr>
 	{% endfor %}
 	</tbody>
@@ -52,10 +54,12 @@
 			<th>Estado</th>
 			<th>Parada actual</th>
 			<th>Posición</th>
+			<th>Vía en directo</th>
 		</tr>
 		</thead>
 		<tbody>
 		{% for t in trains %}
+			{{ t }}
 			<tr>
 				<td><a href="/alpha/trains/{{ nucleus.slug }}/{{ t.train_id }}">{{ t.train_id }}</a></td>
 				<td>{{ t.route_id }}</td>
@@ -68,6 +72,9 @@
 					{% if t.lat and t.lon %}
 						{{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}
 					{% else %}—{% endif %}
+				</td>
+				<td>
+					{{ t.platform }}
 				</td>
 			</tr>
 		{% endfor %}

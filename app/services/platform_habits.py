@@ -38,7 +38,7 @@ def _decay_weight(age_days: float, half_life_days: float) -> float:
 
 
 @dataclass
-class HabitPrediction:
+class PlatformHabitPrediction:
     primary: str | None = None
     secondary: str | None = None
     confidence: float = 0.0
@@ -125,7 +125,7 @@ class PlatformHabits:
         route_id: str | None,
         stop_id: str | None,
         now_epoch: float | None = None,
-    ) -> HabitPrediction:
+    ) -> PlatformHabitPrediction:
         now = now_epoch if now_epoch is not None else _now()
         rid = (route_id or "").strip() if route_id else ""
         given_nuc = (nucleus or "").strip().lower()
@@ -136,7 +136,9 @@ class PlatformHabits:
             agg = self._aggregate(key_set, now)
             if agg:
                 return self._decide(agg, now)
-        return HabitPrediction(primary=None, publishable=False, n_effective=0.0, all_freqs={})
+        return PlatformHabitPrediction(
+            primary=None, publishable=False, n_effective=0.0, all_freqs={}
+        )
 
     def export_csv(self) -> None:
         rows = []
@@ -144,7 +146,7 @@ class PlatformHabits:
         with self._lock:
             for key, _platform_map in self.store.items():
                 agg = self._aggregate({key}, now)
-                pred = self._decide(agg, now) if agg else HabitPrediction()
+                pred = self._decide(agg, now) if agg else PlatformHabitPrediction()
                 (nucleus, route, stop) = key
                 rows.append(
                     {
@@ -252,9 +254,11 @@ class PlatformHabits:
                     res[plat] = (cur_w + w_sum, max(cur_last, last_seen))
         return res
 
-    def _decide(self, agg: dict[str, tuple[float, float]], now: float) -> HabitPrediction:
+    def _decide(self, agg: dict[str, tuple[float, float]], now: float) -> PlatformHabitPrediction:
         if not agg:
-            return HabitPrediction(primary=None, publishable=False, n_effective=0.0, all_freqs={})
+            return PlatformHabitPrediction(
+                primary=None, publishable=False, n_effective=0.0, all_freqs={}
+            )
         total_w = sum(w for (w, _) in agg.values())
         freqs = {p: (w / total_w) for p, (w, _) in agg.items()}
         ordered = sorted(freqs.items(), key=lambda kv: kv[1], reverse=True)
@@ -264,7 +268,7 @@ class PlatformHabits:
         last_seen = max(ls for (_, ls) in agg.values()) if agg else None
         age_days = ((now - last_seen) / 86400.0) if last_seen else 1e9
         publishable = (total_w >= PUBLISH_MIN_EFFECTIVE) and (age_days <= STALE_MAX_DAYS)
-        return HabitPrediction(
+        return PlatformHabitPrediction(
             primary=primary,
             secondary=secondary,
             confidence=confidence,

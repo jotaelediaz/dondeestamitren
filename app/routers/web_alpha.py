@@ -2,6 +2,8 @@
 import re
 import time
 from contextlib import suppress
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
@@ -9,7 +11,9 @@ from fastapi.templating import Jinja2Templates
 
 from app.services.lines_index import get_index as get_lines_index
 from app.services.live_trains_cache import LiveTrainsCache, get_live_trains_cache
+from app.services.platform_habits import get_service as get_platform_habits
 from app.services.routes_repo import get_repo as get_routes_repo
+from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.trip_updates_cache import get_trip_updates_cache
@@ -195,6 +199,18 @@ def compute_confidence_badge(train, routes_repo, trips_repo):
     return badge
 
 
+def _today_yyyymmdd(tz_name: str = "Europe/Madrid") -> int:
+    dt = datetime.now(ZoneInfo(tz_name))
+    return int(dt.strftime("%Y%m%d"))
+
+
+def _fmt_hhmm(epoch: int | None, tz_name: str = "Europe/Madrid") -> str:
+    if epoch is None:
+        return "—"
+    dt = datetime.fromtimestamp(int(epoch), ZoneInfo(tz_name))
+    return dt.strftime("%H:%M")
+
+
 def _stu_epoch(stu):
     return getattr(stu, "arrival_time", None) or getattr(stu, "departure_time", None)
 
@@ -358,34 +374,113 @@ def nucleus_routes(request: Request, nucleus: str):
 def route_page_by_id(
     request: Request, nucleus: str, route_id: str, direction_id: str = Query(default="")
 ):
-    repo = get_routes_repo()
+    from app.services.live_trains_cache import get_live_trains_cache
+    from app.services.routes_repo import get_repo as get_routes_repo
+    from app.services.stops_repo import get_repo as get_stops_repo
+
+    rrepo = get_routes_repo()
+    srepo = get_stops_repo()
     cache = get_live_trains_cache()
+
     nucleus = (nucleus or "").lower()
-    route = repo.get_by_route_and_dir(route_id, direction_id or "")
-    if not route:
-        raise HTTPException(404, f"I can't find {route_id}.")
+
+    wanted_did = (direction_id or "").strip()
+    try_dids = [d for d in [wanted_did, "", "0", "1"] if d != "" or wanted_did == ""]
+    found = []
+    seen = set()
+    for did in try_dids:
+        if did in seen:
+            continue
+        seen.add(did)
+        lv = rrepo.get_by_route_and_dir(route_id, did)
+        if lv:
+            found.append(lv)
+
+    if not found:
+        raise HTTPException(404, f"I can't find route_id '{route_id}' in any direction.")
+
+    route = next((lv for lv in found if (lv.nucleus_id or "").lower() == nucleus), found[0])
+
     if (route.nucleus_id or "").lower() != nucleus:
-        raise HTTPException(404, f"That route doesn't belong to nucleus {nucleus}")
+        raise HTTPException(
+            404,
+            f"Route {route_id} exists but not in nucleus '{nucleus}'. "
+            f"Found nucleus='{(route.nucleus_id or '').lower()}'",
+        )
 
     trains = cache.get_by_nucleus_and_route(nucleus, route_id)
 
-    # --- expected parity bit for this route+direction (0=even, 1=odd)
-    even_did = repo.dir_for_parity(route_id, "even")
-    odd_did = repo.dir_for_parity(route_id, "odd")
+    even_did = rrepo.dir_for_parity(route_id, "even")
+    odd_did = rrepo.dir_for_parity(route_id, "odd")
     expected_parity_bit = None
     if route.direction_id == (even_did or ""):
         expected_parity_bit = 0
     elif route.direction_id == (odd_did or ""):
         expected_parity_bit = 1
 
+    stops = srepo.list_by_route(route.route_id, route.direction_id or "")
+    platform_info_by_stop: dict[str, dict] = {}
+    nuc_slug = (route.nucleus_id or nucleus).strip().lower()
+
+    import inspect
+
+    hf = get_platform_habits().habitual_for
+    hf_params = set(inspect.signature(hf).parameters.keys())
+
+    for s in stops:
+        cand = {
+            "nucleus": nuc_slug,
+            "route_id": route.route_id,
+            "direction_id": route.direction_id or "",
+            "line_id": getattr(route, "line_id", "") or "",
+            "stop_id": s.stop_id,
+            "station_id": s.station_id or "",
+        }
+        kwargs = {k: v for k, v in cand.items() if k in hf_params}
+        pred = hf(**kwargs)
+
+        predicted_label = None
+        predicted_alt = None
+        if getattr(pred, "primary", None):
+            try:
+                f1 = float(pred.all_freqs.get(pred.primary, 0.0))
+                f2 = float(pred.all_freqs.get(pred.secondary, 0.0)) if pred.secondary else 0.0
+            except Exception:
+                f1, f2 = float(pred.confidence or 0.0), 0.0
+            if (float(pred.confidence or 0.0) < 0.6) and pred.secondary and (f1 - f2) < 0.15:
+                predicted_alt = f"{pred.primary} ó {pred.secondary}"
+            else:
+                predicted_label = pred.primary
+
+        info = {
+            "observed": None,
+            "predicted": predicted_label,
+            "predicted_alt": predicted_alt,
+            "confidence": round(float(getattr(pred, "confidence", 0.0) or 0.0), 3),
+            "n_effective": round(float(getattr(pred, "n_effective", 0.0) or 0.0), 2),
+            "last_seen_epoch": getattr(pred, "last_seen_epoch", None),
+            "publishable": bool(getattr(pred, "publishable", False)),
+            "source": "predicted" if (predicted_label or predicted_alt) else "none",
+            "changed": False,
+        }
+        platform_info_by_stop[s.stop_id] = info
+
+        label = info["observed"] or info["predicted"] or info["predicted_alt"]
+        s.habitual_platform = label if (info["publishable"] and label) else None
+        s.habitual_confidence = info["confidence"]
+        s.habitual_publishable = info["publishable"]
+        s.habitual_last_seen_epoch = info["last_seen_epoch"]
+
     return templates.TemplateResponse(
         "route_detail.html",
         {
             "request": request,
             "route": route,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus, rrepo),
             "trains": trains,
-            "repo": repo,
+            "repo": rrepo,
+            "stops": stops,
+            "platform_info_by_stop": platform_info_by_stop,
             "last_source": cache.last_source(),
             "expected_parity_bit": expected_parity_bit,
             "last_snapshot": cache.last_snapshot_iso(),
@@ -525,6 +620,13 @@ def stop_detail(
         allow_passed_max_km=10.0,
     )
 
+    habits = get_platform_habits()
+    pred = habits.habitual_for(
+        nucleus=nucleus,
+        route_id=route.route_id,
+        stop_id=stop.stop_id,
+    )
+
     return templates.TemplateResponse(
         "stop_detail.html",
         {
@@ -534,6 +636,7 @@ def stop_detail(
             "stop": stop,
             "nearest_trains": nearest,
             "repo": routes_repo,
+            "habitual_platform": pred,
         },
     )
 
@@ -859,5 +962,245 @@ def trip_update_detail(request: Request, trip_id: str):
             "rows": rows,
             "last_snapshot": tuc.last_snapshot_iso(),
             "last_source": tuc.last_source(),
+        },
+    )
+
+
+# --- TRAIN TIMETABLES (Scheduled) ---
+
+
+@router.get("/train-timetables", response_class=HTMLResponse)
+def train_timetables_all(
+    request: Request,
+    date: int | None = Query(default=None, description="YYYYMMDD en zona local"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=200, ge=10, le=2000),
+):
+    tz = "Europe/Madrid"
+    rrepo = get_routes_repo()
+    srepo = get_scheduled_repo()
+
+    yyyymmdd = int(date) if date else _today_yyyymmdd(tz)
+    items = srepo.list_for_date(yyyymmdd)
+
+    rows = []
+    for sch in items:
+        first_ep = sch.first_departure_epoch(tz_name=tz)
+        last_ep = sch.last_arrival_epoch(tz_name=tz)
+
+        o_sid = sch.origin_id
+        d_sid = sch.destination_id
+        o_name = rrepo.get_stop_name(str(o_sid)) if o_sid else None
+        d_name = rrepo.get_stop_name(str(d_sid)) if d_sid else None
+
+        nuc = (rrepo.nucleus_for_route_id(sch.route_id) or "").strip().lower()
+        rows.append(
+            {
+                "trip_id": sch.trip_id,
+                "route_id": sch.route_id,
+                "direction_id": sch.direction_id,
+                "train_number": sch.train_number,
+                "headsign": sch.headsign,
+                "origin_id": o_sid,
+                "origin_name": o_name or o_sid or "",
+                "dest_id": d_sid,
+                "dest_name": d_name or d_sid or "",
+                "first_epoch": first_ep,
+                "first_hhmm": _fmt_hhmm(first_ep, tz),
+                "last_epoch": last_ep,
+                "last_hhmm": _fmt_hhmm(last_ep, tz),
+                "nucleus": nuc or None,
+                "stops_count": len(sch.calls),
+            }
+        )
+
+    rows.sort(key=lambda r: (r["first_epoch"] is None, r["first_epoch"] or 0, r["trip_id"]))
+
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_rows = rows[start:end]
+
+    return templates.TemplateResponse(
+        "train_timetables.html",
+        {
+            "request": request,
+            "rows": page_rows,
+            "repo": rrepo,
+            "nucleus": None,
+            "route": None,
+            "yyyymmdd": yyyymmdd,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "title": "Programados — Todos",
+        },
+    )
+
+
+@router.get("/train-timetables/{nucleus}", response_class=HTMLResponse)
+def train_timetables_by_nucleus(
+    request: Request,
+    nucleus: str,
+    date: int | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=200, ge=10, le=2000),
+):
+    tz = "Europe/Madrid"
+    rrepo = get_routes_repo()
+    srepo = get_scheduled_repo()
+
+    nucleus = (nucleus or "").strip().lower()
+    nuclei = [n.get("slug") for n in rrepo.list_nuclei()]
+    if nucleus not in nuclei:
+        raise HTTPException(404, "That nucleus doesn't exist.")
+
+    yyyymmdd = int(date) if date else _today_yyyymmdd(tz)
+    items = srepo.list_for_date(yyyymmdd)
+
+    rows = []
+    for sch in items:
+        rid = sch.route_id
+        n = (rrepo.nucleus_for_route_id(rid) or "").strip().lower()
+        if n != nucleus:
+            continue
+
+        first_ep = sch.first_departure_epoch(tz_name=tz)
+        last_ep = sch.last_arrival_epoch(tz_name=tz)
+        o_sid, d_sid = sch.origin_id, sch.destination_id
+        o_name = rrepo.get_stop_name(str(o_sid)) if o_sid else None
+        d_name = rrepo.get_stop_name(str(d_sid)) if d_sid else None
+
+        rows.append(
+            {
+                "trip_id": sch.trip_id,
+                "route_id": sch.route_id,
+                "direction_id": sch.direction_id,
+                "headsign": sch.headsign,
+                "origin_id": o_sid,
+                "origin_name": o_name or o_sid or "",
+                "dest_id": d_sid,
+                "dest_name": d_name or d_sid or "",
+                "train_number": sch.train_number,
+                "first_epoch": first_ep,
+                "first_hhmm": _fmt_hhmm(first_ep, tz),
+                "last_epoch": last_ep,
+                "last_hhmm": _fmt_hhmm(last_ep, tz),
+                "nucleus": nucleus,
+                "stops_count": len(sch.calls),
+            }
+        )
+
+    rows.sort(key=lambda r: (r["first_epoch"] is None, r["first_epoch"] or 0, r["trip_id"]))
+
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_rows = rows[start:end]
+
+    return templates.TemplateResponse(
+        "train_timetables.html",
+        {
+            "request": request,
+            "rows": page_rows,
+            "repo": rrepo,
+            "nucleus": mk_nucleus(nucleus, rrepo),
+            "route": None,
+            "yyyymmdd": yyyymmdd,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "title": f"Programados — Núcleo {nucleus.upper()}",
+        },
+    )
+
+
+@router.get("/train-timetables/{nucleus}/{route_id}", response_class=HTMLResponse)
+def train_timetables_by_route(
+    request: Request,
+    nucleus: str,
+    route_id: str,
+    date: int | None = Query(default=None),
+    direction_id: str = Query(default="", description="'' | '0' | '1' (opcional)"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=200, ge=10, le=2000),
+):
+    tz = "Europe/Madrid"
+    rrepo = get_routes_repo()
+    srepo = get_scheduled_repo()
+
+    nucleus = (nucleus or "").strip().lower()
+    yyyymmdd = int(date) if date else _today_yyyymmdd(tz)
+
+    lv_any = (
+        rrepo.get_by_route_and_dir(route_id, "")
+        or rrepo.get_by_route_and_dir(route_id, "0")
+        or rrepo.get_by_route_and_dir(route_id, "1")
+    )
+    if not lv_any:
+        raise HTTPException(404, f"Route {route_id} not found")
+    if (lv_any.nucleus_id or "").strip().lower() != nucleus:
+        raise HTTPException(404, f"That route doesn't belong to nucleus {nucleus}")
+
+    did_filter = (direction_id or "").strip()
+    if did_filter not in ("", "0", "1"):
+        raise HTTPException(400, "direction_id must be '', '0' or '1'")
+
+    items = srepo.list_for_date(yyyymmdd)
+
+    rows = []
+    for sch in items:
+        if sch.route_id != route_id:
+            continue
+        if did_filter and sch.direction_id != did_filter:
+            continue
+
+        first_ep = sch.first_departure_epoch(tz_name=tz)
+        last_ep = sch.last_arrival_epoch(tz_name=tz)
+        o_sid, d_sid = sch.origin_id, sch.destination_id
+        o_name = rrepo.get_stop_name(str(o_sid)) if o_sid else None
+        d_name = rrepo.get_stop_name(str(d_sid)) if d_sid else None
+
+        rows.append(
+            {
+                "trip_id": sch.trip_id,
+                "route_id": sch.route_id,
+                "direction_id": sch.direction_id,
+                "headsign": sch.headsign,
+                "origin_id": o_sid,
+                "origin_name": o_name or o_sid or "",
+                "train_number": sch.train_number,
+                "dest_id": d_sid,
+                "dest_name": d_name or d_sid or "",
+                "first_epoch": first_ep,
+                "first_hhmm": _fmt_hhmm(first_ep, tz),
+                "last_epoch": last_ep,
+                "last_hhmm": _fmt_hhmm(last_ep, tz),
+                "nucleus": nucleus,
+                "stops_count": len(sch.calls),
+            }
+        )
+
+    rows.sort(key=lambda r: (r["first_epoch"] is None, r["first_epoch"] or 0, r["trip_id"]))
+
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_rows = rows[start:end]
+
+    return templates.TemplateResponse(
+        "train_timetables.html",
+        {
+            "request": request,
+            "rows": page_rows,
+            "repo": rrepo,
+            "nucleus": mk_nucleus(nucleus, rrepo),
+            "route": lv_any,
+            "yyyymmdd": yyyymmdd,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "title": f"Programados — {route_id} "
+            f"({'dir ' + did_filter if did_filter else 'ambas dirs'})",
         },
     )

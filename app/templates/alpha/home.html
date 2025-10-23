@@ -1,6 +1,6 @@
 <!doctype html><meta charset="utf-8">
 <title>dondeestamitren</title>
-<h1>Donde está mi tren - Alpha 0.31</h1>
+<h1>Donde está mi tren - Alpha 0.34</h1>
 <p class="text-muted">Última actualización API: {{ last_snapshot }} · {{ (last_source or '—')|upper }}</p>
 <small>Operado por: <a target="_blank" href="https://www.jotaele.me">JotaEle</a></small>
 <hr/>
@@ -11,7 +11,7 @@
 		<a href="/alpha/lines/">Líneas</a> |
 		<a href="/alpha/stations/">Estaciones</a> |
 		<a href="/alpha/trains/">Trenes en directo</a> |
-		<a href="/alpha/trip-updates/">Horarios en directo</a>
+		<a href="/alpha/train-timetables/">Horarios</a>
 	</li>
 	{% for n in nuclei %}
 		<li>
@@ -19,7 +19,7 @@
 			<a href="/alpha/lines/{{ n.slug }}">Líneas</a> |
 			<a href="/alpha/stations/{{ n.slug }}">Estaciones</a> |
 			<a href="/alpha/trains/{{ n.slug }}">Trenes en directo</a> |
-			<a href="/alpha/trip-updates/{{ n.slug }}">Horarios en directo</a>
+			<a href="/alpha/train-timetables/{{ n.slug }}">Horarios</a>
 		</li>
 	{% endfor %}
 </ul>
