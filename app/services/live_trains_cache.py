@@ -5,7 +5,7 @@ import contextlib
 import logging
 import re
 import time
-from collections import deque
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -59,6 +59,8 @@ class LiveTrainsCache:
         self._debug = deque(maxlen=300)
         self._last_fetch_kind: str | None = None  # "pb" | "json" | None
         self._last_fetch_took_s: float = 0.0
+
+        self._by_number: dict[str, list[str]] = {}
 
     # ---------------- Platform ----------------
     _PLATFORM_RE = re.compile(r"PLATF\.\(\s*([^)]+?)\s*\)", re.IGNORECASE)
@@ -521,6 +523,13 @@ class LiveTrainsCache:
         items = [e.tp for e in self._entries.values()]
         self._items = items
         self._by_id = {tp.train_id: tp for tp in items}
+        by_num = defaultdict(list)
+        for tp in items:
+            tid = getattr(tp, "train_id", None)
+            num = self._extract_train_number(tp)
+            if tid and num is not None:
+                by_num[str(num)].append(tid)
+        self._by_number = dict(by_num)
 
     # -------- Public API --------
     def refresh(self) -> tuple[int, float]:
@@ -700,6 +709,10 @@ class LiveTrainsCache:
                 datetime.fromtimestamp(source_ts, tz=UTC).isoformat() if source_ts else None
             ),
         }
+
+    def get_by_train_number(self, number: str) -> list[TrainPosition]:
+        ids = self._by_number.get(str(number)) or []
+        return [self._by_id[i] for i in ids if i in self._by_id]
 
 
 _cache_singleton: LiveTrainsCache | None = None

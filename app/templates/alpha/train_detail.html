@@ -4,18 +4,27 @@
 	{% else %}
 		<a href="/alpha/trains/">&larr; Volver a trenes</a>
 	{% endif %}
+	
 	<h1>
-		Tren {{ train.train_id }}
+		Tren {{ unified.train_label }}{% if unified.kind == 'scheduled' %} (programado){% endif %}
 	</h1>
+	
 	{% if confidence %}
-		<span class=" title="{{ confidence.tooltip }}">
-		<span>{{ confidence.icon }}</span>
-		<span>Confianza en la clasificación en rutas del tren: {{ confidence.label }}</span>
-		<small>({{ confidence.source }})</small>
-		</span>
+		<span title="{{ confidence.tooltip }}">
+      <span>{{ confidence.icon }}</span>
+      <span>Confianza en la clasificación en rutas del tren: {{ confidence.label }}</span>
+      <small>({{ confidence.source }})</small>
+    </span>
 	{% endif %}
+	
 	<p>Última actualización de la API: {{ last_snapshot }} ({{ last_source or '—' }})</p>
-	<p>Tren visto por última vez: {{ train_seen_iso }} — hace {{ train_seen_age }} s {{ '🔴' if train_seen_age > 900 else '🟡' if train_seen_age > 30 else '🟢'}}</p>
+	
+	{% if kind == 'live' and train %}
+		<p>
+			Tren visto por última vez: {{ train_seen_iso }} — hace {{ train_seen_age }} s
+			{{ '🔴' if train_seen_age > 900 else '🟡' if train_seen_age > 30 else '🟢'}}
+		</p>
+	{% endif %}
 </header>
 
 <table border="1" cellpadding="6" cellspacing="0">
@@ -32,17 +41,229 @@
 	</thead>
 	<tbody>
 	<tr>
-		<td><a href="/alpha/routes/{{ nucleus.slug }}/{{ train.route_id }}">{{ train.route_id }}</a></td>
-		<td>{{ train.route_short_name }}</td>
-		<td>→ {{ repo.get_stop_name(repo.route_destination(train.route_id)) or '—' }}</td>
-		<td>{{ train.status_human() }}</td>
-		<td>{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i></td>
-		<td>{{ platform or '—' }}</td>
 		<td>
-			{% if train.lat and train.lon %}
-				{{ '%.5f'|format(train.lat) }}, {{ '%.5f'|format(train.lon) }}
+			{% if unified.route_id %}
+				<a href="/alpha/routes/{{ nucleus.slug }}/{{ unified.route_id }}">{{ unified.route_id }}</a>
+			{% else %}—{% endif %}
+		</td>
+		<td>{{ unified.route_short_name or '—' }}</td>
+		<td>{{ unified.destination_name or '—' }}</td>
+		<td>{{ unified.status_text or '—' }}</td>
+		<td>
+			{% if kind == 'live' and train %}
+				{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i>
+			{% else %}—{% endif %}
+		</td>
+		<td>{{ unified.platform or '—' }}</td>
+		<td>
+			{% if unified.lat is not none and unified.lon is not none %}
+				{{ '%.5f'|format(unified.lat) }}, {{ '%.5f'|format(unified.lon) }}
 			{% else %}—{% endif %}
 		</td>
 	</tr>
 	</tbody>
 </table>
+
+<hr/>
+
+{% if stop_rows %}
+	<hr>
+	<h2>Paradas del servicio</h2>
+	<table border="1" cellpadding="6" cellspacing="0">
+		<thead>
+		<tr>
+			<th>#</th>
+			<th>Parada</th>
+			<th>Programado</th>
+			<th>En directo</th>
+			<th>Trip Update</th>
+			<th>Retraso</th>
+			<th>Relación</th>
+			<th>Estado</th>
+		</tr>
+		</thead>
+		<tbody>
+		{% for r in stop_rows %}
+			<tr
+				{% if r.flag == 'current' %} style="background:#e6ffe6"{% endif %}
+				{% if r.flag == 'next' %} style="background:#fff9e6"{% endif %}
+				{% if r.flag == 'passed' %} style="color:#777"{% endif %}
+			>
+				<td>{{ r.seq }}</td>
+				<td>
+					{{ r.stop_name or r.stop_id or '—' }}
+					<small><i>({{ r.stop_id or '—' }})</i></small>
+				</td>
+				<td>
+					{% if r.scheduled_hhmm %}
+						{{ r.scheduled_hhmm }}
+						{% if r.scheduled_epoch %} ({{ r.scheduled_epoch }}){% endif %}
+					{% else %}—{% endif %}
+				</td>
+				<td>
+					{% if r.live_hhmm %}
+						{{ r.live_hhmm }}
+						{% elif r.flag == 'current' %}
+						ahora
+					{% else %}—{% endif %}
+				</td>
+				<td>
+					{% if r.rt_hhmm %}
+						{{ r.rt_hhmm }}
+						{% if r.rt_epoch %} ({{ r.rt_epoch }}){% endif %}
+					{% else %}—{% endif %}
+				</td>
+				<td>
+					{% if r.delay_min is not none %}
+						{{ '+' if r.delay_min > 0 else '' }}{{ r.delay_min }} min
+					{% else %}—{% endif %}
+				</td>
+				<td>{{ r.rel or '—' }}</td>
+				<td>
+					{% if r.flag == 'current' %}Ahora
+						{% elif r.flag == 'next' %}Siguiente
+						{% elif r.flag == 'passed' %}Pasada
+					{% else %}Próxima{% endif %}
+				</td>
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+{% endif %}
+
+<hr>
+
+<h2>Servicio / Trip asociado</h2>
+<table border="1" cellpadding="6" cellspacing="0">
+	<thead>
+	<tr>
+		<th>Trip ID</th>
+		<th>Salida programada</th>
+	</tr>
+	</thead>
+	<tbody>
+	<tr>
+		<td>{{ unified.trip_id or '—' }}</td>
+		<td>
+			{% if unified.scheduled_departure_hhmm %}
+				{{ unified.scheduled_departure_hhmm }}
+				{% if unified.scheduled_departure_epoch %} ({{ unified.scheduled_departure_epoch }}){% endif %}
+			{% else %}
+				—
+			{% endif %}
+		</td>
+	</tr>
+	</tbody>
+</table>
+
+{% if unified.rt_prediction %}
+	<hr>
+	
+	<h2>Predicción (Trip Update)</h2>
+	<table border="1" cellpadding="6" cellspacing="0">
+		<thead>
+		<tr>
+			<th>Próxima parada</th>
+			<th>Hora prevista</th>
+			<th>Retraso</th>
+			<th>Estado TU</th>
+			<th>Progreso</th>
+			<th>Actualizado</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>{{ unified.rt_prediction.next_stop_name or unified.rt_prediction.next_stop_id or '—' }}</td>
+			<td>
+				{% if unified.rt_prediction.next_departure_hhmm %}
+					{{ unified.rt_prediction.next_departure_hhmm }}
+					{% if unified.rt_prediction.next_departure_epoch %} ({{ unified.rt_prediction.next_departure_epoch }}){% endif %}
+					{% elif unified.rt_prediction.next_arrival_hhmm %}
+					{{ unified.rt_prediction.next_arrival_hhmm }}
+					{% if unified.rt_prediction.next_arrival_epoch %} ({{ unified.rt_prediction.next_arrival_epoch }}){% endif %}
+				{% else %}
+					{% set eta = unified.rt_prediction.next_departure_epoch or unified.rt_prediction.next_arrival_epoch %}
+					{% if eta %}{{ eta }}{% else %}—{% endif %}
+				{% endif %}
+			</td>
+			<td>
+				{% if unified.rt_prediction.next_delay_s is not none %}
+					{% set dmin = (unified.rt_prediction.next_delay_s // 60) %}
+					{{ '+' if dmin > 0 else '' }}{{ dmin }} min
+				{% else %}—{% endif %}
+			</td>
+			<td>{{ unified.rt_prediction.schedule_relationship or '—' }}</td>
+			<td>
+				{% if unified.rt_prediction.progress and unified.rt_prediction.progress.next_stop_index is not none and unified.rt_prediction.progress.total_stops is not none %}
+					{{ unified.rt_prediction.progress.next_stop_index }}/{{ unified.rt_prediction.progress.total_stops }}
+				{% else %}—{% endif %}
+			</td>
+			<td>
+				{% if unified.rt_prediction.tu_timestamp_iso %}
+					{{ unified.rt_prediction.tu_timestamp_iso }}
+				{% else %}
+					{{ unified.rt_prediction.tu_timestamp or '—' }}
+				{% endif %}
+			</td>
+		</tr>
+		</tbody>
+	</table>
+{% endif %}
+
+{% if unified.stops %}
+	<hr>
+	
+	<h2>Paradas y horarios</h2>
+	<table border="1" cellpadding="6" cellspacing="0">
+		<thead>
+		<tr>
+			<th>#</th>
+			<th>Parada</th>
+			<th>Programado</th>
+			<th>Trip Update</th>
+			<th>Retraso</th>
+			<th>Relación</th>
+			<th>Estado</th>
+		</tr>
+		</thead>
+		<tbody>
+		{% for row in unified.stops %}
+			{% set flag = row.flag or 'upcoming' %}
+			<tr
+				{% if flag == 'current' %} style="background:#e6ffe6"{% endif %}
+				{% if flag == 'next' %} style="background:#fff9e6"{% endif %}
+				{% if flag == 'passed' %} style="color:#777"{% endif %}
+			>
+				<td>{{ row.seq }}</td>
+				<td>
+					{{ row.stop_name or row.stop_id or '—' }}
+					<small><i>({{ row.stop_id or '—' }})</i></small>
+				</td>
+				<td>{{ row.scheduled_hhmm or '—' }}</td>
+				<td>
+					{% if row.rt_hhmm %}
+						{{ row.rt_hhmm }}
+						{% if row.rt_epoch %} ({{ row.rt_epoch }}){% endif %}
+					{% else %}
+						{% if row.rt_epoch is not none %}
+							{{ row.rt_epoch }}
+						{% else %}
+							—
+						{% endif %}
+					{% endif %}
+				</td>
+				<td>
+					{% if row.delay_min is not none %}
+						{{ '+' if row.delay_min > 0 else '' }}{{ row.delay_min }} min
+					{% else %}—{% endif %}
+				</td>
+				<td>{{ row.rel or '—' }}</td>
+				<td>
+					{% if flag == 'current' %}Ahora{% elif flag == 'next' %}Siguiente{% elif flag == 'passed' %}Pasada{% else %}Próxima{% endif %}
+				</td>
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+{% endif %}
+

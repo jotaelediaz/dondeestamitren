@@ -1,13 +1,30 @@
-{%- extends "base-layout.html" %}
-{%- block app_content %}
 <header>
 	{% if nucleus %}
-		<a href="/trains/{{ nucleus.slug }}">&larr; Volver a {{ nucleus.name }}</a>
+		<a href="/alpha/trains/{{ nucleus.slug }}">&larr; Volver a {{ nucleus.name }}</a>
 	{% else %}
-		<a href="/trains/">&larr; Volver a trenes</a>
+		<a href="/alpha/trains/">&larr; Volver a trenes</a>
 	{% endif %}
-	<h1>Tren {{ train.train_id }}</h1>
-	<p>Última actualización: {{ last_snapshot }}</p>
+	
+	<h1>
+		Tren {{ unified.train_label }}{% if unified.kind == 'scheduled' %} (programado){% endif %}
+	</h1>
+	
+	{% if confidence %}
+		<span title="{{ confidence.tooltip }}">
+      <span>{{ confidence.icon }}</span>
+      <span>Confianza en la clasificación en rutas del tren: {{ confidence.label }}</span>
+      <small>({{ confidence.source }})</small>
+    </span>
+	{% endif %}
+	
+	<p>Última actualización de la API: {{ last_snapshot }} ({{ last_source or '—' }})</p>
+	
+	{% if kind == 'live' and train %}
+		<p>
+			Tren visto por última vez: {{ train_seen_iso }} — hace {{ train_seen_age }} s
+			{{ '🔴' if train_seen_age > 900 else '🟡' if train_seen_age > 30 else '🟢'}}
+		</p>
+	{% endif %}
 </header>
 
 <table border="1" cellpadding="6" cellspacing="0">
@@ -18,27 +35,56 @@
 		<th>Destino</th>
 		<th>Estado</th>
 		<th>Parada actual</th>
+		<th>Vía</th>
 		<th>Posición</th>
 	</tr>
 	</thead>
 	<tbody>
-		<tr>
-			<td><a href="/routes/{{ nucleus.slug }}/{{ train.route_id }}">{{ train.route_id }}</a></td>
-			<td>{{ train.route_short_name }}</td>
-			<td>→ {{repo.get_stop_name(repo.route_destination(train.route_id)) or '—' }}</td>
-			<td>{{ train.status_human() }}</td>
-			
-			<td>{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i></td>
-			<td>
-				{% if train.lat and train.lon %}
-					{{ '%.5f'|format(train.lat) }}, {{ '%.5f'|format(train.lon) }}
-				{% else %}—{% endif %}
-			</td>
-		</tr>
+	<tr>
+		<td>
+			{% if unified.route_id %}
+				<a href="/alpha/routes/{{ nucleus.slug }}/{{ unified.route_id }}">{{ unified.route_id }}</a>
+			{% else %}—{% endif %}
+		</td>
+		<td>{{ unified.route_short_name or '—' }}</td>
+		<td>{{ unified.destination_name or '—' }}</td>
+		<td>{{ unified.status_text or '—' }}</td>
+		<td>
+			{% if kind == 'live' and train %}
+				{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i>
+			{% else %}—{% endif %}
+		</td>
+		<td>{{ unified.platform or '—' }}</td>
+		<td>
+			{% if unified.lat is not none and unified.lon is not none %}
+				{{ '%.5f'|format(unified.lat) }}, {{ '%.5f'|format(unified.lon) }}
+			{% else %}—{% endif %}
+		</td>
+	</tr>
 	</tbody>
 </table>
-{%- endblock %}
 
-{% block action_buttons %}
-	<div id="action-buttons-items" hx-swap-oob="true"></div>
-{% endblock %}
+<hr>
+
+<h2>Servicio / Trip asociado</h2>
+<table border="1" cellpadding="6" cellspacing="0">
+	<thead>
+	<tr>
+		<th>Trip ID</th>
+		<th>Salida programada</th>
+	</tr>
+	</thead>
+	<tbody>
+	<tr>
+		<td>{{ unified.trip_id or '—' }}</td>
+		<td>
+			{% if unified.scheduled_departure_hhmm %}
+				{{ unified.scheduled_departure_hhmm }}
+				{% if unified.scheduled_departure_epoch %} ({{ unified.scheduled_departure_epoch }}){% endif %}
+			{% else %}
+				—
+			{% endif %}
+		</td>
+	</tr>
+	</tbody>
+</table>

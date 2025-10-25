@@ -340,3 +340,55 @@ class ScheduledTrain:
         base = datetime(y, m, d, tzinfo=tz)
         dt_local = base + timedelta(days=days_offset, seconds=secs)
         return int(dt_local.timestamp())
+
+
+@dataclass
+class RealtimeInfo:
+    vehicle_id: str | None = None
+    last_ts: int | None = None
+    train_number: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    speed_mps: float | None = None
+
+
+@dataclass
+class MatchingInfo:
+    status: str = "unmatched"  # matched | scheduled_only | realtime_only | unmatched
+    confidence: str = "low"  # high | med | low
+    method: str | None = None  # trip_id | train_number | heuristic | none
+
+
+@dataclass
+class DerivedInfo:
+    eta_by_stop: dict[str, int] = field(default_factory=dict)  # stop_id -> eta_secs
+    delay_by_stop: dict[str, int] = field(default_factory=dict)  # stop_id -> delay_secs
+    platform_pred: str | None = None
+
+
+@dataclass
+class ServiceInstance:
+    service_instance_id: str | None = None
+    scheduled_trip_id: str | None = None
+    route_id: str | None = None
+    direction_id: str | None = None
+
+    scheduled: ScheduledTrain | None = None
+    realtime: RealtimeInfo = field(default_factory=RealtimeInfo)
+    matching: MatchingInfo = field(default_factory=MatchingInfo)
+    derived: DerivedInfo = field(default_factory=DerivedInfo)
+
+
+@dataclass(frozen=True)
+class NearestResult:
+    status: str  # "realtime" | "scheduled"
+    eta_seconds: int
+    eta_ts: int
+    service_instance_id: str | None
+    route_id: str
+    trip_id: str | None
+    vehicle_id: str | None
+    scheduled_arrival_ts: int | None
+    delay_seconds: int | None
+    confidence: str  # "high" | "med" | "low"
+    platform_pred: str | None
