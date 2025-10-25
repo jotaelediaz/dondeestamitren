@@ -47,6 +47,9 @@ class TripsRepo:
 
         self._lock = threading.RLock()
         self._trip_to_train_number: dict[str, str] = {}
+        self._numbers_by_route: dict[str, set[str]] = {}
+        self._numbers_by_route_dir: dict[tuple[str, str], set[str]] = {}
+        self._trips_by_route_dir_number: dict[tuple[str, str, str], list[str]] = {}
 
     # --------------------------- util csv trips ---------------------------
 
@@ -91,6 +94,20 @@ class TripsRepo:
         except Exception:
             pass
         return []
+
+    def _build_train_number_indexes(self) -> None:
+        self._trip_to_train_number.clear()
+        rows = self._autodetect_rows()
+        for row in rows:
+            trip_id = (row.get("trip_id") or "").strip()
+            if not trip_id:
+                continue
+            short_name = (row.get("trip_short_name") or "").strip()
+            block_id = (row.get("block_id") or "").strip()
+            headsign = (row.get("trip_headsign") or "").strip()
+            tn = short_name or _extract_train_number(block_id, trip_id, headsign)
+            if tn:
+                self._trip_to_train_number[trip_id] = tn
 
     # ---------------------- util csv stop_times ----------------------
 
@@ -151,6 +168,9 @@ class TripsRepo:
         self._calendar_rows.clear()
         self._sched_by_route_stop.clear()
         self._trip_to_train_number.clear()
+        self._numbers_by_route.clear()
+        self._numbers_by_route_dir.clear()
+        self._trips_by_route_dir_number.clear()
 
         if not os.path.exists(self.trips_csv_path):
             raise FileNotFoundError(f"trips.txt not found: {self.trips_csv_path}")
@@ -183,6 +203,7 @@ class TripsRepo:
 
         self._index_stop_times()
         self._load_calendar()
+        self._build_train_number_indexes()
 
     # ----------------- Infer direction from stop_times -----------------
 
@@ -656,6 +677,61 @@ class TripsRepo:
             if len(hits) == 1:
                 return hits[0][1]
         return None
+
+    def list_train_numbers(
+        self, route_id: str, direction_id: str | None = None
+    ) -> set[str] | dict[str, set[str]]:
+        rid = (route_id or "").strip()
+        if not rid:
+            return set() if direction_id in ("0", "1") else {"0": set(), "1": set()}
+
+        numbers_by_dir: dict[str, set[str]] = {"0": set(), "1": set()}
+
+        for trip_id, rid2 in self._trip_to_route.items():
+            if rid2 != rid:
+                continue
+
+            did = self._trip_to_direction.get(trip_id)
+            if did not in ("0", "1"):
+                did = self.direction_for_trip(trip_id)
+            if did not in ("0", "1"):
+                continue
+
+            tn = self._trip_to_train_number.get(trip_id)
+            if not tn:
+                tn = _extract_train_number(trip_id)
+            if tn:
+                numbers_by_dir[did].add(tn)
+
+        if direction_id in ("0", "1"):
+            return numbers_by_dir[direction_id]
+        return numbers_by_dir
+
+    def trip_ids_for_train_number(
+        self, route_id: str, direction_id: str | None, train_number: str
+    ) -> list[str]:
+        rid = (route_id or "").strip()
+        tnum = (train_number or "").strip()
+        if not (rid and tnum):
+            return []
+
+        out: list[str] = []
+        for trip_id, rid2 in self._trip_to_route.items():
+            if rid2 != rid:
+                continue
+
+            did = self._trip_to_direction.get(trip_id)
+            if did not in ("0", "1"):
+                did = self.direction_for_trip(trip_id)
+            if direction_id in ("0", "1") and did != direction_id:
+                continue
+
+            tn = self._trip_to_train_number.get(trip_id) or _extract_train_number(trip_id)
+            if tn == tnum:
+                out.append(trip_id)
+
+        out.sort()
+        return out
 
 
 _repo: TripsRepo | None = None

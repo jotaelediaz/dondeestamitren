@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+	<meta charset="utf-8">
+	<title>{{ title or "Trenes" }}</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<h1 style="margin: 0 0 8px;">{{ title or "Trenes de la ruta" }}</h1>
+
+<div style="margin: 0 0 16px;">
+	<div><strong>Núcleo:</strong> {{ nucleus or route.nucleus_id or "-" }} · <strong>Ruta:</strong> {{ route.route_id if route else "-" }} · <strong>Fecha:</strong> {{ (data.today_yyyymmdd|string) if data and data.today_yyyymmdd else "—" }}</div>
+	{% if direction %}
+		<div><strong>Dirección:</strong> {{ direction }}</div>
+	{% endif %}
+</div>
+<hr />
+
+<h2 style="margin: 16px 0 8px;">Trenes en directo</h2>
+{% if data.live %}
+	<ul style="margin: 0 0 16px; padding-left: 18px;">
+		{% for t in data.live %}
+			<li>
+				<div>
+					<strong>ID:</strong> <a href="alpha/trains/{{ nucleus.slug }}/{{ t.train_id or t.id or "-" }}">{{ t.train_id or t.id or "-" }}</a>
+					{% if t.train_number %} · <strong>Nº:</strong> {{ t.train_number }}{% endif %}
+					{% if t.label %} · <strong>Etiqueta:</strong> {{ t.label }}{% endif %}
+					{% if t.timestamp %} · <small>ts={{ t.timestamp }}</small>{% endif %}
+				</div>
+			</li>
+		{% endfor %}
+	</ul>
+{% else %}
+	<p>No hay trenes en directo ahora mismo para esta ruta.</p>
+{% endif %}
+
+<h2 style="margin: 16px 0 8px;">Trenes programados</h2>
+{% if data.non_live %}
+	<ul style="margin: 0; padding-left: 18px;">
+		{% for it in data.non_live %}
+			<li>
+				<div>
+					<strong>Nº tren:</strong> {{ it.train_number }}
+					· <strong>Próx. salida:</strong> {{ it.next_hhmm or "—" }}
+					{% if it.next_trip_id %}
+						· <small>trip={{ it.next_trip_id }}</small>
+						{% elif it.sample_trip_id %}
+						· <small>trip={{ it.sample_trip_id }}</small>
+					{% endif %}
+				</div>
+			</li>
+		{% endfor %}
+	</ul>
+{% else %}
+	<p>No hay trenes programados con número identificado para esta ruta.</p>
+{% endif %}
+
+
+</body>
+</html>

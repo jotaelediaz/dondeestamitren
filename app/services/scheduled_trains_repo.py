@@ -148,6 +148,9 @@ class ScheduledTrainsRepo:
 
         self._loaded = False
 
+        self._by_date_route_dir: dict[int, dict[tuple[str, str], list[ScheduledTrain]]] = {}
+        self._nums_by_date_route_dir: dict[int, dict[tuple[str, str], set[str]]] = {}
+
     # -------------------- Public API --------------------
 
     def refresh(self) -> None:
@@ -158,6 +161,8 @@ class ScheduledTrainsRepo:
         self._by_date_stop.clear()
         self._active_services_by_date.clear()
         self._loaded = True
+        self._by_date_route_dir.clear()
+        self._nums_by_date_route_dir.clear()
 
     def get_trip(self, service_date: int, trip_id: str) -> ScheduledTrain | None:
         self._ensure_loaded()
@@ -168,6 +173,23 @@ class ScheduledTrainsRepo:
         self._ensure_loaded()
         self._ensure_built_for_date(service_date)
         return list(self._by_date_trip.get(service_date, {}).values())
+
+    def list_for_date_route(
+        self, service_date: int, route_id: str, direction_id: str | None = None
+    ) -> list[ScheduledTrain]:
+        self._ensure_loaded()
+        self._ensure_built_for_date(service_date)
+        did = direction_id if direction_id in ("0", "1") else ""
+        bucket = self._by_date_route_dir.get(service_date, {}).get((route_id, did), [])
+        return list(bucket)
+
+    def unique_numbers_for_date_route(
+        self, service_date: int, route_id: str, direction_id: str | None = None
+    ) -> set[str]:
+        self._ensure_loaded()
+        self._ensure_built_for_date(service_date)
+        did = direction_id if direction_id in ("0", "1") else ""
+        return set(self._nums_by_date_route_dir.get(service_date, {}).get((route_id, did), set()))
 
     def for_stop_after(
         self,
@@ -273,13 +295,25 @@ class ScheduledTrainsRepo:
         if not active_services:
             self._by_date_trip[service_date] = {}
             self._by_date_stop[service_date] = {}
+            self._by_date_route_dir[service_date] = {}
+            self._nums_by_date_route_dir[service_date] = {}
             return
 
         trips_today = [t for t in self._trips.values() if t.service_id in active_services]
         by_trip: dict[str, ScheduledTrain] = {}
         by_stop: dict[str, list[tuple[ScheduledTrain, int]]] = {}
 
+        from app.services.routes_repo import get_repo as get_routes_repo
+
+        rrepo = get_routes_repo()
+
+        by_route_dir: dict[tuple[str, str], list[ScheduledTrain]] = {}
+        nums_by_route_dir: dict[tuple[str, str], set[str]] = {}
+
         for t in trips_today:
+            nslug = (rrepo.nucleus_for_route_id(t.route_id) or "").strip().lower()
+            if not nslug:
+                continue
             calls = self._calls_by_trip.get(t.trip_id, [])
             if not calls:
                 continue
@@ -292,14 +326,6 @@ class ScheduledTrainsRepo:
                 num = None
             if not num:
                 num = t.short_name or _extract_train_number(t.block_id, t.trip_id, t.headsign)
-            try:
-                from app.services.routes_repo import get_repo as get_routes_repo
-
-                nuc_slug = (
-                    get_routes_repo().nucleus_for_route_id(t.route_id) or ""
-                ).strip().lower() or None
-            except Exception:
-                nuc_slug = None
             sch = ScheduledTrain(
                 unique_id=f"sch:{service_date}:{t.trip_id}",
                 trip_id=t.trip_id,
@@ -309,7 +335,7 @@ class ScheduledTrainsRepo:
                 service_date=service_date,
                 headsign=t.headsign,
                 train_number=num,
-                nucleus_id=nuc_slug,
+                nucleus_id=nslug,
                 calls=list(calls),
             )
             by_trip[t.trip_id] = sch
@@ -320,11 +346,21 @@ class ScheduledTrainsRepo:
                 bucket = by_stop.setdefault(c.stop_id, [])
                 bucket.append((sch, c.time_s))
 
+            key_dir = (sch.route_id, sch.direction_id or "")
+            key_all = (sch.route_id, "")
+            by_route_dir.setdefault(key_dir, []).append(sch)
+            by_route_dir.setdefault(key_all, []).append(sch)
+            if sch.train_number:
+                nums_by_route_dir.setdefault(key_dir, set()).add(sch.train_number)
+                nums_by_route_dir.setdefault(key_all, set()).add(sch.train_number)
+
         for _stop_id, bucket in by_stop.items():
             bucket.sort(key=lambda pair: pair[1])
 
         self._by_date_trip[service_date] = by_trip
         self._by_date_stop[service_date] = by_stop
+        self._by_date_route_dir[service_date] = by_route_dir
+        self._nums_by_date_route_dir[service_date] = nums_by_route_dir
 
         log.info(
             "Materializado %d trips y %d stops para %d",
@@ -339,14 +375,6 @@ class ScheduledTrainsRepo:
         p = _f(self.trips_path)
         trips: dict[str, _TripRow] = {}
         rows = 0
-        try:
-            from app.services.routes_repo import get_repo as get_routes_repo
-
-            rrepo = get_routes_repo()
-            valid_nuclei = {(n.get("slug") or "").strip().lower() for n in rrepo.list_nuclei()}
-        except Exception:
-            rrepo = None
-            valid_nuclei = set()
         for row in _iter_csv_dict(p):
             rows += 1
             trip_id = row.get("trip_id") or ""
@@ -358,10 +386,6 @@ class ScheduledTrainsRepo:
             block_id = (row.get("block_id") or "") or None
             if not trip_id:
                 continue
-            if rrepo is not None:
-                nuc = (rrepo.nucleus_for_route_id(route_id) or "").strip().lower()
-                if not nuc or (valid_nuclei and nuc not in valid_nuclei):
-                    continue
             trips[trip_id] = _TripRow(
                 trip_id=trip_id,
                 route_id=route_id,
@@ -495,6 +519,136 @@ class ScheduledTrainsRepo:
                 getattr(settings, "GTFS_ENCODING", "utf-8"),
             )
         return services
+
+    def next_departure_for_train_number(
+        self,
+        route_id: str,
+        direction_id: str | None,
+        train_number: str,
+        *,
+        now_epoch: int | None = None,
+        tz_name: str = "Europe/Madrid",
+        horizon_days: int = 1,
+    ) -> tuple[int | None, str | None, str | None]:
+        self._ensure_loaded()
+        tz = ZoneInfo(tz_name)
+
+        if now_epoch is None:
+            now_epoch = int(datetime.now(tz).timestamp())
+
+        try:
+            from app.services.trips_repo import get_repo as get_trips_repo  # lazy
+
+            get_trips_repo()
+        except Exception:
+            pass
+
+        best_epoch: int | None = None
+        best_hhmm: str | None = None
+        best_trip: str | None = None
+
+        base_dt = datetime.fromtimestamp(now_epoch, tz)
+
+        for d in range(0, max(0, int(horizon_days)) + 1):
+            dt = base_dt + timedelta(days=d)
+            yyyymmdd = int(dt.strftime("%Y%m%d"))
+
+            items = self.list_for_date_route(yyyymmdd, route_id, direction_id)
+
+            for sch in items:
+                if (sch.train_number or "") != (train_number or ""):
+                    continue
+
+                dep = sch.first_departure_epoch(tz_name=tz_name)
+                if dep is None or dep < now_epoch:
+                    continue
+
+                if best_epoch is None or dep < best_epoch:
+                    best_epoch = dep
+                    best_hhmm = datetime.fromtimestamp(dep, tz).strftime("%H:%M")
+                    best_trip = sch.trip_id
+
+            if best_epoch is not None:
+                break
+
+        return best_epoch, best_hhmm, best_trip
+
+    def unique_numbers_today_tomorrow(
+        self,
+        route_id: str | None = None,
+        direction_id: str | None = None,
+        nucleus: str | None = None,
+        tz_name: str = "Europe/Madrid",
+    ) -> list[tuple[str, str]]:
+        now = datetime.now(ZoneInfo(tz_name))
+        y0 = int(now.strftime("%Y%m%d"))
+        y1 = int((now + timedelta(days=1)).strftime("%Y%m%d"))
+        dates = (y0, y1)
+
+        rrepo = None
+        if nucleus:
+            try:
+                from app.services.routes_repo import get_repo as get_routes_repo
+
+                rrepo = get_routes_repo()
+                nucleus = (nucleus or "").strip().lower()
+            except Exception:
+                rrepo = None
+
+        dir_filter = direction_id if direction_id in ("0", "1") else None
+
+        seen: dict[str, str] = {}
+        if route_id:
+            for ymd in dates:
+                nums = self.unique_numbers_for_date_route(ymd, route_id, dir_filter)
+                if not nums:
+                    continue
+                items = self.list_for_date_route(ymd, route_id, dir_filter)
+                tid_by_num: dict[str, str] = {}
+                for sch in items:
+                    if (
+                        sch.train_number
+                        and sch.train_number in nums
+                        and sch.train_number not in tid_by_num
+                    ):
+                        tid_by_num[sch.train_number] = sch.trip_id
+                for n in nums:
+                    if n not in seen and n in tid_by_num:
+                        seen[n] = tid_by_num[n]
+        else:
+            for ymd in dates:
+                self._ensure_built_for_date(ymd)
+                by_trip = self._by_date_trip.get(ymd, {})
+                if not by_trip:
+                    continue
+                for sch in by_trip.values():
+                    if dir_filter and sch.direction_id != dir_filter:
+                        continue
+                    if nucleus and rrepo is not None:
+                        nuc = (rrepo.nucleus_for_route_id(sch.route_id) or "").strip().lower()
+                        if nuc != nucleus:
+                            continue
+                    num = sch.train_number
+                    if not num:
+                        try:
+                            from app.services.trips_repo import get_repo as get_trips_repo
+
+                            num = get_trips_repo().train_number_for_trip(sch.trip_id)
+                        except Exception:
+                            num = None
+                    if not num:
+                        continue
+                    if num not in seen:
+                        seen[num] = sch.trip_id
+
+        def _sort_key(pair: tuple[str, str]):
+            n, _ = pair
+            try:
+                return (0, int(n))
+            except Exception:
+                return (1, n)
+
+        return sorted(seen.items(), key=_sort_key)
 
 
 def _try_int(x: Any) -> int | None:

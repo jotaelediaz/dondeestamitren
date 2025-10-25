@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<title>{{ title or "Trips" }}</title>
+</head>
+<body>
+<h1>{{ title or "Trips" }}</h1>
+
+<div class="meta">
+	<div class="count">
+		Mostrando
+		{{ rows|length }}
+		de
+		{{ total }}
+		trips
+		(página {{ page }} de {{ ((total + page_size - 1) // page_size) if page_size else 1 }})
+	</div>
+</div>
+
+<div class="table-wrap">
+	<table border="1" cellpadding="6" cellspacing="0">
+		<thead>
+		<tr>
+			<th class="nowrap">Núcleo</th>
+			<th>Ruta</th>
+			<th class="nowrap">Dir</th>
+			<th class="nowrap">Nº tren</th>
+			<th>Trip ID</th>
+		</tr>
+		</thead>
+		<tbody>
+		{% if rows %}
+			{% for r in rows %}
+				<tr>
+					<td class="nowrap">
+						{% if r.nucleus %}
+							<a href="/alpha/trips/{{ r.nucleus }}"><span class="badge">{{ r.nucleus|upper }}</span></a>
+						{% else %}
+							<span class="badge">—</span>
+						{% endif %}
+					</td>
+					<td>
+						{% if r.nucleus %}
+							<a href="/alpha/trips/{{ r.nucleus }}/{{ r.route_id }}">{{ r.route_id }}</a>
+						{% else %}
+							{{ r.route_id }}
+						{% endif %}
+					</td>
+					<td class="nowrap">{{ r.direction_id if r.direction_id is not none and r.direction_id != "" else "—" }}</td>
+					<td class="nowrap">{{ r.train_number or "—" }}</td>
+					<td><code>{{ r.trip_id }}</code></td>
+				</tr>
+			{% endfor %}
+		{% else %}
+			<tr><td colspan="5">No hay resultados.</td></tr>
+		{% endif %}
+		</tbody>
+	</table>
+</div>
+
+{% set pages = ((total + page_size - 1) // page_size) if page_size else 1 %}
+{% set did = request.query_params.get('direction_id') %}
+<nav class="pagination" aria-label="Paginación">
+	<a class="btn" href="{{ request.url.path }}?page={{ 1 }}&page_size={{ page_size }}{% if did %}&direction_id={{ did }}{% endif %}" aria-disabled="{{ 'true' if page <= 1 else 'false' }}">« Primero</a>
+	<a class="btn" href="{{ request.url.path }}?page={{ page-1 if page>1 else 1 }}&page_size={{ page_size }}{% if did %}&direction_id={{ did }}{% endif %}" aria-disabled="{{ 'true' if page <= 1 else 'false' }}">‹ Anterior</a>
+	<span class="count">Página {{ page }} / {{ pages }}</span>
+	<a class="btn" href="{{ request.url.path }}?page={{ page+1 if page<pages else pages }}&page_size={{ page_size }}{% if did %}&direction_id={{ did }}{% endif %}" aria-disabled="{{ 'true' if page >= pages else 'false' }}">Siguiente ›</a>
+	<a class="btn" href="{{ request.url.path }}?page={{ pages }}&page_size={{ page_size }}{% if did %}&direction_id={{ did }}{% endif %}" aria-disabled="{{ 'true' if page >= pages else 'false' }}">Último »</a>
+</nav>
+</body>
+</html>

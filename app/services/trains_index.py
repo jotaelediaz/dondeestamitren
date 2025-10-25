@@ -1,0 +1,101 @@
+# app/services/trains_index.py
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from app.services.live_trains_cache import get_live_trains_cache
+from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
+
+_NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
+
+
+def _extract_num_from_live(train) -> str | None:
+    for field in (
+        getattr(train, "train_number", None),
+        getattr(train, "train_id", None),
+        getattr(train, "label", None),
+    ):
+        if not field:
+            continue
+        m = _NUM_RE.search(str(field))
+        if m:
+            return m.group(1)
+    return None
+
+
+def build_trains_index(
+    *,
+    route_id: str,
+    direction_id: str | None = None,
+    nucleus: str | None = None,
+    tz_name: str = "Europe/Madrid",
+):
+    tz = ZoneInfo(tz_name)
+
+    cache = get_live_trains_cache()
+    live_all = cache.list_sorted()
+
+    if direction_id in ("0", "1"):
+        live = [
+            t
+            for t in live_all
+            if getattr(t, "route_id", None) == route_id
+            and str(getattr(t, "direction_id", "")) == direction_id
+        ]
+    else:
+        live = [t for t in live_all if getattr(t, "route_id", None) == route_id]
+
+    live_numbers = {n for n in (_extract_num_from_live(t) for t in live) if n}
+
+    srepo = get_scheduled_repo()
+    pairs = srepo.unique_numbers_today_tomorrow(
+        route_id=route_id,
+        direction_id=direction_id,
+        nucleus=nucleus,
+    )  # [(train_number, sample_trip_id), ...]
+
+    non_live = []
+    for num, sample_tid in pairs:
+        if num in live_numbers:
+            continue
+        next_epoch, next_hhmm, next_trip_id = srepo.next_departure_for_train_number(
+            route_id=route_id,
+            direction_id=direction_id,
+            train_number=num,
+            tz_name=tz_name,
+            horizon_days=1,
+        )
+        if next_epoch is None:
+            continue
+        non_live.append(
+            {
+                "train_number": num,
+                "sample_trip_id": sample_tid,
+                "next_epoch": next_epoch,
+                "next_hhmm": next_hhmm,
+                "next_trip_id": next_trip_id,
+            }
+        )
+
+    def _sort_key(it):
+        ep = it.get("next_epoch")
+        if ep is None:
+            try:
+                return 1, int(it.get("train_number") or 0)
+            except Exception:
+                return 1, it.get("train_number") or ""
+        return 0, ep
+
+    non_live.sort(key=_sort_key)
+
+    today_yyyymmdd = int(datetime.now(tz).strftime("%Y%m%d"))
+
+    return {
+        "route_id": route_id,
+        "direction_id": direction_id or "",
+        "today_yyyymmdd": today_yyyymmdd,
+        "live": live,
+        "non_live": non_live,
+    }

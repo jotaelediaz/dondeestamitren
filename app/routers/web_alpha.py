@@ -16,6 +16,7 @@ from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
+from app.services.trains_index import build_trains_index
 from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
 
@@ -484,6 +485,49 @@ def route_page_by_id(
             "last_source": cache.last_source(),
             "expected_parity_bit": expected_parity_bit,
             "last_snapshot": cache.last_snapshot_iso(),
+        },
+    )
+
+
+@router.get("/routes/{nucleus}/{route_id}/trains", response_class=HTMLResponse)
+def route_trains_index(
+    request: Request,
+    nucleus: str,
+    route_id: str,
+    direction: str = Query(default="", description="'' | '0' | '1' (opcional)"),
+):
+    from app.services.routes_repo import get_repo as get_routes_repo
+
+    rrepo = get_routes_repo()
+
+    nucleus_norm = (nucleus or "").strip().lower()
+
+    lv_any = (
+        rrepo.get_by_route_and_dir(route_id, "")
+        or rrepo.get_by_route_and_dir(route_id, "0")
+        or rrepo.get_by_route_and_dir(route_id, "1")
+    )
+    if not lv_any:
+        raise HTTPException(404, f"Route {route_id} not found")
+    if (lv_any.nucleus_id or "").strip().lower() != nucleus_norm:
+        raise HTTPException(404, f"That route doesn't belong to nucleus {nucleus}")
+
+    did = (direction or "").strip()
+    if did not in ("", "0", "1"):
+        raise HTTPException(400, "direction must be '', '0' or '1'")
+
+    data = build_trains_index(nucleus=nucleus_norm, route_id=route_id, direction_id=(did or None))
+
+    title = f"Trenes — {route_id} " + (f"(dir {did})" if did else "")
+    return templates.TemplateResponse(
+        "route_trains.html",
+        {
+            "request": request,
+            "title": title,
+            "nucleus": nucleus_norm,
+            "route": lv_any,
+            "direction": did,
+            "data": data,
         },
     )
 
@@ -1201,6 +1245,210 @@ def train_timetables_by_route(
             "page_size": page_size,
             "total": total,
             "title": f"Programados — {route_id} "
+            f"({'dir ' + did_filter if did_filter else 'ambas dirs'})",
+        },
+    )
+
+
+# --- TRIPS ---
+
+
+@router.get("/trips", response_class=HTMLResponse)
+def trips_all(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=200, ge=10, le=2000),
+):
+    rrepo = get_routes_repo()
+    trepo = get_trips_repo()
+
+    rows = []
+    # Iteramos sobre los trips conocidos (los que tienen route_id).
+    for trip_id in list(trepo._trip_to_route.keys()):
+        rid = trepo.route_id_for_trip(trip_id)
+        if not rid:
+            continue
+        did = trepo.direction_for_trip(trip_id) or ""
+        tn = trepo.train_number_for_trip(trip_id)
+        nuc = (rrepo.nucleus_for_route_id(rid) or "").strip().lower()
+        rows.append(
+            {
+                "trip_id": trip_id,
+                "route_id": rid,
+                "direction_id": did,
+                "train_number": tn,
+                "nucleus": nuc or None,
+            }
+        )
+
+    rows.sort(
+        key=lambda r: (
+            r["nucleus"] or "",
+            r["route_id"] or "",
+            r["direction_id"] or "",
+            r["train_number"] or "",
+            r["trip_id"],
+        )
+    )
+
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_rows = rows[start:end]
+
+    return templates.TemplateResponse(
+        "trips.html",
+        {
+            "request": request,
+            "rows": page_rows,
+            "repo": rrepo,
+            "nucleus": None,
+            "route": None,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "title": "Trips — Todos",
+        },
+    )
+
+
+@router.get("/trips/{nucleus}", response_class=HTMLResponse)
+def trips_by_nucleus(
+    request: Request,
+    nucleus: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=200, ge=10, le=2000),
+):
+    rrepo = get_routes_repo()
+    trepo = get_trips_repo()
+
+    nucleus = (nucleus or "").strip().lower()
+    nuclei = [n.get("slug") for n in rrepo.list_nuclei()]
+    if nucleus not in nuclei:
+        raise HTTPException(404, "That nucleus doesn't exist.")
+
+    rows = []
+    for trip_id in list(trepo._trip_to_route.keys()):
+        rid = trepo.route_id_for_trip(trip_id)
+        if not rid:
+            continue
+        nuc = (rrepo.nucleus_for_route_id(rid) or "").strip().lower()
+        if nuc != nucleus:
+            continue
+        did = trepo.direction_for_trip(trip_id) or ""
+        tn = trepo.train_number_for_trip(trip_id)
+        rows.append(
+            {
+                "trip_id": trip_id,
+                "route_id": rid,
+                "direction_id": did,
+                "train_number": tn,
+                "nucleus": nucleus,
+            }
+        )
+
+    rows.sort(
+        key=lambda r: (
+            r["route_id"] or "",
+            r["direction_id"] or "",
+            r["train_number"] or "",
+            r["trip_id"],
+        )
+    )
+
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_rows = rows[start:end]
+
+    return templates.TemplateResponse(
+        "trips.html",
+        {
+            "request": request,
+            "rows": page_rows,
+            "repo": rrepo,
+            "nucleus": {"slug": nucleus, "name": nucleus.upper()},
+            "route": None,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "title": f"Trips — Núcleo {nucleus.upper()}",
+        },
+    )
+
+
+@router.get("/trips/{nucleus}/{route_id}", response_class=HTMLResponse)
+def trips_by_route(
+    request: Request,
+    nucleus: str,
+    route_id: str,
+    direction_id: str = Query(default="", description="'' | '0' | '1' (opcional)"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=200, ge=10, le=2000),
+):
+    rrepo = get_routes_repo()
+    trepo = get_trips_repo()
+
+    nucleus = (nucleus or "").strip().lower()
+
+    lv_any = (
+        rrepo.get_by_route_and_dir(route_id, "")
+        or rrepo.get_by_route_and_dir(route_id, "0")
+        or rrepo.get_by_route_and_dir(route_id, "1")
+    )
+    if not lv_any:
+        raise HTTPException(404, f"Route {route_id} not found")
+    if (lv_any.nucleus_id or "").strip().lower() != nucleus:
+        raise HTTPException(404, f"That route doesn't belong to nucleus {nucleus}")
+
+    did_filter = (direction_id or "").strip()
+    if did_filter not in ("", "0", "1"):
+        raise HTTPException(400, "direction_id must be '', '0' or '1'")
+
+    rows = []
+    for trip_id in list(trepo._trip_to_route.keys()):
+        rid = trepo.route_id_for_trip(trip_id)
+        if rid != route_id:
+            continue
+        did = trepo.direction_for_trip(trip_id) or ""
+        if did_filter and did != did_filter:
+            continue
+        tn = trepo.train_number_for_trip(trip_id)
+        rows.append(
+            {
+                "trip_id": trip_id,
+                "route_id": rid,
+                "direction_id": did,
+                "train_number": tn,
+                "nucleus": nucleus,
+            }
+        )
+
+    rows.sort(
+        key=lambda r: (
+            r["direction_id"] or "",
+            r["train_number"] or "",
+            r["trip_id"],
+        )
+    )
+
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_rows = rows[start:end]
+
+    return templates.TemplateResponse(
+        "trips.html",
+        {
+            "request": request,
+            "rows": page_rows,
+            "repo": rrepo,
+            "nucleus": {"slug": nucleus, "name": nucleus.upper()},
+            "route": lv_any,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "title": f"Trips — {route_id} "
             f"({'dir ' + did_filter if did_filter else 'ambas dirs'})",
         },
     )
