@@ -4,7 +4,7 @@
 	{% else %}
 		<a href="/alpha/trains/">&larr; Volver a trenes</a>
 	{% endif %}
-	
+
 	<h1>
 		Tren {{ unified.train_label }}{% if unified.kind == 'scheduled' %} (programado){% endif %}
 	</h1>
@@ -66,8 +66,8 @@
 
 <hr/>
 
-{% if stop_rows %}
-	<hr>
+{% set rows = (trip.stops if trip and trip.stops else (unified.stops if unified and unified.stops else stop_rows)) %}
+{% if rows %}
 	<h2>Paradas del servicio</h2>
 	<table border="1" cellpadding="6" cellspacing="0">
 		<thead>
@@ -75,54 +75,93 @@
 			<th>#</th>
 			<th>Parada</th>
 			<th>Programado</th>
-			<th>En directo</th>
-			<th>Trip Update</th>
+			<th>Real (TU/RT)</th>
 			<th>Retraso</th>
 			<th>Relación</th>
 			<th>Estado</th>
 		</tr>
 		</thead>
 		<tbody>
-		{% for r in stop_rows %}
+		{% for r in rows %}
+			{% set seq = r.get('seq') %}
+			{% set stop_id = r.get('stop_id') %}
+			{% set stop_name = r.get('stop_name') or repo.get_stop_name(stop_id) or stop_id %}
+			
+			{% set scheduled_hhmm =
+				r.get('scheduled_hhmm') or r.get('sched_arr_hhmm') or r.get('sched_dep_hhmm') %}
+			{% set scheduled_epoch =
+				r.get('scheduled_epoch') or r.get('sched_arr_epoch') or r.get('sched_dep_epoch') %}
+			
+			{% set real_hhmm =
+				r.get('tu_hhmm') or r.get('rt_hhmm')
+				or r.get('eta_arr_hhmm') or r.get('eta_dep_hhmm') %}
+			{% set real_epoch =
+				r.get('tu_dep_epoch') or r.get('tu_arr_epoch')
+				or r.get('rt_epoch')
+				or r.get('eta_arr_epoch') or r.get('eta_dep_epoch') %}
+			
+			{% set tu_delay_s = r.get('tu_delay_s') %}
+			{% if tu_delay_s is not none %}
+				{% set delay_min = (tu_delay_s // 60) %}
+				{% elif (real_epoch is not none) and (scheduled_epoch is not none) %}
+				{% set delay_min = ((real_epoch - scheduled_epoch) // 60) %}
+			{% else %}
+				{% set delay_min = r.get('delay_min') %}
+			{% endif %}
+			
+			{% set status_raw = r.get('status') or r.get('flag') or 'upcoming' %}
+			{% set flag =
+				'current' if status_raw in ['CURRENT','current'] else
+				'next'    if status_raw in ['NEXT','next','upcoming'] else
+				'passed'  if status_raw in ['PASSED','passed'] else
+				'upcoming' %}
+			
 			<tr
-				{% if r.flag == 'current' %} style="background:#e6ffe6"{% endif %}
-				{% if r.flag == 'next' %} style="background:#fff9e6"{% endif %}
-				{% if r.flag == 'passed' %} style="color:#777"{% endif %}
+				{% if flag == 'current' %} style="background:#e6ffe6"{% endif %}
+				{% if flag == 'next' %} style="background:#fff9e6"{% endif %}
+				{% if flag == 'passed' %} style="color:#777"{% endif %}
 			>
-				<td>{{ r.seq }}</td>
+				<td>{{ seq }}</td>
+				
 				<td>
-					{{ r.stop_name or r.stop_id or '—' }}
-					<small><i>({{ r.stop_id or '—' }})</i></small>
+					{{ stop_name or '—' }}
+					<small><i>({{ stop_id or '—' }})</i></small>
 				</td>
+				
 				<td>
-					{% if r.scheduled_hhmm %}
-						{{ r.scheduled_hhmm }}
-						{% if r.scheduled_epoch %} ({{ r.scheduled_epoch }}){% endif %}
-					{% else %}—{% endif %}
+					{% if scheduled_hhmm %}
+						{{ scheduled_hhmm }}
+						{% if scheduled_epoch is not none %}<small>({{ scheduled_epoch }})</small>{% endif %}
+					{% else %}
+						—
+					{% endif %}
 				</td>
+				
 				<td>
-					{% if r.live_hhmm %}
-						{{ r.live_hhmm }}
-						{% elif r.flag == 'current' %}
+					{% if real_hhmm %}
+						<b>{{ real_hhmm }}</b>
+						{% if real_epoch is not none %}<small>({{ real_epoch }})</small>{% endif %}
+						{% elif flag == 'current' and r.get('live_hhmm') %}
+						{{ r.get('live_hhmm') }}
+						{% elif flag == 'current' %}
 						ahora
+					{% else %}
+						—
+					{% endif %}
+				</td>
+				
+				<td>
+					{% if delay_min is not none %}
+						{{ '+' if delay_min > 0 else '' }}{{ delay_min }} min
 					{% else %}—{% endif %}
 				</td>
+				
+				<td>{{ r.get('tu_rel') or r.get('rel') or '—' }}</td>
+				
 				<td>
-					{% if r.rt_hhmm %}
-						{{ r.rt_hhmm }}
-						{% if r.rt_epoch %} ({{ r.rt_epoch }}){% endif %}
-					{% else %}—{% endif %}
-				</td>
-				<td>
-					{% if r.delay_min is not none %}
-						{{ '+' if r.delay_min > 0 else '' }}{{ r.delay_min }} min
-					{% else %}—{% endif %}
-				</td>
-				<td>{{ r.rel or '—' }}</td>
-				<td>
-					{% if r.flag == 'current' %}Ahora
-						{% elif r.flag == 'next' %}Siguiente
-						{% elif r.flag == 'passed' %}Pasada
+					{% if flag == 'current' %}Ahora
+						{% elif flag == 'next' %}Siguiente
+						{% elif flag == 'passed' %}Pasada
 					{% else %}Próxima{% endif %}
 				</td>
 			</tr>
@@ -209,61 +248,3 @@
 		</tbody>
 	</table>
 {% endif %}
-
-{% if unified.stops %}
-	<hr>
-	
-	<h2>Paradas y horarios</h2>
-	<table border="1" cellpadding="6" cellspacing="0">
-		<thead>
-		<tr>
-			<th>#</th>
-			<th>Parada</th>
-			<th>Programado</th>
-			<th>Trip Update</th>
-			<th>Retraso</th>
-			<th>Relación</th>
-			<th>Estado</th>
-		</tr>
-		</thead>
-		<tbody>
-		{% for row in unified.stops %}
-			{% set flag = row.flag or 'upcoming' %}
-			<tr
-				{% if flag == 'current' %} style="background:#e6ffe6"{% endif %}
-				{% if flag == 'next' %} style="background:#fff9e6"{% endif %}
-				{% if flag == 'passed' %} style="color:#777"{% endif %}
-			>
-				<td>{{ row.seq }}</td>
-				<td>
-					{{ row.stop_name or row.stop_id or '—' }}
-					<small><i>({{ row.stop_id or '—' }})</i></small>
-				</td>
-				<td>{{ row.scheduled_hhmm or '—' }}</td>
-				<td>
-					{% if row.rt_hhmm %}
-						{{ row.rt_hhmm }}
-						{% if row.rt_epoch %} ({{ row.rt_epoch }}){% endif %}
-					{% else %}
-						{% if row.rt_epoch is not none %}
-							{{ row.rt_epoch }}
-						{% else %}
-							—
-						{% endif %}
-					{% endif %}
-				</td>
-				<td>
-					{% if row.delay_min is not none %}
-						{{ '+' if row.delay_min > 0 else '' }}{{ row.delay_min }} min
-					{% else %}—{% endif %}
-				</td>
-				<td>{{ row.rel or '—' }}</td>
-				<td>
-					{% if flag == 'current' %}Ahora{% elif flag == 'next' %}Siguiente{% elif flag == 'passed' %}Pasada{% else %}Próxima{% endif %}
-				</td>
-			</tr>
-		{% endfor %}
-		</tbody>
-	</table>
-{% endif %}
-

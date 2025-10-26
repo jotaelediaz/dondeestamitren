@@ -1,4 +1,5 @@
 # app/routers/web.py
+import re
 import unicodedata
 from collections import defaultdict
 from contextlib import suppress
@@ -13,6 +14,7 @@ from app.services.platform_habits import get_service as get_platform_habits
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
+from app.services.train_services_index import build_train_detail_vm
 from app.viewkit import mk_nucleus, render
 
 router = APIRouter(tags=["web"])
@@ -694,24 +696,43 @@ def trains_by_nucleus(request: Request, nucleus: str):
     )
 
 
-@router.get("/trains/{nucleus}/{train_id}", response_class=HTMLResponse)
-def train_detail(request: Request, nucleus: str, train_id: str):
+@router.get("/trains/{nucleus}/{identifier}", response_class=HTMLResponse)
+def train_detail(
+    request: Request,
+    nucleus: str,
+    identifier: str,
+    tz: str = Query(default="Europe/Madrid"),
+):
+
+    if not re.fullmatch(r"\d{3,6}", (identifier or "").strip()):
+        raise HTTPException(400, "identifier must be a numeric train number (3–6 digits)")
+
     cache = get_live_trains_cache()
-    nucleus = (nucleus or "").lower()
     repo = get_routes_repo()
-    train = cache.get_by_id(train_id)
-    if not train:
-        raise HTTPException(404, f"Train {train_id} not found. :-(")
+    nucleus = (nucleus or "").lower()
+
+    vm = build_train_detail_vm(nucleus, identifier, tz_name=tz)
+
+    if vm["kind"] == "live" and vm["train"] is None:
+        raise HTTPException(404, f"Train {identifier} not found. :-(")
 
     return render(
         request,
         "train_detail.html",
         {
-            "train": train,
+            "request": request,
+            "kind": vm["kind"],
+            "train": vm["train"],
+            "scheduled": vm["scheduled"],
             "last_snapshot": cache.last_snapshot_iso(),
             "repo": repo,
             "nucleus": mk_nucleus(nucleus),
-            "live_source": cache.last_source(),
+            "train_seen_iso": vm["train_seen_iso"],
+            "train_seen_age": vm["train_seen_age"],
+            "platform": vm["platform"],
+            "train_service": vm["unified"],
+            "route": vm["route"],
+            "trip": vm["trip"],
         },
     )
 

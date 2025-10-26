@@ -1,24 +1,25 @@
 from __future__ import annotations
 
+import contextlib
 import math
 import re
 from datetime import datetime
 from functools import lru_cache
-from typing import Any, Optional, Tuple, List, Dict
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.domain.models import (
-    ServiceInstance,
-    RealtimeInfo,
-    MatchingInfo,
     DerivedInfo,
+    MatchingInfo,
     NearestResult,
-    ScheduledTrain,
+    RealtimeInfo,
+    ScheduledTrain,  # por compatibilidad si existe
+    ServiceInstance,
 )
-from app.services.live_trains_cache import get_live_trains_cache, LiveTrainsCache
+from app.services.live_trains_cache import LiveTrainsCache, get_live_trains_cache
+from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
 from app.services.stops_repo import get_repo as get_stops_repo
-from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
 
@@ -27,11 +28,11 @@ from app.services.trips_repo import get_repo as get_trips_repo
 _NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
 
 
-def _extract_train_number(live: Any) -> Optional[str]:
+def _extract_train_number(live: Any) -> str | None:
     for field in (
-            getattr(live, "train_number", None),
-            getattr(live, "train_id", None),
-            getattr(live, "label", None),
+        getattr(live, "train_number", None),
+        getattr(live, "train_id", None),
+        getattr(live, "label", None),
     ):
         if not field:
             continue
@@ -48,8 +49,9 @@ def _now_ts(tz_name: str) -> int:
 def _service_date_str(tz_name: str) -> str:
     return datetime.now(ZoneInfo(tz_name)).strftime("%Y%m%d")
 
-def _fmt_hhmm_local(epoch: Optional[int], tz_name: str = "Europe/Madrid") -> Optional[str]:
-    if not isinstance(epoch, (int, float)):
+
+def _fmt_hhmm_local(epoch: int | None, tz_name: str = "Europe/Madrid") -> str | None:
+    if not isinstance(epoch, int | float):
         return None
     try:
         dt = datetime.fromtimestamp(int(epoch), ZoneInfo(tz_name))
@@ -57,31 +59,32 @@ def _fmt_hhmm_local(epoch: Optional[int], tz_name: str = "Europe/Madrid") -> Opt
     except Exception:
         return None
 
-def _stu_epoch(stu) -> Optional[int]:
+
+def _stu_epoch(stu) -> int | None:
     if stu is None:
         return None
     v = getattr(stu, "arrival_time", None)
-    if isinstance(v, (int, float)):
+    if isinstance(v, int | float):
         return int(v)
     v = getattr(stu, "departure_time", None)
-    if isinstance(v, (int, float)):
+    if isinstance(v, int | float):
         return int(v)
     if isinstance(stu, dict):
         v = stu.get("arrival_time") or stu.get("departure_time")
-        if isinstance(v, (int, float)):
+        if isinstance(v, int | float):
             return int(v)
     return None
 
 
-def _get_live_ts(live: Any) -> Optional[int]:
+def _get_live_ts(live: Any) -> int | None:
     for attr in ("ts", "timestamp", "last_ts", "last_update_ts"):
         v = getattr(live, attr, None)
-        if isinstance(v, (int, float)):
+        if isinstance(v, int | float):
             return int(v)
     return None
 
 
-def _latlon(obj: Any) -> Tuple[Optional[float], Optional[float]]:
+def _latlon(obj: Any) -> tuple[float | None, float | None]:
     lat = getattr(obj, "lat", None)
     lon = getattr(obj, "lon", None)
     if lon is None:
@@ -102,17 +105,18 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * R * math.asin(math.sqrt(a))
 
 
-def _speed_mps(live: Any) -> Optional[float]:
+def _speed_mps(live: Any) -> float | None:
     v = getattr(live, "speed_mps", None)
-    if isinstance(v, (int, float)) and v > 0:
+    if isinstance(v, int | float) and v > 0:
         return float(v)
     v = getattr(live, "speed", None)
-    if isinstance(v, (int, float)) and v > 0:
+    if isinstance(v, int | float) and v > 0:
         return float(v)
     v = getattr(live, "speed_kmh", None)
-    if isinstance(v, (int, float)) and v > 0:
+    if isinstance(v, int | float) and v > 0:
         return float(v) / 3.6
     return None
+
 
 @lru_cache(maxsize=4096)
 def _trip_route_id(trip_id: str | None) -> str | None:
@@ -153,7 +157,7 @@ def _route_short_name(route_id: str | None) -> str:
     return route_id or ""
 
 
-def platform_for_live(live: Any) -> Optional[str]:
+def platform_for_live(live: Any) -> str | None:
     sid = (getattr(live, "stop_id", "") or "").strip()
     if sid:
         mp = getattr(live, "platform_by_stop", {}) or {}
@@ -163,7 +167,7 @@ def platform_for_live(live: Any) -> Optional[str]:
     return LiveTrainsCache.extract_platform_from_label(getattr(live, "label", None))
 
 
-def enrich_with_trip_update(trip_id: str, *, tz_name: str = "Europe/Madrid") -> Optional[Dict]:
+def enrich_with_trip_update(trip_id: str, *, tz_name: str = "Europe/Madrid") -> dict | None:
     tuc = get_trip_updates_cache()
     it = tuc.get_by_trip_id(trip_id)
     if not it:
@@ -172,15 +176,16 @@ def enrich_with_trip_update(trip_id: str, *, tz_name: str = "Europe/Madrid") -> 
     now = int(datetime.now(ZoneInfo(tz_name)).timestamp())
     stus = list(getattr(it, "stop_updates", None) or getattr(it, "stop_time_updates", None) or [])
     if stus:
-        try:
+        with contextlib.suppress(Exception):
             stus.sort(key=lambda s: (getattr(s, "stop_sequence", 0), _stu_epoch(s) or 0))
-        except Exception:
-            pass
 
     next_s = next(
-        (s for s in stus
-         if (_stu_epoch(s) or 0) >= now
-         and (getattr(s, "schedule_relationship", "SCHEDULED") or "SCHEDULED") != "CANCELED"),
+        (
+            s
+            for s in stus
+            if (_stu_epoch(s) or 0) >= now
+            and (getattr(s, "schedule_relationship", "SCHEDULED") or "SCHEDULED") != "CANCELED"
+        ),
         None,
     )
     if not next_s and stus:
@@ -198,7 +203,7 @@ def enrich_with_trip_update(trip_id: str, *, tz_name: str = "Europe/Madrid") -> 
     dep = _gd(next_s, "departure_time") if next_s else None
     delay = _gd(next_s, "arrival_delay", "departure_delay") if next_s else None
     seq = _gd(next_s, "stop_sequence") if next_s else None
-    rel = (getattr(it, "schedule_relationship", None) or "SCHEDULED")
+    rel = getattr(it, "schedule_relationship", None) or "SCHEDULED"
 
     rrepo = get_routes_repo()
     stop_name = rrepo.get_stop_name(str(stop_id)) if stop_id else None
@@ -207,8 +212,14 @@ def enrich_with_trip_update(trip_id: str, *, tz_name: str = "Europe/Madrid") -> 
     if stus and getattr(stus[-1], "stop_sequence", None) is not None:
         total_seq = getattr(stus[-1], "stop_sequence", None)
 
+    tu_ts = getattr(it, "timestamp", None)
+    _fmt_hhmm_local(tu_ts, tz_name)  # solo hora; abajo devolvemos epoch+iso si quieres
+
     return {
-        "tu_timestamp": getattr(it, "timestamp", None),
+        "tu_timestamp": tu_ts,
+        "tu_timestamp_iso": (
+            datetime.fromtimestamp(tu_ts, ZoneInfo(tz_name)).isoformat() if tu_ts else None
+        ),
         "schedule_relationship": rel,
         "next_stop_id": stop_id,
         "next_stop_name": stop_name,
@@ -224,18 +235,18 @@ def _dir_str(v) -> str:
 
 
 def _resolve_route_obj(
-        *,
-        route_id: Optional[str],
-        direction_id: Optional[str | int],
-        line_id: Optional[str],
-        nucleus: Optional[str],
-) -> Optional[object]:
+    *,
+    route_id: str | None,
+    direction_id: str | int | None,
+    line_id: str | None,
+    nucleus: str | None,
+) -> object | None:
     rrepo = get_routes_repo()
     nuc = (nucleus or "").strip().lower()
 
     if route_id:
         d1 = _dir_str(direction_id)
-        for did in (([d1] if d1 else []) + [""]):
+        for did in ([d1] if d1 else []) + [""]:
             try:
                 r = rrepo.get_by_route_and_dir(route_id, did)
             except Exception:
@@ -248,6 +259,7 @@ def _resolve_route_obj(
     if line_id and direction_id in (0, 1, "0", "1"):
         try:
             from app.services.lines_index import get_index as get_lines_index
+
             idx = get_lines_index()
             for cand in idx.route_ids_for_line(line_id) or []:
                 try:
@@ -263,21 +275,24 @@ def _resolve_route_obj(
 
     return None
 
+
 def _build_trip_rows(
-        *,
-        trip_id: Optional[str],
-        route_id: Optional[str],
-        direction_id: Optional[str | int],
-        nucleus: Optional[str],
-        live_obj: Any,
-        tz_name: str,
+    *,
+    trip_id: str | None,
+    route_id: str | None,
+    direction_id: str | int | None,
+    nucleus: str | None,
+    live_obj: Any,
+    tz_name: str,
 ) -> dict:
     from contextlib import suppress
-    rrepo = get_routes_repo()
-    srepo = get_scheduled_repo()
-    tuc   = get_trip_updates_cache()
 
-    def hhmm(ts): return _fmt_hhmm_local(ts, tz_name)
+    rrepo = get_routes_repo()
+    trepo = get_trips_repo()
+    tuc = get_trip_updates_cache()
+
+    def hhmm(ts):
+        return _fmt_hhmm_local(ts, tz_name)
 
     route_obj = _resolve_route_obj(
         route_id=route_id,
@@ -286,45 +301,66 @@ def _build_trip_rows(
         nucleus=nucleus,
     )
 
-    calls = []
-    sched = None
-    if trip_id and hasattr(srepo, "get_trip_schedule"):
+    calls: list[dict] = []
+    if trip_id:
         with suppress(Exception):
-            sched = srepo.get_trip_schedule(trip_id, tz_name) or srepo.get_trip_schedule(trip_id)
-    if isinstance(sched, dict):
-        raw = sched.get("calls") or sched.get("stops") or []
-        for c in raw:
-            seq = c.get("stop_sequence")
-            sid = c.get("stop_id")
-            arr = c.get("arrival_time")
-            dep = c.get("departure_time")
-            calls.append({"seq": seq, "stop_id": sid, "sched_arr": arr, "sched_dep": dep})
-    elif route_obj and getattr(route_obj, "stations", None):
+            tt = trepo.timetable_for_trip(trip_id, tz_name=tz_name) or []
+            for c in tt:
+                seq = c.get("stop_sequence")
+                sid = c.get("stop_id")
+                arr_ep = c.get("arrival_time")
+                dep_ep = c.get("departure_time")
+                calls.append(
+                    {
+                        "seq": seq,
+                        "stop_id": sid,
+                        "sched_arr": arr_ep,
+                        "sched_dep": dep_ep,
+                    }
+                )
+
+    if not calls and route_obj and getattr(route_obj, "stations", None):
         for idx, st in enumerate(route_obj.stations, 1):
             calls.append({"seq": idx, "stop_id": st.stop_id, "sched_arr": None, "sched_dep": None})
 
     calls.sort(key=lambda x: (x["seq"] is None, x["seq"] or 0))
 
     tu = tuc.get_by_trip_id(trip_id) if trip_id else None
-    tu_by_stop, tu_next_idx, tu_ts = {}, None, None
+    tu_by_stop: dict[str, dict] = {}
+    tu_next_idx, tu_ts = None, None
     if tu:
-        with suppress(Exception): tu_ts = int(getattr(tu, "timestamp", 0) or 0)
-        stus = list(getattr(tu, "stop_updates", None) or getattr(tu, "stop_time_updates", None) or [])
-        with suppress(Exception): stus.sort(key=lambda s: (getattr(s, "stop_sequence", 0)))
+        with suppress(Exception):
+            tu_ts = int(getattr(tu, "timestamp", 0) or 0)
+        stus = list(
+            getattr(tu, "stop_updates", None) or getattr(tu, "stop_time_updates", None) or []
+        )
+        with suppress(Exception):
+            stus.sort(key=lambda s: (getattr(s, "stop_sequence", 0), _stu_epoch(s) or 0))
         for s in stus:
             sid = str(getattr(s, "stop_id", None))
+            if not sid:
+                continue
             tu_by_stop[sid] = {
                 "arr": getattr(s, "arrival_time", None),
                 "dep": getattr(s, "departure_time", None),
-                "delay": (getattr(s, "arrival_delay", None)
-                          if getattr(s, "arrival_delay", None) is not None
-                          else getattr(s, "departure_delay", None)),
+                "delay": (
+                    getattr(s, "arrival_delay", None)
+                    if getattr(s, "arrival_delay", None) is not None
+                    else getattr(s, "departure_delay", None)
+                ),
                 "rel": getattr(s, "schedule_relationship", None),
                 "seq": getattr(s, "stop_sequence", None),
+                "hhmm": _fmt_hhmm_local(
+                    getattr(s, "departure_time", None) or getattr(s, "arrival_time", None), tz_name
+                ),
             }
         now = _now_ts(tz_name)
-        fut = [x for x in stus if (_stu_epoch(x) or 0) >= now
-               and (getattr(x, "schedule_relationship", "SCHEDULED") or "SCHEDULED") != "CANCELED"]
+        fut = [
+            x
+            for x in stus
+            if (_stu_epoch(x) or 0) >= now
+            and (getattr(x, "schedule_relationship", "SCHEDULED") or "SCHEDULED") != "CANCELED"
+        ]
         if fut:
             tu_next_idx = getattr(fut[0], "stop_sequence", None)
 
@@ -342,14 +378,23 @@ def _build_trip_rows(
         rel = (tinfo or {}).get("rel")
         tu_arr = (tinfo or {}).get("arr")
         tu_dep = (tinfo or {}).get("dep")
-        delay  = (tinfo or {}).get("delay")
+        tu_hhmm = (tinfo or {}).get("hhmm")
+        delay = (tinfo or {}).get("delay")
 
         if delay is not None:
             carry_delay = delay
         eff_delay = delay if delay is not None else carry_delay
 
-        eta_arr = tu_arr or (sched_arr + eff_delay if (sched_arr is not None and eff_delay is not None) else sched_arr)
-        eta_dep = tu_dep or (sched_dep + eff_delay if (sched_dep is not None and eff_delay is not None) else sched_dep)
+        eta_arr = tu_arr or (
+            sched_arr + eff_delay
+            if (sched_arr is not None and eff_delay is not None)
+            else sched_arr
+        )
+        eta_dep = tu_dep or (
+            sched_dep + eff_delay
+            if (sched_dep is not None and eff_delay is not None)
+            else sched_dep
+        )
 
         status = "FUTURE"
         if rel in {"CANCELED"}:
@@ -374,36 +419,45 @@ def _build_trip_rows(
                 st = next((s for s in route_obj.stations if s.stop_id == sid), None)
                 platform = getattr(st, "habitual_platform", None)
 
-        rows.append({
-            "seq": c["seq"],
-            "stop_id": sid,
-            "stop_name": name,
-            "platform": platform,
-            "status": status,
-            "sched_arr_epoch": sched_arr,
-            "sched_dep_epoch": sched_dep,
-            "sched_arr_hhmm": hhmm(sched_arr) if sched_arr else None,
-            "sched_dep_hhmm": hhmm(sched_dep) if sched_dep else None,
-            "tu_arr_epoch": tu_arr,
-            "tu_dep_epoch": tu_dep,
-            "tu_delay_s": delay,
-            "tu_rel": rel,
-            "eta_arr_epoch": eta_arr,
-            "eta_dep_epoch": eta_dep,
-            "eta_arr_hhmm": hhmm(eta_arr) if eta_arr else None,
-            "eta_dep_hhmm": hhmm(eta_dep) if eta_dep else None,
-        })
+        rows.append(
+            {
+                "seq": c["seq"],
+                "stop_id": sid,
+                "stop_name": name,
+                "platform": platform,
+                "status": status,
+                # SCHEDULED
+                "sched_arr_epoch": sched_arr,
+                "sched_dep_epoch": sched_dep,
+                "sched_arr_hhmm": hhmm(sched_arr) if isinstance(sched_arr, int | float) else None,
+                "sched_dep_hhmm": hhmm(sched_dep) if isinstance(sched_dep, int | float) else None,
+                # TRIP UPDATE
+                "tu_arr_epoch": tu_arr,
+                "tu_dep_epoch": tu_dep,
+                "tu_hhmm": tu_hhmm,
+                "tu_delay_s": delay,
+                "tu_rel": rel,
+                "eta_arr_epoch": eta_arr,
+                "eta_dep_epoch": eta_dep,
+                "eta_arr_hhmm": hhmm(eta_arr) if isinstance(eta_arr, int | float) else None,
+                "eta_dep_hhmm": hhmm(eta_dep) if isinstance(eta_dep, int | float) else None,
+            }
+        )
 
     return {
         "has_tu": bool(tu),
-        "tu_updated_iso": (datetime.fromtimestamp(tu_ts, ZoneInfo(tz_name)).isoformat() if tu_ts else None),
+        "tu_updated_iso": (
+            datetime.fromtimestamp(tu_ts, ZoneInfo(tz_name)).isoformat() if tu_ts else None
+        ),
         "stops": rows,
     }
 
+
 # ------------------------ Match live -> scheduled ------------------------
 
+
 def link_vehicle_to_service(
-        live: Any, *, tz_name: str = "Europe/Madrid"
+    live: Any, *, tz_name: str = "Europe/Madrid"
 ) -> tuple[ServiceInstance, str]:
     srepo = get_scheduled_repo()
 
@@ -415,7 +469,7 @@ def link_vehicle_to_service(
     vehicle_id = getattr(live, "vehicle_id", None) or getattr(live, "train_id", None)
     train_number = _extract_train_number(live)
 
-    scheduled_trip_id: Optional[str] = None
+    scheduled_trip_id: str | None = None
     confidence = "low"
     method = "none"
 
@@ -476,7 +530,10 @@ def link_vehicle_to_service(
 
 # ------------------------ Scheduled departure by trip ------------------------
 
-def scheduled_departure_epoch_for_trip(trip_id: str, *, tz_name: str = "Europe/Madrid") -> Optional[int]:
+
+def scheduled_departure_epoch_for_trip(
+    trip_id: str, *, tz_name: str = "Europe/Madrid"
+) -> int | None:
     srepo = get_scheduled_repo()
 
     for attr in ("first_departure_epoch_for_trip", "get_trip_first_departure_epoch"):
@@ -537,13 +594,22 @@ def scheduled_departure_epoch_for_trip(trip_id: str, *, tz_name: str = "Europe/M
             except Exception:
                 pass
 
+    try:
+        trepo = get_trips_repo()
+        v = trepo.first_departure_epoch_for_trip(trip_id, tz_name=tz_name)
+        if isinstance(v, int):
+            return v
+    except Exception:
+        pass
+
     return None
 
+
 def _destination_for_trip_or_route(
-        trip_id: Optional[str],
-        route_id: Optional[str],
-) -> Tuple[Optional[str], Optional[str]]:
-    dest_stop_id: Optional[str] = None
+    trip_id: str | None,
+    route_id: str | None,
+) -> tuple[str | None, str | None]:
+    dest_stop_id: str | None = None
     srepo = get_scheduled_repo()
 
     if trip_id:
@@ -565,13 +631,18 @@ def _destination_for_trip_or_route(
                                 last = max(
                                     calls,
                                     key=lambda c: (
-                                        c.get("stop_sequence") if isinstance(c, dict)
+                                        c.get("stop_sequence")
+                                        if isinstance(c, dict)
                                         else getattr(c, "stop_sequence", 0)
                                     ),
                                 )
                             except Exception:
                                 last = calls[-1]
-                            dest_stop_id = last.get("stop_id") if isinstance(last, dict) else getattr(last, "stop_id", None)
+                            dest_stop_id = (
+                                last.get("stop_id")
+                                if isinstance(last, dict)
+                                else getattr(last, "stop_id", None)
+                            )
                     if dest_stop_id:
                         break
 
@@ -623,7 +694,7 @@ def _destination_for_trip_or_route(
                 dest_stop_id = cand
                 break
 
-    dest_name: Optional[str] = None
+    dest_name: str | None = None
     if dest_stop_id:
         try:
             dest_name = rrepo.get_stop_name(dest_stop_id)
@@ -639,9 +710,11 @@ def _destination_for_trip_or_route(
 
     return dest_stop_id, dest_name
 
+
 # ------------------------ Dual list by nucleus ------------------------
 
-def _nucleus_routes(nucleus: str) -> List[str]:
+
+def _nucleus_routes(nucleus: str) -> list[str]:
     rrepo = get_routes_repo()
     for attr in ("list_routes_by_nucleus", "list_route_ids_by_nucleus", "routes_in_nucleus"):
         if hasattr(rrepo, attr):
@@ -660,29 +733,39 @@ def _nucleus_routes(nucleus: str) -> List[str]:
     return sorted({getattr(t, "route_id", "") for t in live if getattr(t, "route_id", None)})
 
 
-def _scheduled_candidates_for_nucleus(nucleus: str, *, tz_name: str = "Europe/Madrid") -> List[Dict]:
+def _scheduled_candidates_for_nucleus(
+    nucleus: str, *, tz_name: str = "Europe/Madrid"
+) -> list[dict]:
     srepo = get_scheduled_repo()
-    items: List[Dict] = []
+    items: list[dict] = []
 
     for attr in ("unique_numbers_today_tomorrow_by_nucleus",):
         if hasattr(srepo, attr):
             try:
-                pairs = getattr(srepo, attr)(nucleus=nucleus) or []  # [(train_number, sample_trip_id)]
+                pairs = (
+                    getattr(srepo, attr)(nucleus=nucleus) or []
+                )  # [(train_number, sample_trip_id)]
                 for num, _sample_tid in pairs:
                     ep, hhmm, next_tid = srepo.next_departure_for_train_number(
-                        route_id=None, direction_id=None, train_number=num, tz_name=tz_name, horizon_days=1
+                        route_id=None,
+                        direction_id=None,
+                        train_number=num,
+                        tz_name=tz_name,
+                        horizon_days=1,
                     )
                     if ep is None or next_tid is None:
                         continue
                     rid = _trip_route_id(next_tid)
-                    items.append({
-                        "train_number": str(num),
-                        "next_epoch": ep,
-                        "next_hhmm": hhmm,
-                        "next_trip_id": next_tid,
-                        "route_id": rid,
-                        "route_short_name": _route_short_name(rid),
-                    })
+                    items.append(
+                        {
+                            "train_number": str(num),
+                            "next_epoch": ep,
+                            "next_hhmm": hhmm,
+                            "next_trip_id": next_tid,
+                            "route_id": rid,
+                            "route_short_name": _route_short_name(rid),
+                        }
+                    )
                 items.sort(key=lambda it: it.get("next_epoch") or 9_999_999_999)
                 return items
             except Exception:
@@ -691,41 +774,52 @@ def _scheduled_candidates_for_nucleus(nucleus: str, *, tz_name: str = "Europe/Ma
     for rid in _nucleus_routes(nucleus):
         for did in ("0", "1", None):
             try:
-                pairs = srepo.unique_numbers_today_tomorrow(route_id=rid, direction_id=did, nucleus=nucleus) or []
+                pairs = (
+                    srepo.unique_numbers_today_tomorrow(
+                        route_id=rid, direction_id=did, nucleus=nucleus
+                    )
+                    or []
+                )
             except Exception:
                 pairs = []
             for num, _sample_tid in pairs:
                 try:
                     ep, hhmm, next_tid = srepo.next_departure_for_train_number(
-                        route_id=rid, direction_id=did, train_number=num, tz_name=tz_name, horizon_days=1
+                        route_id=rid,
+                        direction_id=did,
+                        train_number=num,
+                        tz_name=tz_name,
+                        horizon_days=1,
                     )
                 except Exception:
                     ep, hhmm, next_tid = None, None, None
                 if ep is None or next_tid is None:
                     continue
                 rrid = _trip_route_id(next_tid) or rid
-                items.append({
-                    "train_number": str(num),
-                    "next_epoch": ep,
-                    "next_hhmm": hhmm,
-                    "next_trip_id": next_tid,
-                    "route_id": rrid,
-                    "route_short_name": _route_short_name(rrid),
-                })
+                items.append(
+                    {
+                        "train_number": str(num),
+                        "next_epoch": ep,
+                        "next_hhmm": hhmm,
+                        "next_trip_id": next_tid,
+                        "route_id": rrid,
+                        "route_short_name": _route_short_name(rrid),
+                    }
+                )
 
     items.sort(key=lambda it: it.get("next_epoch") or 9_999_999_999)
     return items
 
 
 def build_nucleus_trains_rows(
-        nucleus: str,
-        *,
-        include_scheduled: bool,
-        tz_name: str = "Europe/Madrid",
-) -> List[Dict]:
+    nucleus: str,
+    *,
+    include_scheduled: bool,
+    tz_name: str = "Europe/Madrid",
+) -> list[dict]:
     cache = get_live_trains_cache()
     live_trains = cache.get_by_nucleus(nucleus) or []
-    rows: List[Dict] = []
+    rows: list[dict] = []
 
     live_numbers = set()
 
@@ -744,20 +838,22 @@ def build_nucleus_trains_rows(
         except Exception:
             pass
 
-        rows.append({
-            "kind": "live",
-            "id": f"L:{getattr(t, 'train_id', '')}",
-            "nucleus_slug": getattr(t, "nucleus_slug", None) or nucleus,
-            "route_id": rid or "",
-            "route_short_name": getattr(t, "route_short_name", "") or _route_short_name(rid),
-            "train_label": getattr(t, "train_id", ""),
-            "train_number": num,
-            "trip_id": trip_id,
-            "status_text": t.status_human() if hasattr(t, "status_human") else "live",
-            "stop_id": getattr(t, "stop_id", None),
-            "lat": getattr(t, "lat", None),
-            "lon": getattr(t, "lon", None),
-        })
+        rows.append(
+            {
+                "kind": "live",
+                "id": f"L:{getattr(t, 'train_id', '')}",
+                "nucleus_slug": getattr(t, "nucleus_slug", None) or nucleus,
+                "route_id": rid or "",
+                "route_short_name": getattr(t, "route_short_name", "") or _route_short_name(rid),
+                "train_label": getattr(t, "train_id", ""),
+                "train_number": num,
+                "trip_id": trip_id,
+                "status_text": t.status_human() if hasattr(t, "status_human") else "live",
+                "stop_id": getattr(t, "stop_id", None),
+                "lat": getattr(t, "lat", None),
+                "lon": getattr(t, "lon", None),
+            }
+        )
 
     # SCHEDULED
     if include_scheduled:
@@ -768,37 +864,42 @@ def build_nucleus_trains_rows(
         for it in sched or []:
             if it["train_number"] in live_numbers:
                 continue
-            rows.append({
-                "kind": "scheduled",
-                "id": f"S:{it['train_number']}",
-                "nucleus_slug": nucleus,
-                "route_id": it.get("route_id") or "",
-                "route_short_name": it.get("route_short_name") or _route_short_name(it.get("route_id")),
-                "train_label": it["train_number"],
-                "train_number": it["train_number"],
-                "trip_id": it.get("next_trip_id"),
-                "status_text": f"Salida {it.get('next_hhmm') or '—'}",
-                "next_epoch": it.get("next_epoch"),
-                "stop_id": None,
-                "lat": None,
-                "lon": None,
-            })
+            rows.append(
+                {
+                    "kind": "scheduled",
+                    "id": f"S:{it['train_number']}",
+                    "nucleus_slug": nucleus,
+                    "route_id": it.get("route_id") or "",
+                    "route_short_name": it.get("route_short_name")
+                    or _route_short_name(it.get("route_id")),
+                    "train_label": it["train_number"],
+                    "train_number": it["train_number"],
+                    "trip_id": it.get("next_trip_id"),
+                    "status_text": f"Salida {it.get('next_hhmm') or '—'}",
+                    "next_epoch": it.get("next_epoch"),
+                    "stop_id": None,
+                    "lat": None,
+                    "lon": None,
+                }
+            )
 
     def _sort_key(row):
         if row["kind"] == "live":
             return (0, row.get("route_short_name") or "", row.get("train_label") or "")
         return (1, row.get("next_epoch") or 9_999_999_999, row.get("train_label") or "")
+
     rows.sort(key=_sort_key)
     return rows
 
 
 # ------------------------ Details by train number ------------------------
 
+
 def _parse_train_identifier(
-        identifier: str,
-        nucleus: Optional[str] = None,
-        *,
-        tz_name: str = "Europe/Madrid",
+    identifier: str,
+    nucleus: str | None = None,
+    *,
+    tz_name: str = "Europe/Madrid",
 ) -> tuple[str, str]:
     s = (identifier or "").strip()
     if not re.fullmatch(r"\d{3,6}", s):
@@ -814,7 +915,7 @@ def _parse_train_identifier(
             seen = cache.seen_info(getattr(t, "train_id", "")) or {}
             age = seen.get("age_s")
             ts = _get_live_ts(t) or 0
-            candidates.append((age if isinstance(age, (int, float)) else 10**9, -ts, t))
+            candidates.append((age if isinstance(age, int | float) else 10**9, -ts, t))
 
     if candidates:
         candidates.sort(key=lambda x: (x[0], x[1]))
@@ -825,18 +926,24 @@ def _parse_train_identifier(
 
 
 def _scheduled_detail_by_number(
-        train_number: str,
-        *,
-        nucleus: Optional[str] = None,
-        tz_name: str = "Europe/Madrid",
-) -> Dict | None:
+    train_number: str,
+    *,
+    nucleus: str | None = None,
+    tz_name: str = "Europe/Madrid",
+) -> dict | None:
     srepo = get_scheduled_repo()
 
-    best: Optional[tuple[int, str, Optional[str], Optional[str]]] = None  # (epoch, trip_id, route_id_hint, hhmm)
+    best: tuple[int, str, str | None, str | None] | None = (
+        None  # (epoch, trip_id, route_id_hint, hhmm)
+    )
 
     try:
         ep, hhmm, next_tid = srepo.next_departure_for_train_number(
-            route_id=None, direction_id=None, train_number=train_number, tz_name=tz_name, horizon_days=1
+            route_id=None,
+            direction_id=None,
+            train_number=train_number,
+            tz_name=tz_name,
+            horizon_days=1,
         )
         if ep is not None and next_tid:
             rid = _trip_route_id(next_tid)
@@ -852,12 +959,16 @@ def _scheduled_detail_by_number(
         pass
 
     route_ids = _nucleus_routes(nucleus) if nucleus else []
-    best_hhmm: Optional[str] = None
+    best_hhmm: str | None = None
     for rid in route_ids:
         for did in ("0", "1", None):
             try:
                 ep, hhmm, tid = srepo.next_departure_for_train_number(
-                    route_id=rid, direction_id=did, train_number=train_number, tz_name=tz_name, horizon_days=1
+                    route_id=rid,
+                    direction_id=did,
+                    train_number=train_number,
+                    tz_name=tz_name,
+                    horizon_days=1,
                 )
             except Exception:
                 ep, hhmm, tid = None, None, None
@@ -883,15 +994,15 @@ def _scheduled_detail_by_number(
 
 
 def build_train_detail_vm(
-        nucleus: str,
-        identifier: str,
-        *,
-        tz_name: str = "Europe/Madrid",
-) -> Dict:
+    nucleus: str,
+    identifier: str,
+    *,
+    tz_name: str = "Europe/Madrid",
+) -> dict:
     cache = get_live_trains_cache()
     kind, key = _parse_train_identifier(identifier, nucleus, tz_name=tz_name)
 
-    vm: Dict = {
+    vm: dict = {
         "kind": kind,
         "train": None,
         "scheduled": None,
@@ -905,7 +1016,6 @@ def build_train_detail_vm(
         "trip": None,
     }
 
-    # --- LIVE ---
     if kind == "live":
         live_obj = cache.get_by_id(key)
         if not live_obj:
@@ -933,7 +1043,9 @@ def build_train_detail_vm(
             nucleus=nucleus,
         )
 
-        dep_epoch = scheduled_departure_epoch_for_trip(trip_id, tz_name=tz_name) if trip_id else None
+        dep_epoch = (
+            scheduled_departure_epoch_for_trip(trip_id, tz_name=tz_name) if trip_id else None
+        )
         dep_hhmm_hint = None
 
         if dep_epoch is None:
@@ -968,13 +1080,30 @@ def build_train_detail_vm(
             rt = None
 
         if rt and not hhmm_final:
-            hhmm_final = _fmt_hhmm_local(rt.get("next_departure_epoch") or rt.get("next_arrival_epoch"))
+            hhmm_final = _fmt_hhmm_local(
+                rt.get("next_departure_epoch") or rt.get("next_arrival_epoch")
+            )
 
-        status_text = live_obj.status_human() if hasattr(live_obj, "status_human") else "En servicio"
-        if rt and isinstance(rt.get("next_delay_s"), (int, float)):
+        status_text = (
+            live_obj.status_human() if hasattr(live_obj, "status_human") else "En servicio"
+        )
+        if rt and isinstance(rt.get("next_delay_s"), int | float):
             dmin = int(round(rt["next_delay_s"] / 60.0))
             if dmin != 0:
                 status_text = f"{status_text} ({'+' if dmin > 0 else ''}{dmin} min)"
+
+        vm["trip"] = _build_trip_rows(
+            trip_id=trip_id,
+            route_id=route_id,
+            direction_id=(
+                getattr(vm.get("train"), "direction_id", None)
+                if vm.get("train")
+                else getattr(vm.get("route"), "direction_id", None)
+            ),
+            nucleus=nucleus,
+            live_obj=vm.get("train"),
+            tz_name=tz_name,
+        )
 
         vm["scheduled"] = {
             "trip_id": trip_id,
@@ -984,21 +1113,13 @@ def build_train_detail_vm(
         vm["destination_stop_id"] = dest_stop_id
         vm["destination_name"] = dest_name
 
-        vm["trip"] = _build_trip_rows(
-            trip_id=trip_id,
-            route_id=route_id,
-            direction_id=(getattr(vm.get("train"), "direction_id", None) if vm.get("train") else getattr(vm.get("route"), "direction_id", None)),
-            nucleus=nucleus,
-            live_obj=vm.get("train"),
-            tz_name=tz_name,
-        )
-
         vm["unified"] = {
             "kind": "live",
             "id": getattr(live_obj, "train_id", None) or (_extract_train_number(live_obj) or ""),
             "nucleus_slug": nucleus,
             "route_id": route_id or "",
-            "route_short_name": getattr(live_obj, "route_short_name", "") or _route_short_name(route_id),
+            "route_short_name": getattr(live_obj, "route_short_name", "")
+            or _route_short_name(route_id),
             "destination_stop_id": dest_stop_id,
             "destination_name": dest_name,
             "status_text": status_text,
@@ -1008,12 +1129,13 @@ def build_train_detail_vm(
             "trip_id": trip_id,
             "scheduled_departure_epoch": dep_epoch,
             "scheduled_departure_hhmm": hhmm_final,
-            "train_label": getattr(live_obj, "train_id", None) or (_extract_train_number(live_obj) or ""),
+            "train_label": getattr(live_obj, "train_id", None)
+            or (_extract_train_number(live_obj) or ""),
             "rt_prediction": rt,
         }
         return vm
 
-    # --- SCHEDULED ---
+    # SCHEDULED por número
     sched = _scheduled_detail_by_number(key, nucleus=nucleus, tz_name=tz_name)
     vm["scheduled"] = sched
 
@@ -1054,7 +1176,7 @@ def build_train_detail_vm(
         rel = (rt.get("schedule_relationship") or "SCHEDULED").upper()
         if rel == "CANCELED":
             status_text = "Cancelado"
-        elif isinstance(rt.get("next_delay_s"), (int, float)):
+        elif isinstance(rt.get("next_delay_s"), int | float):
             dmin = int(round(rt["next_delay_s"] / 60.0))
             if dmin != 0:
                 status_text = f"{status_text} ({'+' if dmin > 0 else ''}{dmin} min)"
@@ -1062,7 +1184,11 @@ def build_train_detail_vm(
     vm["trip"] = _build_trip_rows(
         trip_id=trip_id,
         route_id=route_id,
-        direction_id=(getattr(vm.get("train"), "direction_id", None) if vm.get("train") else getattr(vm.get("route"), "direction_id", None)),
+        direction_id=(
+            getattr(vm.get("train"), "direction_id", None)
+            if vm.get("train")
+            else getattr(vm.get("route"), "direction_id", None)
+        ),
         nucleus=nucleus,
         live_obj=vm.get("train"),
         tz_name=tz_name,
@@ -1091,16 +1217,17 @@ def build_train_detail_vm(
 
 # ------------------------ Nearest for a stop ------------------------
 
+
 def nearest_for_stop(
-        *,
-        stop_id: str,
-        route_id: str,
-        direction_id: Optional[str],
-        tz_name: str = "Europe/Madrid",
-        max_age_secs: int = 120,
-        proximity_m: int = 4000,
-        allow_next_day: bool = True,
-) -> Optional[NearestResult]:
+    *,
+    stop_id: str,
+    route_id: str,
+    direction_id: str | None,
+    tz_name: str = "Europe/Madrid",
+    max_age_secs: int = 120,
+    proximity_m: int = 4000,
+    allow_next_day: bool = True,
+) -> NearestResult | None:
     tz = ZoneInfo(tz_name)
     now_ts = int(datetime.now(tz).timestamp())
 
@@ -1125,13 +1252,13 @@ def nearest_for_stop(
             t
             for t in live_all
             if getattr(t, "route_id", None) == route_id
-               and str(getattr(t, "direction_id", "")) == direction_id
+            and str(getattr(t, "direction_id", "")) == direction_id
         ]
     else:
         live = [t for t in live_all if getattr(t, "route_id", None) == route_id]
 
-    best_eta_live: Optional[Tuple[int, Any]] = None
-    if isinstance(slat, (int, float)) and isinstance(slon, (int, float)):
+    best_eta_live: tuple[int, Any] | None = None
+    if isinstance(slat, int | float) and isinstance(slon, int | float):
         for t in live:
             ts = _get_live_ts(t)
             if ts is not None and now_ts - ts > max_age_secs:
@@ -1170,7 +1297,7 @@ def nearest_for_stop(
     next_at_stop = getattr(srepo, "next_departure_at_stop", None)
     if callable(next_at_stop):
         try:
-            epoch, hhmm, next_trip_id = next_at_stop(
+            epoch, _hhmm, next_trip_id = next_at_stop(
                 route_id=route_id,
                 direction_id=direction_id,
                 stop_id=stop_id,
@@ -1211,7 +1338,9 @@ def nearest_for_stop(
         status="scheduled",
         eta_seconds=eta_s,
         eta_ts=now_ts + eta_s,
-        service_instance_id=f"{_service_date_str(tz_name)}:{next_trip_id}" if next_trip_id else None,
+        service_instance_id=(
+            f"{_service_date_str(tz_name)}:{next_trip_id}" if next_trip_id else None
+        ),
         route_id=route_id,
         trip_id=next_trip_id,
         vehicle_id=None,
@@ -1221,7 +1350,8 @@ def nearest_for_stop(
         platform_pred=None,
     )
 
-def resolve_route_from_vm(vm: dict, nucleus: Optional[str]) -> Optional[object]:
+
+def resolve_route_from_vm(vm: dict, nucleus: str | None) -> object | None:
     unified = vm.get("unified") or {}
     scheduled = vm.get("scheduled") or {}
     live = vm.get("train")

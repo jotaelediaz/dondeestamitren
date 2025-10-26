@@ -1,84 +1,79 @@
-<h1 class="h2">
-	Trenes{% if nucleus %} en {{ nucleus.name }}{% endif %}
-	{% if live_only %}<small>(solo en vivo)</small>{% else %}<small>(en vivo + programados)</small>{% endif %}
-</h1>
-
-<p class="text-muted">Snapshot: {{ last_snapshot }}</p>
-<p class="text-muted">Fuente: {{ (last_source or '—')|upper }}</p>
-
-{% if not nucleus %}
-	<h2>Trenes por núcleos</h2>
-	<ul>
-		{% for n in nuclei %}
-			<li>
-				<a href="/alpha/trains/{{ n.slug }}">{{ n.name }}</a>
-				&nbsp;·&nbsp;
-				<a href="/alpha/trains/{{ n.slug }}?live_only=1">Solo live</a>
-			</li>
-		{% endfor %}
-	</ul>
-	<hr>
-{% endif %}
-
-{% if nucleus %}
-	<p style="margin: .5rem 0 1rem 0;">
-		{% if live_only %}
-			<a href="/alpha/trains/{{ nucleus.slug }}">Ver live + programados</a>
+{%- extends "base-layout.html" %}
+{%- block app_content %}
+	
+	<section id="trains-list" class="train-list app-main-content" aria-label="Trenes en circulación{% if nucleus %} en {{ nucleus.name }}{% endif %}">
+		{% if not trains %}
+			<div class="app-block-padding" style="opacity:.7;padding-top:1rem">
+				<p>No se encuentran trenes circulando en este momento.</p>
+			</div>
 		{% else %}
-			<a href="/alpha/trains/{{ nucleus.slug }}?live_only=1">Ver solo live</a>
+			
+			{% set trains_with_nucleus = trains | selectattr('nucleus_slug') | list %}
+			{% if trains_with_nucleus %}
+				{% set groups = (trains_with_nucleus | sort(attribute='nucleus_slug')) | groupby('nucleus_slug') %}
+				
+				<div class="grouped-lists-scroll">
+					{% for group in groups %}
+						{% set nuc_id = group.grouper %}
+						{% if nuc_id %}
+							{% set matched = (nuclei | selectattr('slug','equalto', nuc_id) | first) if nuclei is defined else None %}
+							{% set nuc_name = matched.name if matched else (nucleus.name if nucleus and nucleus.slug == nuc_id else nuc_id|capitalize) %}
+							
+							<div class="app-block-padding sticky-title">
+								<h2 class="app-block-title">Trenes en {{ nuc_name }}</h2>
+							</div>
+							
+							<div class="app-block-padding">
+								<ul class="station-list-ul chip-list grouped-chip-list">
+									{% for t in group.list %}
+										{% set href = '/trains/' ~ nuc_id ~ '/' ~ t.train_id %}
+										<li class="station-card chip-card">
+											<a class="station-link chip-link" href="{{ href }}">
+												<div class="station-main chip-main">
+													<div class="station-chip-icon chip-icon">
+														<i class="material-symbols-rounded" aria-hidden="true">directions_railway</i>
+													</div>
+													<div class="station-chip-content chip-content">
+														<h3 class="station-name chip-name">
+															{{ t.route_short_name or '—' }} · Tren {{ t.train_id }}
+														</h3>
+														<div class="station-meta chip-subtitle">
+															<span>{{ t.status_human() }}</span>
+															{% set stop_name = repo.get_stop_name(t.stop_id) %}
+															{% if stop_name %}
+																<span>· Próxima: {{ stop_name }}</span>
+															{% endif %}
+															{% if t.lat and t.lon %}
+																<span>· {{ '%.5f'|format(t.lat) }}, {{ '%.5f'|format(t.lon) }}</span>
+															{% endif %}
+														</div>
+													</div>
+													<div class="station-chip-more chip-more">
+														<i class="material-symbols-rounded" aria-hidden="true">keyboard_arrow_right</i>
+													</div>
+												</div>
+											</a>
+										</li>
+									{% endfor %}
+								</ul>
+							</div>
+						{% endif %}
+					{% endfor %}
+				</div>
+			{% else %}
+				<div class="app-block-padding" style="opacity:.7;padding-top:1rem">
+					<p>No se encuentran trenes circulando en este momento.</p>
+				</div>
+			{% endif %}
 		{% endif %}
-	</p>
-{% endif %}
+		
+		<script>
+        setTimeout(() => location.reload(), 200000);
+		</script>
+	</section>
 
-{% if rows is not defined or rows|length == 0 %}
-	<p>No hay datos para mostrar.</p>
-{% else %}
-	<table class="table" style="width:100%; max-width: 1120px;">
-		<thead>
-		<tr>
-			<th>Línea</th>
-			<th>Tren</th>
-			<th>Tipo</th>
-			<th>Estado / Salida</th>
-			<th>Parada</th>
-			<th>Posición</th>
-		</tr>
-		</thead>
-		<tbody>
-		{% for r in rows %}
-			<tr>
-				<td>{{ r.route_short_name or r.route_id or '—' }}</td>
-				<td>
-					<a href="/alpha/trains/{{ r.nucleus_slug }}/{{ r.id }}">{{ r.train_label }}</a>
-				</td>
-				<td>{{ 'LIVE' if r.kind == 'live' else 'PROG.' }}</td>
-				<td>
-					{% if r.kind == 'live' %}
-						{{ r.status_text }}
-					{% else %}
-						{{ r.status_text }}
-					{% endif %}
-				</td>
-				<td>
-					{% if r.kind == 'live' %}
-						{{ repo.get_stop_name(r.stop_id) }} <i>({{ r.stop_id or "—" }})</i>
-					{% else %}
-						—
-					{% endif %}
-				</td>
-				<td>
-					{% if r.kind == 'live' and r.lat and r.lon %}
-						{{ '%.5f'|format(r.lat) }}, {{ '%.5f'|format(r.lon) }}
-					{% else %}—{% endif %}
-				</td>
-			</tr>
-		{% endfor %}
-		</tbody>
-	</table>
-{% endif %}
+{%- endblock %}
 
-<p><a href="/alpha/">← Volver</a></p>
-
-<script>
-    setTimeout(() => location.reload(), 200000);
-</script>
+{% block action_buttons %}
+	<div id="action-buttons-items" hx-swap-oob="true"></div>
+{% endblock %}

@@ -61,3 +61,26 @@
 		</div>
 	</div>
 {%- endmacro -%}
+
+
+
+{%- macro print_station_train_status_route_map(stop, scheduled_time) %}
+	<div class="station-block" data-station-index="{{ stop.seq + 1 }}" data-stop-id="{{ stop.stop_id }}">
+		<div class="grid-route-line">
+			<div class="route-line-wrapper">
+				<i class="route-line-fragment"></i>
+				<i class="route-dot"></i>
+			</div>
+		</div>
+		<div class="grid-route-station-info">
+				<div class="grid-route-station-name">
+					<span class="station-name">{{ stop.stop_name }} · {{ scheduled_time }}</span>
+				</div>
+				<div class="grid-route-connections">
+				</div>
+		</div>
+		<div class="grid-route-train-position">
+			T
+		</div>
+	</div>
+{%- endmacro -%}

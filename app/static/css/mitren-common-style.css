@@ -282,6 +282,7 @@ main:after {
 
 #bottom-nav .navbar-item i {
     font-size: 21px;
+    line-height: 1em;
 }
 
 #bottom-nav .navbar-item:not(.item-active):hover,
@@ -443,7 +444,7 @@ main:after {
 
 .hero-logo {
     display: flex;
-    width: 70%;
+    width: 60%;
     max-width: 288px;
     margin-bottom: calc(var(--app-margin) * 1.5);
 }
@@ -1972,4 +1973,12 @@ ul.chip-list {
     width: 0.6ch;
     margin: 0 0.05ch;
     line-height: 1;
+}
+
+/* - Trains detail section - */
+
+.route-train-chip-icon {
+    height: 1.4rem;
+    width: 1.4rem;
+    font-size: 1.05rem;
 }

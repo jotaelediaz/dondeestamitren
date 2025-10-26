@@ -332,14 +332,14 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
 
     def _stu_epoch_any(stu):
         v = getattr(stu, "departure_time", None)
-        if isinstance(v, (int, float)):
+        if isinstance(v, int | float):
             return int(v)
         v = getattr(stu, "arrival_time", None)
-        if isinstance(v, (int, float)):
+        if isinstance(v, int | float):
             return int(v)
         if isinstance(stu, dict):
             v = stu.get("departure_time") or stu.get("arrival_time")
-            if isinstance(v, (int, float)):
+            if isinstance(v, int | float):
                 return int(v)
         return None
 
@@ -422,7 +422,7 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
                 for c in sch.get("calls") or sch.get("stops") or []:
                     for k in ("arrival_time", "departure_time"):
                         v = c.get(k)
-                        if isinstance(v, (int, float)):
+                        if isinstance(v, int | float):
                             times.append(int(v))
                 fe = min(times) if times else None
         else:
@@ -441,13 +441,13 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
 
         for name in ("arrival_time", "departure_time", "arrival_epoch", "departure_epoch", "epoch"):
             v = call.get(name) if isinstance(call, dict) else getattr(call, name, None)
-            if isinstance(v, (int, float)) and v > 0:
+            if isinstance(v, int | float) and v > 0:
                 return str(sid), int(v)
 
         t_s = None
         for name in ("time_s", "arrival_s", "departure_s"):
             v = call.get(name) if isinstance(call, dict) else getattr(call, name, None)
-            if isinstance(v, (int, float)) and v >= 0:
+            if isinstance(v, int | float) and v >= 0:
                 t_s = int(v)
                 break
         if t_s is not None and base_midnight is not None:
@@ -503,7 +503,7 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
             tu_map[str(sid)] = {
                 "epoch": epoch,
                 "hhmm": _fmt_hhmm(epoch),
-                "delay_min": (int(delay) // 60) if isinstance(delay, (int, float)) else None,
+                "delay_min": (int(delay) // 60) if isinstance(delay, int | float) else None,
                 "rel": rel,
             }
 
@@ -581,7 +581,7 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
 
 
 def _fmt_hhmm_local(epoch: int | None, tz_name: str = "Europe/Madrid") -> str | None:
-    if not isinstance(epoch, (int, float)):
+    if not isinstance(epoch, int | float):
         return None
     try:
         dt = datetime.fromtimestamp(int(epoch), ZoneInfo(tz_name))
@@ -591,7 +591,7 @@ def _fmt_hhmm_local(epoch: int | None, tz_name: str = "Europe/Madrid") -> str | 
 
 
 def _fmt_hhmm_from_seconds(seconds: int | None) -> str | None:
-    if not isinstance(seconds, (int, float)):
+    if not isinstance(seconds, int | float):
         return None
     s = int(seconds) % (24 * 3600)
     hh = s // 3600
@@ -688,13 +688,13 @@ def build_stop_rows_for_trip(
         if upd:
             rel = getattr(upd, "schedule_relationship", None)
             rt_epoch = getattr(upd, "departure_time", None) or getattr(upd, "arrival_time", None)
-            if isinstance(rt_epoch, (int, float)):
+            if isinstance(rt_epoch, int | float):
                 rt_epoch = int(rt_epoch)
                 rt_hhmm = _fmt_hhmm_local(rt_epoch, tz_name)
             dsec = getattr(upd, "departure_delay", None)
             if dsec is None:
                 dsec = getattr(upd, "arrival_delay", None)
-            if isinstance(dsec, (int, float)):
+            if isinstance(dsec, int | float):
                 delay_min = int(round(dsec / 60.0))
         flag = "upcoming"
         if current_stop_id and sid and str(sid) == str(current_stop_id):
@@ -1294,6 +1294,7 @@ def train_detail(
             "train_seen_age": vm["train_seen_age"],
             "platform": vm["platform"],
             "unified": vm["unified"],
+            "trip": vm["trip"],
             "stop_rows": stop_rows,
         },
     )

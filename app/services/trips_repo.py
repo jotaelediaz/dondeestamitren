@@ -1,3 +1,4 @@
+# app/services/trips_repo.py
 from __future__ import annotations
 
 import csv
@@ -7,6 +8,7 @@ import re
 import threading
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from app.config import settings
 
@@ -33,14 +35,18 @@ class TripsRepo:
 
         self._directions_ready = False
 
+        # (trip_id, stop_id) -> (arr_s, dep_s, seq)
         self._stop_times_by_stopid: dict[
             tuple[str, str], tuple[int | None, int | None, int | None]
         ] = {}
+        # (trip_id, seq) -> (stop_id, arr_s, dep_s)
         self._stop_times_by_seq: dict[tuple[str, int], tuple[str, int | None, int | None]] = {}
 
         self.calendar_csv_path = calendar_csv_path or _default_calendar_path()
         self._trip_to_service: dict[str, str] = {}
         self._calendar_rows: dict[str, dict] = {}
+
+        # (route_id, direction_id, stop_id) -> list[(arr_s, dep_s, trip_id)]
         self._sched_by_route_stop: dict[
             tuple[str, str, str], list[tuple[int | None, int | None, str]]
         ] = {}
@@ -341,7 +347,7 @@ class TripsRepo:
             suffix = m.group(1).upper()
             candidates = [(k, r) for k, r in self._trip_to_route_up.items() if k.endswith(suffix)]
             if len(candidates) == 1:
-                k_up, rid = candidates[0]
+                _k_up, rid = candidates[0]
                 return rid
 
         return None
@@ -472,12 +478,13 @@ class TripsRepo:
         stop_id: str | None = None,
         stop_sequence: int | None = None,
         service_date: str | None = None,
+        tz_name: str = "Europe/Madrid",
     ) -> tuple[int | None, int | None]:
         arr, dep, _ = self.planned_secs_for(trip_id, stop_id=stop_id, stop_sequence=stop_sequence)
         if service_date:
             sd = service_date.strip()
         else:
-            today = datetime.now().strftime("%Y%m%d")
+            today = datetime.now(ZoneInfo(tz_name)).strftime("%Y%m%d")
             sid = self._trip_to_service.get((trip_id or "").strip())
             if sid and self._calendar_rows:
                 if self._is_service_active_on(sid, today):
@@ -491,12 +498,112 @@ class TripsRepo:
         try:
             y, m, d = int(sd[0:4]), int(sd[4:6]), int(sd[6:8])
         except Exception:
-            now = datetime.now()
+            now = datetime.now(ZoneInfo(tz_name))
             y, m, d = now.year, now.month, now.day
-        base = datetime(y, m, d)
+        base = datetime(y, m, d, tzinfo=ZoneInfo(tz_name))
         arr_epoch = int(base.timestamp()) + int(arr) if isinstance(arr, int) else None
         dep_epoch = int(base.timestamp()) + int(dep) if isinstance(dep, int) else None
         return arr_epoch, dep_epoch
+
+    def _service_date_today_or_next(
+        self, trip_id: str, tz_name: str = "Europe/Madrid"
+    ) -> str | None:
+        tid = (trip_id or "").strip()
+        if not tid:
+            return None
+        today = datetime.now(ZoneInfo(tz_name)).strftime("%Y%m%d")
+        sid = self._trip_to_service.get(tid)
+        if sid and self._calendar_rows:
+            if self._is_service_active_on(sid, today):
+                return today
+            return self._next_active_date(sid, today, 14)
+        return today
+
+    def planned_calls_for_trip(self, trip_id: str) -> list[dict]:
+        tid = (trip_id or "").strip()
+        if not tid:
+            return []
+
+        rows: list[dict] = []
+        for (t_k, seq), (sid, arr_s, dep_s) in self._stop_times_by_seq.items():
+            if t_k != tid:
+                continue
+            rows.append(
+                {
+                    "stop_sequence": int(seq),
+                    "stop_id": str(sid) if sid is not None else None,
+                    "arrival_s": arr_s,
+                    "departure_s": dep_s,
+                }
+            )
+        rows.sort(key=lambda r: r["stop_sequence"])
+        return rows
+
+    def planned_calls_epoch_for_trip(
+        self,
+        trip_id: str,
+        *,
+        tz_name: str = "Europe/Madrid",
+        service_date: str | None = None,
+    ) -> list[dict]:
+        tid = (trip_id or "").strip()
+        if not tid:
+            return []
+
+        ymd = (service_date or self._service_date_today_or_next(tid, tz_name)) or None
+        if ymd:
+            try:
+                y, m, d = int(ymd[0:4]), int(ymd[4:6]), int(ymd[6:8])
+                base_midnight = int(datetime(y, m, d, tzinfo=ZoneInfo(tz_name)).timestamp())
+            except Exception:
+                base_midnight = int(
+                    datetime.now(ZoneInfo(tz_name))
+                    .replace(hour=0, minute=0, second=0, microsecond=0)
+                    .timestamp()
+                )
+        else:
+            base_midnight = int(
+                datetime.now(ZoneInfo(tz_name))
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                .timestamp()
+            )
+
+        rows = self.planned_calls_for_trip(tid)
+        out: list[dict] = []
+        for r in rows:
+            arr_s = r.get("arrival_s")
+            dep_s = r.get("departure_s")
+            arr_epoch = (base_midnight + int(arr_s)) if isinstance(arr_s, int) else None
+            dep_epoch = (base_midnight + int(dep_s)) if isinstance(dep_s, int) else None
+            out.append(
+                {
+                    **r,
+                    "arrival_epoch": arr_epoch,
+                    "departure_epoch": dep_epoch,
+                    "arrival_time": arr_epoch,
+                    "departure_time": dep_epoch,
+                }
+            )
+        return out
+
+    def timetable_for_trip(self, trip_id: str, tz_name: str = "Europe/Madrid") -> list[dict]:
+        return self.planned_calls_epoch_for_trip(trip_id, tz_name=tz_name)
+
+    def first_departure_epoch_for_trip(
+        self, trip_id: str, tz_name: str = "Europe/Madrid"
+    ) -> int | None:
+        rows = self.planned_calls_epoch_for_trip(trip_id, tz_name=tz_name)
+        firsts: list[int] = []
+        for r in rows:
+            dep = r.get("departure_epoch")
+            arr = r.get("arrival_epoch")
+            if isinstance(dep, int):
+                firsts.append(dep)
+            elif isinstance(arr, int):
+                firsts.append(arr)
+        if not firsts:
+            return None
+        return min(firsts)
 
     def _read_calendar_with(self, delimiter: str) -> list[dict]:
         path = self.calendar_csv_path
@@ -606,6 +713,8 @@ class TripsRepo:
             if self._is_service_active_on(service_id, ymd):
                 return ymd
         return None
+
+    # ------------------------------ Queries ------------------------------
 
     def next_scheduled_for_stop(
         self,
