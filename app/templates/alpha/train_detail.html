@@ -66,7 +66,7 @@
 
 <hr/>
 
-{% set rows = (trip.stops if trip and trip.stops else (unified.stops if unified and unified.stops else stop_rows)) %}
+{% set rows = stop_rows or (trip.stops if trip and trip.stops else unified.stops) %}
 {% if rows %}
 	<h2>Paradas del servicio</h2>
 	<table border="1" cellpadding="6" cellspacing="0">
@@ -109,11 +109,11 @@
 				{% set delay_min = r.get('delay_min') %}
 			{% endif %}
 			
-			{% set status_raw = r.get('status') or r.get('flag') or 'upcoming' %}
+			{% set status_raw = (r.get('status') or r.get('flag') or 'upcoming')|lower %}
 			{% set flag =
-				'current' if status_raw in ['CURRENT','current'] else
-				'next'    if status_raw in ['NEXT','next','upcoming'] else
-				'passed'  if status_raw in ['PASSED','passed'] else
+				'current' if status_raw == 'current' else
+				'next'    if status_raw == 'next' else
+				'passed'  if status_raw == 'passed' else
 				'upcoming' %}
 			
 			<tr
@@ -141,14 +141,13 @@
 					{% if real_hhmm %}
 						<b>{{ real_hhmm }}</b>
 						{% if real_epoch is not none %}<small>({{ real_epoch }})</small>{% endif %}
-						{% elif flag == 'current' and r.get('live_hhmm') %}
+						{% elif r.get('live_hhmm') %}
 						{{ r.get('live_hhmm') }}
-						{% elif flag == 'current' %}
-						ahora
 					{% else %}
 						—
 					{% endif %}
 				</td>
+
 				
 				<td>
 					{% if delay_min is not none %}

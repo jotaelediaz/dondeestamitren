@@ -317,6 +317,16 @@ def _attach_origin_preview_and_timestamp(it, now_epoch: int, limit: int = 3):
 
 def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Madrid"):
     from contextlib import suppress
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.domain.models import ScheduledTrain
+    from app.services.eta_projector import VPInfo, project_future_arrivals_from_vp
+    from app.services.routes_repo import get_repo as get_routes_repo
+    from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
+    from app.services.stops_repo import get_repo as get_stops_repo
+    from app.services.trip_updates_cache import get_trip_updates_cache
+    from app.services.trips_repo import get_repo as get_trips_repo
 
     routes_repo = get_routes_repo()
     stops_repo = get_stops_repo()
@@ -324,8 +334,9 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
     trepo = get_trips_repo()
     tuc = get_trip_updates_cache()
 
+    # ---------------- Formatting helpers ----------------
     def _fmt_hhmm(epoch: int | None) -> str | None:
-        if epoch is None:
+        if not epoch:
             return None
         try:
             dt = datetime.fromtimestamp(int(epoch), ZoneInfo(tz_name))
@@ -333,19 +344,26 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
         except Exception:
             return None
 
-    def _stu_epoch_any(stu):
-        v = getattr(stu, "departure_time", None)
-        if isinstance(v, int | float):
-            return int(v)
-        v = getattr(stu, "arrival_time", None)
-        if isinstance(v, int | float):
-            return int(v)
-        if isinstance(stu, dict):
-            v = stu.get("departure_time") or stu.get("arrival_time")
-            if isinstance(v, int | float):
-                return int(v)
+    def _stu_epoch_any(stu) -> int | None:
+        # Select departure first if we're very close to arrival (anti-flicker), else arrival
+        try:
+            arr = getattr(stu, "arrival_time", None)
+            dep = getattr(stu, "departure_time", None)
+            ts = int(dep if dep else (arr if arr else 0)) or 0
+            return ts or None
+        except Exception:
+            pass
+        try:
+            if isinstance(stu, dict):
+                arr = stu.get("arrival_time") or (stu.get("arrival") or {}).get("time")
+                dep = stu.get("departure_time") or (stu.get("departure") or {}).get("time")
+                ts = int(dep if dep else (arr if arr else 0)) or 0
+                return ts or None
+        except Exception:
+            pass
         return None
 
+    # ---------------- Inputs ----------------
     unified = vm.get("unified") or {}
     trip_id = unified.get("trip_id")
     route_id = unified.get("route_id")
@@ -361,208 +379,204 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
     if not trip_id:
         return []
 
+    # Scheduled context
     sch = None
-    for attr in (
-        "get_trip",
-        "get_trip_schedule",
-        "get_scheduled_train_by_trip_id",
-        "get_scheduled_train",
-        "timetable_for_trip",
-    ):
+    for attr in ("get_scheduled_train_by_trip_id", "get_trip"):
         if hasattr(srepo, attr):
-            with suppress(Exception):
-                v = getattr(srepo, attr)(trip_id)
-                if isinstance(v, ScheduledTrain) or (
-                    isinstance(v, dict) and (v.get("calls") or v.get("stops"))
-                ):
-                    sch = v
+            try:
+                sch = getattr(srepo, attr)(trip_id)
+                if sch:
                     break
+            except Exception:
+                sch = None
 
-    order = []
-    if sch:
-        calls = (
-            sch.calls
-            if isinstance(sch, ScheduledTrain)
-            else (sch.get("calls") or sch.get("stops") or [])
-        ) or []
+    # Order of stops (seq, stop_id, call)
+    order: list[tuple[int, str, object]] = []
+    if sch and isinstance(sch, ScheduledTrain):
         rows_tmp = []
-        for i, c in enumerate(calls):
-            if isinstance(c, dict):
-                sid = c.get("stop_id")
-                seq = c.get("stop_sequence")
-            else:
-                sid = getattr(c, "stop_id", None)
-                seq = getattr(c, "stop_sequence", None)
+        for i, c in enumerate(getattr(sch, "ordered_calls", []) or []):
+            sid = getattr(c, "stop_id", None)
             if not sid:
                 continue
-            seq_i = int(seq) if isinstance(seq, int) else (i + 1)
+            seq_i = int(getattr(c, "stop_sequence", None) or (i + 1))
             rows_tmp.append((seq_i, str(sid), c))
         rows_tmp.sort(key=lambda x: x[0])
         order = [(i + 1, sid, call) for i, (_seq, sid, call) in enumerate(rows_tmp)]
     else:
-        stops = []
-        if route_id:
-            with suppress(Exception):
-                if not direction_id:
-                    lv = routes_repo.get_by_route_and_dir(route_id, "")
-                    direction_id = getattr(lv, "direction_id", "") if lv else ""
-                stops = stops_repo.list_by_route(route_id, direction_id or "")
-        order = [(i + 1, str(s.stop_id), None) for i, s in enumerate(stops or [])]
+        with suppress(Exception):
+            if route_id and direction_id in ("0", "1"):
+                stops = stops_repo.list_by_route(route_id, direction_id)
+                order = [(i + 1, str(s.stop_id), None) for i, s in enumerate(stops or [])]
 
     if not order:
         return []
 
-    sched_epoch_by_stop: dict[str, int] = {}
+    now_epoch = int(datetime.now(ZoneInfo(tz_name)).timestamp())
 
-    base_midnight = None
-    with suppress(Exception):
-        if isinstance(sch, ScheduledTrain):
-            fe = sch.first_departure_epoch(tz_name=tz_name)
-        elif isinstance(sch, dict):
-            fe = sch.get("first_departure_epoch")
-            if fe is None:
-                times = []
-                for c in sch.get("calls") or sch.get("stops") or []:
-                    for k in ("arrival_time", "departure_time"):
-                        v = c.get(k)
-                        if isinstance(v, int | float):
-                            times.append(int(v))
-                fe = min(times) if times else None
-        else:
-            fe = None
+    sched_arrival_by_stop: dict[str, int] = {}
+    sched_departure_by_stop: dict[str, int] = {}
 
-        if isinstance(fe, int):
-            dt0 = datetime.fromtimestamp(int(fe), ZoneInfo(tz_name)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            base_midnight = int(dt0.timestamp())
+    if sch and isinstance(sch, ScheduledTrain):
+        with suppress(Exception):
+            ymd = int(getattr(sch, "service_date", 0) or 0)
 
-    def _extract_sched_epoch(call) -> tuple[str | None, int | None]:
-        sid = call.get("stop_id") if isinstance(call, dict) else getattr(call, "stop_id", None)
-        if not sid:
-            return None, None
+        for c in getattr(sch, "ordered_calls", []) or []:
+            sid = str(getattr(c, "stop_id", "") or "")
+            if not sid:
+                continue
 
-        for name in ("arrival_time", "departure_time", "arrival_epoch", "departure_epoch", "epoch"):
-            v = call.get(name) if isinstance(call, dict) else getattr(call, name, None)
-            if isinstance(v, int | float) and v > 0:
-                return str(sid), int(v)
+            arr_ep = getattr(c, "arrival_epoch", None)
+            dep_ep = getattr(c, "departure_epoch", None)
+            if isinstance(arr_ep, (int, float)):
+                sched_arrival_by_stop[sid] = int(arr_ep)
+            if isinstance(dep_ep, (int, float)):
+                sched_departure_by_stop[sid] = int(dep_ep)
 
-        t_s = None
-        for name in ("time_s", "arrival_s", "departure_s"):
-            v = call.get(name) if isinstance(call, dict) else getattr(call, name, None)
-            if isinstance(v, int | float) and v >= 0:
-                t_s = int(v)
-                break
-        if t_s is not None and base_midnight is not None:
-            return str(sid), int(base_midnight + t_s)
+            arr_s = getattr(c, "arrival_time", None)
+            dep_s = getattr(c, "departure_time", None)
 
-        return str(sid), None
+            if sid not in sched_arrival_by_stop and isinstance(arr_s, (int, float)):
+                with suppress(Exception):
+                    ep = sch._date_time_to_epoch(ymd, int(arr_s), tz_name)  # type: ignore[attr-defined]
+                    sched_arrival_by_stop[sid] = int(ep)
 
-    if sch:
-        calls_norm = (
-            sch.calls
-            if isinstance(sch, ScheduledTrain)
-            else (sch.get("calls") or sch.get("stops") or [])
-        ) or []
-        for c in calls_norm:
-            if isinstance(c, dict):
-                sid, ep = _extract_sched_epoch(c)
-            else:
-                sid, ep = _extract_sched_epoch(
-                    {
-                        "stop_id": getattr(c, "stop_id", None),
-                        "arrival_time": getattr(c, "arrival_time", None),
-                        "departure_time": getattr(c, "departure_time", None),
-                        "time_s": getattr(c, "time_s", None),
-                        "arrival_s": getattr(c, "arrival_s", None),
-                        "departure_s": getattr(c, "departure_s", None),
-                        "arrival_epoch": getattr(c, "arrival_epoch", None),
-                        "departure_epoch": getattr(c, "departure_epoch", None),
-                    }
-                )
-            if sid and ep:
-                sched_epoch_by_stop[str(sid)] = ep
+            if sid not in sched_departure_by_stop and isinstance(dep_s, (int, float)):
+                with suppress(Exception):
+                    ep = sch._date_time_to_epoch(ymd, int(dep_s), tz_name)  # type: ignore[attr-defined]
+                    sched_departure_by_stop[sid] = int(ep)
 
+            if sid not in sched_arrival_by_stop and sid in sched_departure_by_stop:
+                sched_arrival_by_stop[sid] = sched_departure_by_stop[sid]
+
+    if not sched_arrival_by_stop:
+        for _seq, sid, call in order:
+            sid = str(sid)
+            with suppress(Exception):
+                ep = getattr(call, "arrival_epoch", None) or getattr(call, "departure_epoch", None)
+            if isinstance(ep, int):
+                sched_arrival_by_stop[sid] = int(ep)
+
+    # ---------- Trip Updates ----------
     tu = None
     with suppress(Exception):
         tu = tuc.get_by_trip_id(trip_id)
 
     tu_map: dict[str, dict] = {}
-    if tu:
-        stus = list(
-            getattr(tu, "stop_updates", None) or getattr(tu, "stop_time_updates", None) or []
-        )
-        with suppress(Exception):
-            stus.sort(key=lambda s: (getattr(s, "stop_sequence", 0), _stu_epoch_any(s) or 0))
-        for s in stus:
-            sid = getattr(s, "stop_id", None)
-            if not sid:
-                continue
-            epoch = _stu_epoch_any(s)
-            delay = getattr(s, "departure_delay", None)
-            if delay is None:
-                delay = getattr(s, "arrival_delay", None)
-            rel = getattr(s, "schedule_relationship", None) or "SCHEDULED"
-            tu_map[str(sid)] = {
-                "epoch": epoch,
-                "hhmm": _fmt_hhmm(epoch),
-                "delay_min": (int(delay) // 60) if isinstance(delay, int | float) else None,
-                "rel": rel,
-            }
+    with suppress(Exception):
+        if tu:
+            stus = list(
+                getattr(tu, "stop_updates", None) or getattr(tu, "stop_time_updates", None) or []
+            )
+            for s in stus:
+                rel = (getattr(s, "schedule_relationship", "") or "").upper() or "SCHEDULED"
+                if rel == "CANCELED":
+                    continue
+                sid = str(getattr(s, "stop_id", "") or "")
+                if not sid:
+                    continue
+                epoch_any = _stu_epoch_any(s)
+                delay = getattr(s, "departure_delay", None)
+                if delay is None:
+                    delay = getattr(s, "arrival_delay", None)
+                tu_map[sid] = {
+                    "epoch": int(epoch_any) if isinstance(epoch_any, (int | float)) else None,
+                    "hhmm": _fmt_hhmm(epoch_any) if isinstance(epoch_any, (int | float)) else None,
+                    "delay_min": (int(delay) // 60) if isinstance(delay, (int | float)) else None,
+                    "rel": rel,
+                }
 
+    # ---------- current / next ----------
+    order_sids = [sid for (_i, sid, _c) in order]
     current_sid = None
+    current_status = None
     with suppress(Exception):
         if (vm.get("kind") == "live") and vm.get("train"):
             current_sid = getattr(vm["train"], "stop_id", None)
+            current_status = getattr(vm["train"], "current_status", None)
 
-    now_epoch = int(datetime.now(ZoneInfo(tz_name)).timestamp())
     next_sid_hint = None
-    if tu:
-        stus = list(
-            getattr(tu, "stop_updates", None) or getattr(tu, "stop_time_updates", None) or []
-        )
-        with suppress(Exception):
-            stus.sort(key=lambda s: (getattr(s, "stop_sequence", 0), _stu_epoch_any(s) or 0))
-        for s in stus:
-            if (getattr(s, "schedule_relationship", "SCHEDULED") or "SCHEDULED") == "CANCELED":
-                continue
-            ep = _stu_epoch_any(s)
-            if isinstance(ep, int) and ep >= now_epoch:
-                next_sid_hint = getattr(s, "stop_id", None)
-                break
+    with suppress(Exception):
+        if tu:
+            stus = list(
+                getattr(tu, "stop_updates", None) or getattr(tu, "stop_time_updates", None) or []
+            )
+            stus = [
+                s
+                for s in stus
+                if (getattr(s, "schedule_relationship", "") or "").upper() != "CANCELED"
+            ]
+            stus.sort(key=lambda s: (getattr(s, "stop_sequence", 0) or 0, _stu_epoch_any(s) or 0))
+            for s in stus:
+                ep = _stu_epoch_any(s)
+                if isinstance(ep, int) and ep >= now_epoch:
+                    next_sid_hint = getattr(s, "stop_id", None)
+                    break
 
-    index_by_sid = {sid: i for i, (_seq, sid, _c) in enumerate(order)}
+    index_by_sid = {sid: i for i, sid in enumerate(order_sids)}
     current_idx = index_by_sid.get(str(current_sid)) if current_sid else None
-    next_idx = index_by_sid.get(str(next_sid_hint)) if next_sid_hint else None
-    if next_idx is None and isinstance(current_idx, int):
-        nxt = current_idx + 1
-        if 0 <= nxt < len(order):
-            next_idx = nxt
+    pivot_idx = index_by_sid.get(str(next_sid_hint)) if next_sid_hint else None
+    if pivot_idx is None and isinstance(current_idx, int) and current_idx + 1 < len(order_sids):
+        pivot_idx = current_idx + 1
+    if pivot_idx is None:
+        pivot_idx = 0
+    pivot_sid = order_sids[pivot_idx]
 
-    rows = []
+    # ---------- ETA Trip Updates ----------
+    tu_eta_ts = None
+    with suppress(Exception):
+        if not tuc.is_stale():
+            eta_s, _meta = tuc.eta_for_trip_to_stop(trip_id, pivot_sid, now_ts=now_epoch)
+            if isinstance(eta_s, int):
+                tu_eta_ts = now_epoch + int(eta_s)
+
+    # ---------- VP info ----------
+    vp = VPInfo(
+        stop_id=str(current_sid) if current_sid else None,
+        current_status=str(current_status) if current_status else None,
+        ts_unix=getattr(vm.get("train"), "ts_unix", None) if vm.get("train") else None,
+    )
+
+    # ---------- Project from current station ----------
+    eta_by_stop = project_future_arrivals_from_vp(
+        order_sids=order_sids,
+        sched_arrival_by_stop=sched_arrival_by_stop,
+        sched_departure_by_stop=sched_departure_by_stop,
+        now_ts=now_epoch,
+        pivot_sid=pivot_sid,
+        vp=vp,
+        tu_pivot_eta_ts=tu_eta_ts,
+        dwell_buffer_s=0,  # <- estilo Adif
+        min_ahead_s=5,
+    )
+
+    rows: list[dict] = []
     for i0, sid, _call in order:
         sid_str = str(sid)
-        with suppress(Exception):
-            name = routes_repo.get_stop_name(sid_str)
-            if not name:
-                st = stops_repo.get_by_id(sid_str)
-                name = getattr(st, "name", None)
 
-        sched_ep = sched_epoch_by_stop.get(sid_str)
-        tu_info = tu_map.get(sid_str, {})
+        with suppress(Exception):
+            name = routes_repo.get_stop_name(sid_str) or getattr(
+                stops_repo.get_by_id(sid_str), "name", None
+            )
+
+        sched_ep = sched_arrival_by_stop.get(sid_str)
+
+        rt_epoch = None
+        if sid_str in tu_map and tu_map[sid_str].get("epoch"):
+            rt_epoch = tu_map[sid_str]["epoch"]
+        else:
+            rt_epoch = eta_by_stop.get(sid_str)
+
+        delay_min = None
+        if isinstance(rt_epoch, int) and isinstance(sched_ep, int):
+            delay_min = int(round((rt_epoch - sched_ep) / 60.0))
+
         flag = "upcoming"
         if isinstance(current_idx, int) and (i0 - 1) == current_idx:
             flag = "current"
-        elif isinstance(next_idx, int) and (i0 - 1) == next_idx:
-            flag = "next"
-        elif (
-            isinstance(current_idx, int)
-            and (i0 - 1) < current_idx
-            or (current_idx is None)
-            and isinstance(next_idx, int)
-            and (i0 - 1) < next_idx
-        ):
+        elif isinstance(current_idx, int) and (i0 - 1) < current_idx:
             flag = "passed"
+        elif (i0 - 1) == pivot_idx:
+            flag = "next"
 
         rows.append(
             {
@@ -572,14 +586,15 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
                 "scheduled_epoch": sched_ep,
                 "scheduled_hhmm": _fmt_hhmm(sched_ep),
                 "live_hhmm": ("ahora" if flag == "current" else None),
-                "rt_epoch": tu_info.get("epoch"),
-                "rt_hhmm": tu_info.get("hhmm"),
-                "delay_min": tu_info.get("delay_min"),
-                "rel": tu_info.get("rel"),
+                "rt_epoch": rt_epoch,
+                "rt_hhmm": _fmt_hhmm(rt_epoch),
+                "delay_min": delay_min,
+                "rel": (tu_map.get(sid_str, {}) or {}).get("rel"),
                 "flag": flag,
             }
         )
 
+    rows.sort(key=lambda r: r["seq"])
     return rows
 
 
@@ -1710,9 +1725,9 @@ def train_timetables_by_route(
                 "headsign": sch.headsign,
                 "origin_id": o_sid,
                 "origin_name": o_name or o_sid or "",
-                "train_number": sch.train_number,
                 "dest_id": d_sid,
                 "dest_name": d_name or d_sid or "",
+                "train_number": sch.train_number,
                 "first_epoch": first_ep,
                 "first_hhmm": _fmt_hhmm(first_ep, tz),
                 "last_epoch": last_ep,
