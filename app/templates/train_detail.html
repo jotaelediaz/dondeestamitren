@@ -3,77 +3,58 @@
 
 {%- block app_content %}
 	<section id="line-route" class="line-route app-main-content" aria-label="Tren {{ train_service.train_label }}" style="--train-color: {{ route.color_bg }}">
-		<div class="grouped-lists-scroll">
-			<div class="app-block-padding sticky-title">
-				<div class="line-chip-header">
-					<div class="line-chip-icon chip-icon-group train-detail-header">
-						<div class="line-chip-icon cercanias-logo-icon">
-							<img alt="Cercanías" src="/static/img/icon-cercanias.svg" />
-						</div>
-						<div class="route-train-chip-icon chip-icon">
-							<i class="material-symbols-rounded" aria-hidden="true">train</i>
-						</div>
-						{#{{ get_cercanias_line_icon(route.route_short_name, route.nucleus_id, route.color_bg) }}#}
+		<div class="app-block-padding sticky-title">
+			<div class="line-chip-header">
+				<div class="line-chip-icon chip-icon-group train-detail-header">
+					<div class="line-chip-icon cercanias-logo-icon">
+						<img alt="Cercanías" src="/static/img/icon-cercanias.svg" />
 					</div>
-					<h2 class="line-name">
-						Tren {{ train_service.train_label }}
-					</h2>
-					<div class="line-chip-header-buttons">
-						{#<button type="button" class="line-chip-header-button header-secondary-button toggle-connections-shown" title="Mostrar/Ocultar correspondencias" aria-pressed="true">
-							<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">transfer_within_a_station</i>
-						</button>#}
-{#						{% set reverse_id = repo.get_opposite_route_id(route.route_id) %}
-						{% if reverse_id %}#}
-							{#<a class="line-chip-header-button line-toggle-reverse" href="/routes/{{ nucleus.slug }}/{{ reverse_id }}" title="Ver sentido inverso" aria-label="Ver sentido inverso" rel="alternate">
-								<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">swap_vert</i>
-							</a>#}
-{#						{% endif %}#}
+					<div class="route-train-chip-icon chip-icon">
+						<i class="material-symbols-rounded" aria-hidden="true">train</i>
 					</div>
+					{#{{ get_cercanias_line_icon(route.route_short_name, route.nucleus_id, route.color_bg) }}#}
+				</div>
+				<h2 class="line-name">
+					Tren {{ train_service.train_label }}
+				</h2>
+				<div class="line-chip-header-buttons">
 				</div>
 			</div>
-			
-
-			
+		</div>
+		
+		<div class="app-block-padding app-block-vertical-padding">
+			<div class="train-details-panel" data-train-id="{{ train_service.train_label }}">
+				<li><strong>Estado:</strong> {{ train_service.status_text or '—' }}</li>
+				<li><strong>Parada actual:</strong>
+					{% if kind == 'live' and train %}
+						{{ repo.get_stop_name(train.stop_id) }} <i>({{ train_service.stop_id or "—" }})</i>
+					{% else %}—{% endif %}
+				</li>
+				<li><strong>Vía:</strong> {{ train_service.platform or '—' }}</li>
+				<li><strong>Posición:</strong>
+					{% if train_service.lat is not none and train_service.lon is not none %}
+						{{ '%.5f'|format(train_service.lat) }}, {{ '%.5f'|format(train_service.lon) }}
+					{% else %}—{% endif %}
+				</li>
+				<li><strong>Ruta:</strong>{{ train_service.route_id }}</li>
+				<li><strong>Código de línea:</strong> {{ train_service.route_short_name or '—' }}</li>
+			</div>
+		</div>
+		
+		<div class="grouped-lists-scroll">
 			<div class="app-block-padding app-block-vertical-padding">
-				<ul class="grid-route-map" data-number-of-stations="{{ trip.stops|length }}" style="--number-of-stations: {{ trip.stations|length }}; --line-color: {{ route.color_bg }};">
+				<ul class="grid-route-map train-status-route-map" data-number-of-stations="{{ trip.stops|length }}" style="--number-of-stations: {{ trip.stations|length }}; --line-color: {{ route.color_bg }};">
 					{% for stop in trip.stops %}
-						
 						{% set scheduled_time = stop.scheduled_hhmm or stop.sched_arr_hhmm or stopsched_dep_hhmm %}
-
-						<li class="grid-route-map-station {{ 'origin-station' if route.origin.stop_id == stop.stop_id else 'destination-station' if route.destination.stop_id == stop.stop_id else 'mid-station' }}"
-						    data-station-id="{{ stop.station_id or stop.stop_id }}">
+						{% set stop_status = stop.status or stop.flag or 'upcoming' %}
+						<li class="grid-route-map-station {{ 'current-station' if stop_status in ['CURRENT'] else 'future-station' if stop_status in ['FUTURE'] else 'passed-station' if stop_status in ['PASSED']}} {{ 'origin-station' if (trip.stops|first).stop_id == stop.stop_id else 'destination-station' if (trip.stops|last).stop_id == stop.stop_id else 'mid-station' }}" data-station-id="{{ stop.station_id or stop.stop_id }}">
 							{{ print_station_train_status_route_map(stop, scheduled_time) }}
 						</li>
 					{% endfor %}
 				</ul>
 			</div>
 		</div>
-		<ul style="margin-bottom: 70px;">
-			<li><strong>Estado:</strong> {{ train_service.status_text or '—' }}</li>
-			<li><strong>Parada actual:</strong>
-				{% if kind == 'live' and train %}
-					{{ repo.get_stop_name(train.stop_id) }} <i>({{ train_service.stop_id or "—" }})</i>
-				{% else %}—{% endif %}
-			</li>
-			<li><strong>Vía:</strong> {{ train_service.platform or '—' }}</li>
-			<li><strong>Posición:</strong>
-				{% if train_service.lat is not none and train_service.lon is not none %}
-					{{ '%.5f'|format(train_service.lat) }}, {{ '%.5f'|format(train_service.lon) }}
-				{% else %}—{% endif %}
-			</li>
-			<li><strong>Ruta:</strong>{{ train_service.route_id }}</li>
-			<li><strong>Código de línea:</strong> {{ train_service.route_short_name or '—' }}</li>
-			<li><strong>Destino:</strong> {{ train_service.destination_name or '—' }}</li>
-		</ul>
-
 	</section>
-	
-{#	<div id="route-context"
-	     data-nucleus="{{ nucleus.slug }}"
-	     data-line-id="{{ route.line_id }}"
-	     data-route-id="{{ route.route_id }}"
-	     data-dir="{{ (route.direction_id or '0') | string }}">
-	</div>#}
 {%- endblock %}
 
 {% block action_buttons %}

@@ -1,3 +1,4 @@
+# app/services/train_services_index.py
 from __future__ import annotations
 
 import contextlib
@@ -13,7 +14,7 @@ from app.domain.models import (
     MatchingInfo,
     NearestResult,
     RealtimeInfo,
-    ScheduledTrain,  # por compatibilidad si existe
+    ScheduledTrain,
     ServiceInstance,
 )
 from app.services.live_trains_cache import LiveTrainsCache, get_live_trains_cache
@@ -213,7 +214,7 @@ def enrich_with_trip_update(trip_id: str, *, tz_name: str = "Europe/Madrid") -> 
         total_seq = getattr(stus[-1], "stop_sequence", None)
 
     tu_ts = getattr(it, "timestamp", None)
-    _fmt_hhmm_local(tu_ts, tz_name)  # solo hora; abajo devolvemos epoch+iso si quieres
+    _fmt_hhmm_local(tu_ts, tz_name)
 
     return {
         "tu_timestamp": tu_ts,
@@ -474,10 +475,59 @@ def link_vehicle_to_service(
     method = "none"
 
     if trip_id:
-        scheduled_trip_id = trip_id
-        confidence = "high"
-        method = "trip_id"
-    elif train_number:
+        ymd = int(_service_date_str(tz_name))
+        try:
+            sch = srepo.get_trip(ymd, trip_id)
+        except Exception:
+            sch = None
+        if sch:
+            scheduled_trip_id = trip_id
+            confidence = "high"
+            method = "trip_id"
+
+    if not scheduled_trip_id:
+        sid = getattr(live, "stop_id", None)
+        if sid and route_id:
+            try:
+                now_ep = _now_ts(tz_name)
+                ymd = int(_service_date_str(tz_name))
+                items = srepo.for_stop_window(
+                    stop_id=str(sid),
+                    service_date=ymd,
+                    start_epoch=now_ep - 1800,
+                    end_epoch=now_ep + 3600,
+                    route_id=route_id or None,
+                    direction_id=(direction_id if direction_id in ("0", "1") else None),
+                    limit=50,
+                )
+            except Exception:
+                items = []
+            best = None
+            for sch, _delta in items:
+                try:
+                    sched_ep = sch.stop_epoch(str(sid), tz_name=tz_name)
+                except Exception:
+                    sched_ep = None
+                if sched_ep is None:
+                    continue
+                diff = abs(int(sched_ep) - int(now_ep))
+                mismatch = 0
+                if train_number and sch.train_number and str(sch.train_number) != str(train_number):
+                    mismatch = 1
+                key = (mismatch, diff)
+                if (best is None) or (key < best[0]):
+                    best = (key, sch)
+            if best:
+                scheduled_trip_id = best[1].trip_id
+                method = "stop_window" + ("+number" if train_number else "")
+                if best[0][0] == 0 and best[0][1] <= 900:
+                    confidence = "high"
+                elif best[0][1] <= 1800:
+                    confidence = "med"
+                else:
+                    confidence = "low"
+
+    if not scheduled_trip_id and train_number:
         try:
             _epoch, _hhmm, next_tid = srepo.next_departure_for_train_number(
                 route_id=route_id or None,
@@ -1135,7 +1185,7 @@ def build_train_detail_vm(
         }
         return vm
 
-    # SCHEDULED por número
+    # SCHEDULED
     sched = _scheduled_detail_by_number(key, nucleus=nucleus, tz_name=tz_name)
     vm["scheduled"] = sched
 

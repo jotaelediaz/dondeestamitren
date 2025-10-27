@@ -522,7 +522,7 @@ class ScheduledTrainsRepo:
 
     def next_departure_for_train_number(
         self,
-        route_id: str,
+        route_id: str | None,
         direction_id: str | None,
         train_number: str,
         *,
@@ -553,7 +553,12 @@ class ScheduledTrainsRepo:
             dt = base_dt + timedelta(days=d)
             yyyymmdd = int(dt.strftime("%Y%m%d"))
 
-            items = self.list_for_date_route(yyyymmdd, route_id, direction_id)
+            if route_id:
+                items = self.list_for_date_route(yyyymmdd, route_id, direction_id)
+            else:
+                items = self.list_for_date(yyyymmdd)
+                if direction_id in ("0", "1"):
+                    items = [sch for sch in items if sch.direction_id == direction_id]
 
             for sch in items:
                 if (sch.train_number or "") != (train_number or ""):
@@ -649,6 +654,77 @@ class ScheduledTrainsRepo:
                 return (1, n)
 
         return sorted(seen.items(), key=_sort_key)
+
+    def unique_numbers_today_tomorrow_by_nucleus(
+        self, nucleus: str, tz_name: str = "Europe/Madrid"
+    ) -> list[tuple[str, str]]:
+        return self.unique_numbers_today_tomorrow(
+            route_id=None, direction_id=None, nucleus=nucleus, tz_name=tz_name
+        )
+
+    def next_departure_at_stop(
+        self,
+        *,
+        route_id: str,
+        direction_id: str | None,
+        stop_id: str,
+        tz_name: str = "Europe/Madrid",
+        allow_next_day: bool = True,
+    ) -> tuple[int | None, str | None, str | None]:
+        tz = ZoneInfo(tz_name)
+        now_epoch = int(datetime.now(tz).timestamp())
+        today = int(datetime.fromtimestamp(now_epoch, tz).strftime("%Y%m%d"))
+
+        lst = self.for_stop_after(
+            stop_id=stop_id,
+            service_date=today,
+            after_epoch=now_epoch,
+            limit=1,
+            route_id=route_id,
+            direction_id=direction_id,
+            allow_next_day=allow_next_day,
+        )
+        if not lst:
+            return None, None, None
+        sch, eta_s = lst[0]
+        when = now_epoch + int(eta_s)
+        return when, datetime.fromtimestamp(when, tz).strftime("%H:%M"), sch.trip_id
+
+    def first_departure_epoch_for_trip(
+        self, trip_id: str, tz_name: str = "Europe/Madrid"
+    ) -> int | None:
+        tz = ZoneInfo(tz_name)
+        base = datetime.now(tz)
+        for d in range(0, 2):
+            ymd = int((base + timedelta(days=d)).strftime("%Y%m%d"))
+            self._ensure_built_for_date(ymd)
+            sch = self._by_date_trip.get(ymd, {}).get((trip_id or "").strip())
+            if sch:
+                return sch.first_departure_epoch(tz_name=tz_name)
+        return None
+
+    def get_scheduled_train_by_trip_id(
+        self, trip_id: str, tz_name: str = "Europe/Madrid"
+    ) -> ScheduledTrain | None:
+        tz = ZoneInfo(tz_name)
+        base = datetime.now(tz)
+        for d in range(0, 2):
+            ymd = int((base + timedelta(days=d)).strftime("%Y%m%d"))
+            self._ensure_built_for_date(ymd)
+            sch = self._by_date_trip.get(ymd, {}).get((trip_id or "").strip())
+            if sch:
+                return sch
+        return None
+
+    def get_trip_schedule(self, trip_id: str, tz_name: str = "Europe/Madrid") -> dict | None:
+        sch = self.get_scheduled_train_by_trip_id(trip_id, tz_name=tz_name)
+        if not sch:
+            return None
+        ep = sch.first_departure_epoch(tz_name=tz_name)
+        return {"first_departure_epoch": ep}
+
+    def reload(self) -> None:
+        self.refresh()
 
 
 def _try_int(x: Any) -> int | None:

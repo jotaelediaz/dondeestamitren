@@ -1076,6 +1076,7 @@ ul.chip-list {
     flex-direction: row;
     margin-bottom: 0.5rem;
     gap: 0.25rem;
+    padding: 0.2em 0.3em;
 }
 
 .grid-route-map .grid-route-connections .connections-group {
@@ -1981,4 +1982,30 @@ ul.chip-list {
     height: 1.4rem;
     width: 1.4rem;
     font-size: 1.05rem;
+}
+
+.train-details-panel {
+    background: var(--jotaele-white);
+    padding: var(--app-margin) calc(var(--app-margin) * 1.2);
+    border-radius: 15px;
+    box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
+}
+
+/* - Trains detail route map - */
+
+.grid-route-map .grid-route-map-station.passed-station .grid-route-line .route-line-fragment {
+    background: var(--jotaele-text-subtle) !important;
+}
+
+.grid-route-map .grid-route-map-station.passed-station .grid-route-line .route-dot {
+    border-color: var(--jotaele-text-subtle) !important;
+}
+
+.grid-route-map .grid-route-map-station.passed-station .station-name {
+    color: var(--jotaele-text-subtle) !important;
+}
+
+.grid-route-map .stop-time {
+    color: var(--jotaele-text-muted);
+    font-weight: 400;
 }

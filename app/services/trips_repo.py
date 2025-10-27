@@ -605,6 +605,22 @@ class TripsRepo:
             return None
         return min(firsts)
 
+    def first_departure_epoch_for_trip_on_date(
+        self, trip_id: str, service_date: str, tz_name: str = "Europe/Madrid"
+    ) -> int | None:
+        rows = self.planned_calls_epoch_for_trip(
+            trip_id, tz_name=tz_name, service_date=service_date
+        )
+        firsts: list[int] = []
+        for r in rows:
+            dep = r.get("departure_epoch")
+            arr = r.get("arrival_epoch")
+            if isinstance(dep, (int | float)):
+                firsts.append(int(dep))
+            elif isinstance(arr, (int | float)):
+                firsts.append(int(arr))
+        return min(firsts) if firsts else None
+
     def _read_calendar_with(self, delimiter: str) -> list[dict]:
         path = self.calendar_csv_path
         if not path or not os.path.exists(path):

@@ -1,3 +1,6 @@
+# app/routers/web_alpha.py
+from __future__ import annotations
+
 import re
 import time
 from contextlib import suppress
@@ -375,7 +378,7 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
                     sch = v
                     break
 
-    order = []  # [(seq, stop_id, call_obj_or_None)]
+    order = []
     if sch:
         calls = (
             sch.calls
@@ -1178,6 +1181,63 @@ def station_detail_by_id(request: Request, nucleus: str, station_id: str):
     )
 
 
+def _scheduled_rows_for_nucleus(nucleus: str, *, tz_name: str = "Europe/Madrid") -> list[dict]:
+    rrepo = get_routes_repo()
+    srepo = get_scheduled_repo()
+    tz = tz_name
+    y = _today_yyyymmdd(tz)
+    items = srepo.list_for_date(y)
+    out = []
+    for sch in items:
+        rid = sch.route_id
+        n = (rrepo.nucleus_for_route_id(rid) or "").strip().lower()
+        if n != (nucleus or "").strip().lower():
+            continue
+        lv = rrepo.get_by_route_and_dir(rid, sch.direction_id or "") or rrepo.get_by_route_and_dir(
+            rid, ""
+        )
+        route_short = getattr(lv, "route_short_name", None) or rid
+        o_sid = sch.origin_id
+        d_sid = sch.destination_id
+        o_name = rrepo.get_stop_name(str(o_sid)) if o_sid else None
+        d_name = rrepo.get_stop_name(str(d_sid)) if d_sid else None
+        first_ep = sch.first_departure_epoch(tz_name=tz)
+        last_ep = sch.last_arrival_epoch(tz_name=tz)
+        label = str(sch.train_number or sch.headsign or sch.trip_id)
+        out.append(
+            {
+                "nucleus_slug": n,
+                "route_id": rid,
+                "route_short_name": route_short,
+                "direction_id": sch.direction_id,
+                "trip_id": sch.trip_id,
+                "train_number": sch.train_number,
+                "train_label": label,
+                "headsign": sch.headsign,
+                "origin_id": o_sid,
+                "origin_name": o_name or o_sid or "",
+                "dest_id": d_sid,
+                "dest_name": d_name or d_sid or "",
+                "first_epoch": first_ep,
+                "first_hhmm": _fmt_hhmm(first_ep, tz),
+                "last_epoch": last_ep,
+                "last_hhmm": _fmt_hhmm(last_ep, tz),
+                "kind": "scheduled",
+                "is_live": False,
+            }
+        )
+    out.sort(
+        key=lambda r: (
+            r.get("route_short_name") or "",
+            r.get("train_label") or "",
+            r.get("first_epoch") is None,
+            r.get("first_epoch") or 0,
+            r.get("trip_id") or "",
+        )
+    )
+    return out
+
+
 @router.get("/trains/", response_class=HTMLResponse)
 def trains_list(
     request: Request,
@@ -1195,12 +1255,17 @@ def trains_list(
         slug = (n.get("slug") or "").strip().lower()
         if not slug:
             continue
-        rows = build_nucleus_trains_rows(
-            slug,
-            include_scheduled=(not live_only),
-            tz_name=tz,
-        )
-        all_rows.extend(rows)
+        try:
+            rows = build_nucleus_trains_rows(
+                slug,
+                include_scheduled=(not live_only),
+                tz_name=tz,
+            )
+        except TypeError:
+            rows = build_nucleus_trains_rows(slug, include_scheduled=(not live_only))
+        if (not rows) and (not live_only):
+            rows = _scheduled_rows_for_nucleus(slug, tz_name=tz)
+        all_rows.extend(rows or [])
 
     all_rows.sort(
         key=lambda r: (
@@ -1238,7 +1303,12 @@ def trains_by_nucleus(
     if nucleus not in [n["slug"] for n in nuclei]:
         raise HTTPException(404, "That nucleus doesn't exist.")
 
-    rows = build_nucleus_trains_rows(nucleus, include_scheduled=(not live_only), tz_name=tz)
+    try:
+        rows = build_nucleus_trains_rows(nucleus, include_scheduled=(not live_only), tz_name=tz)
+    except TypeError:
+        rows = build_nucleus_trains_rows(nucleus, include_scheduled=(not live_only))
+    if (not rows) and (not live_only):
+        rows = _scheduled_rows_for_nucleus(nucleus, tz_name=tz)
 
     cache = get_live_trains_cache()
     return templates.TemplateResponse(
@@ -1672,206 +1742,6 @@ def train_timetables_by_route(
             "page_size": page_size,
             "total": total,
             "title": f"Programados — {route_id} "
-            f"({'dir ' + did_filter if did_filter else 'ambas dirs'})",
-        },
-    )
-
-
-@router.get("/trips", response_class=HTMLResponse)
-def trips_all(
-    request: Request,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=200, ge=10, le=2000),
-):
-    rrepo = get_routes_repo()
-    trepo = get_trips_repo()
-
-    rows = []
-    for trip_id in list(trepo._trip_to_route.keys()):
-        rid = trepo.route_id_for_trip(trip_id)
-        if not rid:
-            continue
-        did = trepo.direction_for_trip(trip_id) or ""
-        tn = trepo.train_number_for_trip(trip_id)
-        nuc = (rrepo.nucleus_for_route_id(rid) or "").strip().lower()
-        rows.append(
-            {
-                "trip_id": trip_id,
-                "route_id": rid,
-                "direction_id": did,
-                "train_number": tn,
-                "nucleus": nuc or None,
-            }
-        )
-
-    rows.sort(
-        key=lambda r: (
-            r["nucleus"] or "",
-            r["route_id"] or "",
-            r["direction_id"] or "",
-            r["train_number"] or "",
-            r["trip_id"],
-        )
-    )
-
-    total = len(rows)
-    start = (page - 1) * page_size
-    end = start + page_size
-    page_rows = rows[start:end]
-
-    return templates.TemplateResponse(
-        "trips.html",
-        {
-            "request": request,
-            "rows": page_rows,
-            "repo": rrepo,
-            "nucleus": None,
-            "route": None,
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "title": "Trips — Todos",
-        },
-    )
-
-
-@router.get("/trips/{nucleus}", response_class=HTMLResponse)
-def trips_by_nucleus(
-    request: Request,
-    nucleus: str,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=200, ge=10, le=2000),
-):
-    rrepo = get_routes_repo()
-    trepo = get_trips_repo()
-
-    nucleus = (nucleus or "").strip().lower()
-    nuclei = [n.get("slug") for n in rrepo.list_nuclei()]
-    if nucleus not in nuclei:
-        raise HTTPException(404, "That nucleus doesn't exist.")
-
-    rows = []
-    for trip_id in list(trepo._trip_to_route.keys()):
-        rid = trepo.route_id_for_trip(trip_id)
-        if not rid:
-            continue
-        nuc = (rrepo.nucleus_for_route_id(rid) or "").strip().lower()
-        if nuc != nucleus:
-            continue
-        did = trepo.direction_for_trip(trip_id) or ""
-        tn = trepo.train_number_for_trip(trip_id)
-        rows.append(
-            {
-                "trip_id": trip_id,
-                "route_id": rid,
-                "direction_id": did,
-                "train_number": tn,
-                "nucleus": nucleus,
-            }
-        )
-
-    rows.sort(
-        key=lambda r: (
-            r["route_id"] or "",
-            r["direction_id"] or "",
-            r["train_number"] or "",
-            r["trip_id"],
-        )
-    )
-
-    total = len(rows)
-    start = (page - 1) * page_size
-    end = start + page_size
-    page_rows = rows[start:end]
-
-    return templates.TemplateResponse(
-        "trips.html",
-        {
-            "request": request,
-            "rows": page_rows,
-            "repo": rrepo,
-            "nucleus": {"slug": nucleus, "name": nucleus.upper()},
-            "route": None,
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "title": f"Trips — Núcleo {nucleus.upper()}",
-        },
-    )
-
-
-@router.get("/trips/{nucleus}/{route_id}", response_class=HTMLResponse)
-def trips_by_route(
-    request: Request,
-    nucleus: str,
-    route_id: str,
-    direction_id: str = Query(default="", description="'' | '0' | '1' (opcional)"),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=200, ge=10, le=2000),
-):
-    rrepo = get_routes_repo()
-    trepo = get_trips_repo()
-
-    nucleus = (nucleus or "").strip().lower()
-
-    lv_any = (
-        rrepo.get_by_route_and_dir(route_id, "")
-        or rrepo.get_by_route_and_dir(route_id, "0")
-        or rrepo.get_by_route_and_dir(route_id, "1")
-    )
-    if not lv_any:
-        raise HTTPException(404, f"Route {route_id} not found")
-    if (lv_any.nucleus_id or "").strip().lower() != nucleus:
-        raise HTTPException(404, f"That route doesn't belong to nucleus {nucleus}")
-
-    did_filter = (direction_id or "").strip()
-    if did_filter not in ("", "0", "1"):
-        raise HTTPException(400, "direction_id must be '', '0' or '1'")
-
-    rows = []
-    for trip_id in list(trepo._trip_to_route.keys()):
-        rid = trepo.route_id_for_trip(trip_id)
-        if rid != route_id:
-            continue
-        did = trepo.direction_for_trip(trip_id) or ""
-        if did_filter and did != did_filter:
-            continue
-        tn = trepo.train_number_for_trip(trip_id)
-        rows.append(
-            {
-                "trip_id": trip_id,
-                "route_id": rid,
-                "direction_id": did,
-                "train_number": tn,
-                "nucleus": nucleus,
-            }
-        )
-
-    rows.sort(
-        key=lambda r: (
-            r["direction_id"] or "",
-            r["train_number"] or "",
-            r["trip_id"],
-        )
-    )
-
-    total = len(rows)
-    start = (page - 1) * page_size
-    end = start + page_size
-    page_rows = rows[start:end]
-
-    return templates.TemplateResponse(
-        "trips.html",
-        {
-            "request": request,
-            "rows": page_rows,
-            "repo": rrepo,
-            "nucleus": {"slug": nucleus, "name": nucleus.upper()},
-            "route": lv_any,
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "title": f"Trips — {route_id} "
             f"({'dir ' + did_filter if did_filter else 'ambas dirs'})",
         },
     )
