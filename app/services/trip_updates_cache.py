@@ -144,16 +144,20 @@ class TripUpdatesCache:
         s = str(v).strip()
         return s if s in ("0", "1") else None
 
+    def _normalize_trip_id(self, trip_id: str) -> str:
+        return (trip_id or "").strip().upper()
+
     def _resolve_and_cache_trip_ctx(self, trip_id: str) -> TripResolvedCtx:
         tid = (trip_id or "").strip()
         if not tid:
             return TripResolvedCtx(trip_id=tid)
 
-        hit = self._resolved_by_trip_id.get(tid)
+        normalized_tid = self._normalize_trip_id(tid)
+        hit = self._resolved_by_trip_id.get(normalized_tid)
         if hit:
             return hit
 
-        it = self._by_trip_id.get(tid)
+        it = self._by_trip_id.get(normalized_tid)
         route_id = getattr(it, "route_id", None) if it else None
         direction_id = self._norm_did(getattr(it, "direction_id", None) if it else None)
         source = "trip_updates" if (route_id or direction_id) else "unknown"
@@ -176,7 +180,7 @@ class TripUpdatesCache:
             direction_id=direction_id,
             resolved_by=source or "unknown",
         )
-        self._resolved_by_trip_id[tid] = ctx
+        self._resolved_by_trip_id[normalized_tid] = ctx
         return ctx
 
     def get_resolved_ctx(self, trip_id: str) -> TripResolvedCtx:
@@ -266,9 +270,9 @@ class TripUpdatesCache:
                     stop_id=(str(getattr(stu, "stop_id", "") or "") or None),
                     stop_sequence=(int(getattr(stu, "stop_sequence", 0) or 0) or None),
                     arrival_time=(int(getattr(arr, "time", 0) or 0) or None) if arr else None,
-                    arrival_delay=(int(getattr(arr, "delay", 0) or 0) or None) if arr else None,
+                    arrival_delay=(int(getattr(arr, "delay", 0)) if arr else None),
                     departure_time=(int(getattr(dep, "time", 0) or 0) or None) if dep else None,
-                    departure_delay=(int(getattr(dep, "delay", 0) or 0) or 0) or None,
+                    departure_delay=(int(getattr(dep, "delay", 0)) if dep else None),
                     uncertainty=(
                         (int(getattr(arr or dep, "uncertainty", 0) or 0) or None)
                         if (arr or dep)
@@ -356,9 +360,9 @@ class TripUpdatesCache:
                     stop_id=str(stop_id).strip() if stop_id else None,
                     stop_sequence=int(stop_seq) if stop_seq not in (None, "") else None,
                     arrival_time=int(arr.get("time") or 0) or None if arr else None,
-                    arrival_delay=int(arr.get("delay") or 0) or None if arr else None,
+                    arrival_delay=int(arr.get("delay") or 0) if arr else None,
                     departure_time=int(dep.get("time") or 0) or None if dep else None,
-                    departure_delay=int(dep.get("delay") or 0) or None if dep else None,
+                    departure_delay=int(dep.get("delay") or 0) if dep else None,
                     uncertainty=int(arr.get("uncertainty") or dep.get("uncertainty") or 0) or None,
                     schedule_relationship=stu.get("schedule_relationship")
                     or stu.get("scheduleRelationship"),
@@ -393,10 +397,11 @@ class TripUpdatesCache:
             tid = it.trip_id
             if not tid:
                 continue
-            entry = self._entries.get(tid)
+            normalized_tid = self._normalize_trip_id(tid)
+            entry = self._entries.get(normalized_tid)
             last_source_ts = int(it.timestamp or header_ts or 0)
             if entry is None:
-                self._entries[tid] = _Entry(
+                self._entries[normalized_tid] = _Entry(
                     item=it, last_seen_wall_s=float(now_s), last_source_ts=last_source_ts
                 )
                 created += 1
@@ -423,17 +428,18 @@ class TripUpdatesCache:
     def _rebuild_views(self) -> None:
         items = [e.item for e in self._entries.values()]
         self._items = items
-        self._by_trip_id = {it.trip_id: it for it in items}
+        self._by_trip_id = {self._normalize_trip_id(it.trip_id): it for it in items if it.trip_id}
 
         # Reindex by (trip_id, stop_id) and (trip_id, stop_seq)
         m_stopid: dict[tuple[str, str], StopTimePred] = {}
         m_seq: dict[tuple[str, int], StopTimePred] = {}
         for it in items:
+            normalized_tid = self._normalize_trip_id(it.trip_id)
             for stu in it.stop_updates:
                 if stu.stop_id:
-                    m_stopid[(it.trip_id, str(stu.stop_id))] = stu
+                    m_stopid[(normalized_tid, str(stu.stop_id))] = stu
                 if isinstance(stu.stop_sequence, int):
-                    m_seq[(it.trip_id, int(stu.stop_sequence))] = stu
+                    m_seq[(normalized_tid, int(stu.stop_sequence))] = stu
         self._by_trip_stopid = m_stopid
         self._by_trip_seq = m_seq
 
@@ -571,7 +577,7 @@ class TripUpdatesCache:
     # ---------- Lookups ----------
 
     def get_by_trip_id(self, trip_id: str) -> TripUpdateItem | None:
-        return self._by_trip_id.get((trip_id or "").strip())
+        return self._by_trip_id.get(self._normalize_trip_id(trip_id))
 
     def get_stop_update(
         self, trip_id: str, *, stop_id: str | None = None, stop_sequence: int | None = None
@@ -579,20 +585,21 @@ class TripUpdatesCache:
         tid = (trip_id or "").strip()
         if not tid:
             return None
+        normalized_tid = self._normalize_trip_id(tid)
         if stop_id is not None:
-            hit = self._by_trip_stopid.get((tid, str(stop_id)))
+            hit = self._by_trip_stopid.get((normalized_tid, str(stop_id)))
             if hit:
                 return hit
         if isinstance(stop_sequence, int):
-            return self._by_trip_seq.get((tid, int(stop_sequence)))
+            return self._by_trip_seq.get((normalized_tid, int(stop_sequence)))
         return None
 
     def has_trip_delay(self, trip_id: str) -> bool:
-        it = self._by_trip_id.get((trip_id or "").strip())
+        it = self._by_trip_id.get(self._normalize_trip_id(trip_id))
         return bool(it and isinstance(it.delay, int))
 
     def trip_delay_seconds(self, trip_id: str) -> int | None:
-        it = self._by_trip_id.get((trip_id or "").strip())
+        it = self._by_trip_id.get(self._normalize_trip_id(trip_id))
         return int(it.delay) if (it and isinstance(it.delay, int)) else None
 
     # ---------- ETA helper for stops (Trip Updates) ----------
@@ -605,7 +612,8 @@ class TripUpdatesCache:
         if not tid or not sid:
             return None, {"reason": "bad_args"}
 
-        it = self._by_trip_id.get(tid)
+        normalized_tid = self._normalize_trip_id(tid)
+        it = self._by_trip_id.get(normalized_tid)
         if not it:
             return None, {"reason": "no_tu"}
 
@@ -613,7 +621,7 @@ class TripUpdatesCache:
         if rel_trip in {"CANCELED", "CANCELLED"}:
             return None, {"canceled": True, "level": "trip"}
 
-        stu = self._by_trip_stopid.get((tid, sid))
+        stu = self._by_trip_stopid.get((normalized_tid, sid))
         if not stu:
             return None, {"reason": "no_stop"}
 
