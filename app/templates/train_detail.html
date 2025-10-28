@@ -40,15 +40,23 @@
 				<li><strong>Código de línea:</strong> {{ train_service.route_short_name or '—' }}</li>
 			</div>
 		</div>
-		
+
 		<div class="grouped-lists-scroll">
 			<div class="app-block-padding app-block-vertical-padding">
-				<ul class="grid-route-map train-status-route-map" data-number-of-stations="{{ trip.stops|length }}" style="--number-of-stations: {{ trip.stations|length }}; --line-color: {{ route.color_bg }};">
+				<ul class="grid-route-map train-status-route-map {{ 'scheduled-train' if kind == 'scheduled' else 'live-train' if kind == 'live'}}" data-number-of-stations="{{ trip.stops|length }}" style="--number-of-stations: {{ trip.stations|length }}; --line-color: {{ route.color_bg }};">
 					{% for stop in trip.stops %}
-						{% set scheduled_time = stop.scheduled_hhmm or stop.sched_arr_hhmm or stopsched_dep_hhmm %}
+						{% set scheduled_time = stop.scheduled_hhmm or stop.sched_arr_hhmm or stop.sched_dep_hhmm %}
+						{% set rt_arrival_time = rt_arrival_times.get(stop.stop_id) if kind == 'live' else None %}
+						
 						{% set stop_status = stop.status or stop.flag or 'upcoming' %}
-						<li class="grid-route-map-station {{ 'current-station' if stop_status in ['CURRENT'] else 'future-station' if stop_status in ['FUTURE'] else 'passed-station' if stop_status in ['PASSED']}} {{ 'origin-station' if (trip.stops|first).stop_id == stop.stop_id else 'destination-station' if (trip.stops|last).stop_id == stop.stop_id else 'mid-station' }}" data-station-id="{{ stop.station_id or stop.stop_id }}">
-							{{ print_station_train_status_route_map(stop, scheduled_time) }}
+						{% set stop_status_class = 'current-station' if stop_status in ['CURRENT'] else
+							'future-station'  if stop_status in ['FUTURE','NEXT','UPCOMING','upcoming'] else
+							'passed-station'  if stop_status in ['PASSED'] else ''
+						%}
+						{% set station_position = 'origin-station' if (trip.stops|first).stop_id == stop.stop_id else 'destination-station' if (trip.stops|last).stop_id == stop.stop_id else 'mid-station' %}
+						
+						<li class="grid-route-map-station {{ stop_status_class }} {{ station_position }}" data-station-id="{{ stop.station_id or stop.stop_id }}">
+							{{ print_station_train_status_route_map(stop, station_position, scheduled_time, rt_arrival_time, stop_status) }}
 						</li>
 					{% endfor %}
 				</ul>
@@ -60,48 +68,3 @@
 {% block action_buttons %}
 	<div id="action-buttons-items" hx-swap-oob="true"></div>
 {% endblock %}
-
-
-
-{#
-{%- extends "base-layout.html" %}
-{%- block app_content %}
-	<header>
-		{% if nucleus %}
-			<a href="/trains/{{ nucleus.slug }}">&larr; Volver a {{ nucleus.name }}</a>
-		{% else %}
-			<a href="/trains/">&larr; Volver a trenes</a>
-		{% endif %}
-		<h1>Tren {{ train.train_id }}</h1>
-		<p>Última actualización: {{ last_snapshot }}</p>
-	</header>
-	
-	<table border="1" cellpadding="6" cellspacing="0">
-		<thead>
-		<tr>
-			<th>Ruta</th>
-			<th>Código de línea</th>
-			<th>Destino</th>
-			<th>Estado</th>
-			<th>Parada actual</th>
-			<th>Posición</th>
-		</tr>
-		</thead>
-		<tbody>
-		<tr>
-			<td><a href="/routes/{{ nucleus.slug }}/{{ train.route_id }}">{{ train.route_id }}</a></td>
-			<td>{{ train.route_short_name }}</td>
-			<td>→ {{repo.get_stop_name(repo.route_destination(train.route_id)) or '—' }}</td>
-			<td>{{ train.status_human() }}</td>
-			
-			<td>{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i></td>
-			<td>
-				{% if train.lat and train.lon %}
-					{{ '%.5f'|format(train.lat) }}, {{ '%.5f'|format(train.lon) }}
-				{% else %}—{% endif %}
-			</td>
-		</tr>
-		</tbody>
-	</table>
-{%- endblock %}
-#}

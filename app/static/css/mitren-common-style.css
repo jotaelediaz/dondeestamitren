@@ -83,8 +83,8 @@ p {
 
 .sr-only {
     position: absolute !important;
-    width: 1px;
-    height: 1px;
+    width: 0;
+    height: 0;
     padding: 0;
     margin: -1px;
     overflow: hidden;
@@ -2001,11 +2001,42 @@ ul.chip-list {
     border-color: var(--jotaele-text-subtle) !important;
 }
 
-.grid-route-map .grid-route-map-station.passed-station .station-name {
+.grid-route-map .grid-route-map-station.passed-station .station-name,
+.grid-route-map .grid-route-map-station.passed-station .stop-time{
     color: var(--jotaele-text-subtle) !important;
 }
 
+.grid-route-map .stop-times {
+    display: flex;
+    gap: calc(var(--app-margin) / 1.5);
+}
+
 .grid-route-map .stop-time {
+    display: inline-block;
     color: var(--jotaele-text-muted);
     font-weight: 400;
+}
+
+.grid-route-map .stop-times dd {
+    display: block;
+    margin-inline-start: 0;
+}
+
+.grid-route-map .stop-times .scheduled-time-is-not-current .stop-time-label {
+    text-decoration: line-through;
+    font-weight: 300;
+}
+
+.grid-route-map .stop-times .stop-time-label.delay-label {
+    color: var(--jotaele-error);
+    font-weight: 300;
+    font-size: 0.9em;
+}
+
+.grid-route-map .stop-times .stop-time-label.delay-label.advanced-train {
+    color: var(--jotaele-success);
+}
+
+.grid-route-map .grid-route-map-station.passed-station .stop-time {
+    display: none;
 }

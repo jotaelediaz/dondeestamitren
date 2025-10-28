@@ -87,6 +87,18 @@ def fmt_dt(value: Any, kind: str = "time", tz: str | None = "UTC") -> str:
 templates.env.filters["fmt_dt"] = fmt_dt
 
 
+def hhmm_local(epoch: int | None, tz: str = "Europe/Madrid") -> str | None:
+    if epoch is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(epoch), ZoneInfo(tz)).strftime("%H:%M")
+    except Exception:
+        return None
+
+
+templates.env.filters["hhmm_local"] = hhmm_local
+
+
 def mk_nucleus(slug: str | None):
     s = (slug or "").strip().lower()
     if not s:

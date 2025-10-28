@@ -8,6 +8,7 @@ from math import atan2, cos, radians, sin, sqrt
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
+from app.services.eta_projector import build_rt_arrival_times_from_vm
 from app.services.lines_index import get_index as get_lines_index
 from app.services.live_trains_cache import get_live_trains_cache
 from app.services.platform_habits import get_service as get_platform_habits
@@ -15,7 +16,7 @@ from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.train_services_index import build_train_detail_vm
-from app.viewkit import mk_nucleus, render
+from app.viewkit import hhmm_local, mk_nucleus, render
 
 router = APIRouter(tags=["web"])
 
@@ -712,9 +713,19 @@ def train_detail(
     nucleus = (nucleus or "").lower()
 
     vm = build_train_detail_vm(nucleus, identifier, tz_name=tz)
-
     if vm["kind"] == "live" and vm["train"] is None:
         raise HTTPException(404, f"Train {identifier} not found. :-(")
+
+    rt_info = build_rt_arrival_times_from_vm(vm, tz_name=tz) or {}
+    rt_arrival_times = {
+        sid: {
+            "epoch": rec.get("epoch"),
+            "hhmm": hhmm_local(rec.get("epoch"), tz),
+            "delay_s": rec.get("delay_s"),
+            "delay_min": rec.get("delay_min"),
+        }
+        for sid, rec in rt_info.items()
+    }
 
     return render(
         request,
@@ -722,7 +733,6 @@ def train_detail(
         {
             "request": request,
             "kind": vm["kind"],
-            "train": vm["train"],
             "scheduled": vm["scheduled"],
             "last_snapshot": cache.last_snapshot_iso(),
             "repo": repo,
@@ -733,6 +743,7 @@ def train_detail(
             "train_service": vm["unified"],
             "route": vm["route"],
             "trip": vm["trip"],
+            "rt_arrival_times": rt_arrival_times,
         },
     )
 
