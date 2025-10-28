@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import settings
+from app.utils.train_numbers import extract_train_number_from_vehicle
 
 """
 This script consumes real vehicle_position snapshots from Renfe and tries
@@ -191,21 +192,8 @@ class Sample:
 
 
 def extract_train_number(vehicle_obj: dict) -> int | None:
-    v = (vehicle_obj.get("vehicle") or {}) if isinstance(vehicle_obj, dict) else {}
-    vid = str(v.get("id") or "").strip()
-    label = str(v.get("label") or "").strip()
-    if vid.isdigit():
-        try:
-            return int(vid)
-        except Exception:
-            pass
-    m = DIGITS_RX.search(label)
-    if m:
-        try:
-            return int(m.group(1))
-        except Exception:
-            return None
-    return None
+    v = vehicle_obj.get("vehicle") if isinstance(vehicle_obj, dict) else None
+    return extract_train_number_from_vehicle(v)
 
 
 def to_day_key(ts: int, tz_name: str | None) -> str:

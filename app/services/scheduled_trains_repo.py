@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import csv
 import logging
-import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from app.config import settings
 from app.domain.models import ScheduledCall, ScheduledTrain
+from app.utils.train_numbers import extract_train_number_str
 
 log = logging.getLogger("scheduled_trains")
 
@@ -98,26 +98,6 @@ class _TripRow:
     headsign: str | None
     short_name: str | None
     block_id: str | None
-
-
-_NUM_AT_END = re.compile(r"(\d{4,6})(?!.*\d)")
-_NUM_ANY = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
-
-
-def _extract_train_number(*candidates: str | None) -> str | None:
-    for s in candidates:
-        if not s:
-            continue
-        m = _NUM_AT_END.search(s)
-        if m:
-            return m.group(1)
-    for s in candidates:
-        if not s:
-            continue
-        m = _NUM_ANY.search(s)
-        if m:
-            return m.group(1)
-    return None
 
 
 # -------------------- Scheduled Trains Repo --------------------
@@ -325,7 +305,7 @@ class ScheduledTrainsRepo:
             except Exception:
                 num = None
             if not num:
-                num = t.short_name or _extract_train_number(t.block_id, t.trip_id, t.headsign)
+                num = t.short_name or extract_train_number_str(t.block_id, t.trip_id, t.headsign)
             sch = ScheduledTrain(
                 unique_id=f"sch:{service_date}:{t.trip_id}",
                 trip_id=t.trip_id,

@@ -1,29 +1,12 @@
 # app/services/route_trains_index.py
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.services.live_trains_cache import get_live_trains_cache
 from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
-
-_NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
-
-
-def extract_train_number(train) -> str | None:
-
-    for field in (
-        getattr(train, "train_number", None),
-        getattr(train, "train_id", None),
-        getattr(train, "label", None),
-    ):
-        if not field:
-            continue
-        m = _NUM_RE.search(str(field))
-        if m:
-            return m.group(1)
-    return None
+from app.utils.train_numbers import extract_train_number_from_train as extract_train_number
 
 
 def build_route_trains_index(

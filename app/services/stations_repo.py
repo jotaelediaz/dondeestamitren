@@ -293,36 +293,28 @@ class StationsRepo:
             nucleus_slug=key[0], station_id=key[1], stations_repo=self
         )
 
-        seen: set[str] = set()
+        if unique:
+            seen: set[str] = set()
+            unique_lines: list = []
+            for r in serving_routes:
+                line_id, line_obj, _dir_in_line = idx.line_tuple_for_route_item(r)
+                if not line_id or not line_obj:
+                    continue
+                if line_id in seen:
+                    continue
+                seen.add(line_id)
+                unique_lines.append(line_obj)
+            self._station_lines_cache[key] = unique_lines
+            return unique_lines[:max_lines] if max_lines else list(unique_lines)
+
         lines: list = []
         for r in serving_routes:
             line_id, line_obj, _dir_in_line = idx.line_tuple_for_route_item(r)
             if not line_id or not line_obj:
                 continue
-            if unique:
-                if line_id in seen:
-                    continue
-                seen.add(line_id)
             lines.append(line_obj)
-            if max_lines and len(lines) >= max_lines:
-                pass
-
-        if unique:
-            seen_cache: set[str] = set()
-            full_unique: list = []
-            for r in serving_routes:
-                lid, lobj, _ = idx.line_tuple_for_route_item(r)
-                if not lid or not lobj:
-                    continue
-                if lid in seen_cache:
-                    continue
-                seen_cache.add(lid)
-                full_unique.append(lobj)
-            self._station_lines_cache[key] = full_unique
-            return full_unique[:max_lines] if max_lines else full_unique
-        else:
-            self._station_lines_cache[key] = lines
-            return lines[:max_lines] if max_lines else lines
+        self._station_lines_cache[key] = lines
+        return lines[:max_lines] if max_lines else list(lines)
 
     def get_lines_map_for_nucleus(
         self,

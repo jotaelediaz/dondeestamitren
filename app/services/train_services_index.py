@@ -23,24 +23,9 @@ from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
+from app.utils.train_numbers import extract_train_number_from_train
 
 # ------------------------ Utilities ------------------------
-
-_NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
-
-
-def _extract_train_number(live: Any) -> str | None:
-    for field in (
-        getattr(live, "train_number", None),
-        getattr(live, "train_id", None),
-        getattr(live, "label", None),
-    ):
-        if not field:
-            continue
-        m = _NUM_RE.search(str(field))
-        if m:
-            return m.group(1)
-    return None
 
 
 def _now_ts(tz_name: str) -> int:
@@ -468,7 +453,7 @@ def link_vehicle_to_service(
 
     trip_id = getattr(live, "trip_id", None)
     vehicle_id = getattr(live, "vehicle_id", None) or getattr(live, "train_id", None)
-    train_number = _extract_train_number(live)
+    train_number = extract_train_number_from_train(live)
 
     scheduled_trip_id: str | None = None
     confidence = "low"
@@ -875,7 +860,7 @@ def build_nucleus_trains_rows(
 
     # LIVE
     for t in live_trains:
-        num = _extract_train_number(t)
+        num = extract_train_number_from_train(t)
         if num:
             live_numbers.add(num)
 
@@ -961,7 +946,7 @@ def _parse_train_identifier(
 
     candidates = []
     for t in live_list:
-        if _extract_train_number(t) == s:
+        if extract_train_number_from_train(t) == s:
             seen = cache.seen_info(getattr(t, "train_id", "")) or {}
             age = seen.get("age_s")
             ts = _get_live_ts(t) or 0
@@ -1099,7 +1084,7 @@ def build_train_detail_vm(
         dep_hhmm_hint = None
 
         if dep_epoch is None:
-            num = _extract_train_number(live_obj)
+            num = extract_train_number_from_train(live_obj)
             if num:
                 try:
                     srepo = get_scheduled_repo()
@@ -1165,7 +1150,8 @@ def build_train_detail_vm(
 
         vm["unified"] = {
             "kind": "live",
-            "id": getattr(live_obj, "train_id", None) or (_extract_train_number(live_obj) or ""),
+            "id": getattr(live_obj, "train_id", None)
+            or (extract_train_number_from_train(live_obj) or ""),
             "nucleus_slug": nucleus,
             "route_id": route_id or "",
             "route_short_name": getattr(live_obj, "route_short_name", "")
@@ -1180,7 +1166,7 @@ def build_train_detail_vm(
             "scheduled_departure_epoch": dep_epoch,
             "scheduled_departure_hhmm": hhmm_final,
             "train_label": getattr(live_obj, "train_id", None)
-            or (_extract_train_number(live_obj) or ""),
+            or (extract_train_number_from_train(live_obj) or ""),
             "rt_prediction": rt,
         }
         return vm
@@ -1204,7 +1190,7 @@ def build_train_detail_vm(
 
     if sched:
         for t in cache.get_by_nucleus(nucleus) or []:
-            if _extract_train_number(t) == key:
+            if extract_train_number_from_train(t) == key:
                 vm["train"] = t
                 vm["platform"] = platform_for_live(t)
                 seen = cache.seen_info(getattr(t, "train_id", "")) or {}

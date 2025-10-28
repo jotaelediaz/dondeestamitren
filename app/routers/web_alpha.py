@@ -27,16 +27,12 @@ from app.services.train_services_index import (
 )
 from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
+from app.viewkit import mk_nucleus
 
 router = APIRouter(tags=["web-alpha"])
 templates = Jinja2Templates(directory="app/templates/alpha")
 
 _NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
-
-
-def mk_nucleus(slug: str, repo):
-    s = (slug or "").strip().lower()
-    return {"slug": s, "name": repo.nucleus_name(s) or (s.capitalize() if s else "")}
 
 
 def compute_confidence_badge(train, routes_repo, trips_repo):
@@ -510,7 +506,7 @@ def nucleus_routes(request: Request, nucleus: str):
         "routes.html",
         {
             "request": request,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "routes": routes_list,
             "repo": repo,
         },
@@ -623,7 +619,7 @@ def route_page_by_id(
         {
             "request": request,
             "route": route,
-            "nucleus": mk_nucleus(nucleus, rrepo),
+            "nucleus": mk_nucleus(nucleus),
             "trains": trains,
             "repo": rrepo,
             "stops": stops,
@@ -705,7 +701,7 @@ def lines_by_nucleus(request: Request, nucleus: str):
         {
             "request": request,
             "lines": lines,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "repo": repo,
         },
     )
@@ -731,7 +727,7 @@ def line_detail_page(request: Request, nucleus: str, line_id: str):
         "line_detail.html",
         {
             "request": request,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "line": line,
             "repo": repo,
             "trains": trains,
@@ -762,7 +758,7 @@ def stops_for_route(
         "stops.html",
         {
             "request": request,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "route": route,
             "stops": stops,
         },
@@ -815,7 +811,7 @@ def stop_detail(
         "stop_detail.html",
         {
             "request": request,
-            "nucleus": mk_nucleus(nucleus, routes_repo),
+            "nucleus": mk_nucleus(nucleus),
             "route": route,
             "stop": stop,
             "nearest_trains": nearest,
@@ -854,7 +850,7 @@ def stations_by_nucleus(request: Request, nucleus: str):
         "stations.html",
         {
             "request": request,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "stations": stations,
             "repo": repo,
         },
@@ -902,7 +898,7 @@ def station_detail_by_id(request: Request, nucleus: str, station_id: str):
         "station_detail.html",
         {
             "request": request,
-            "nucleus": mk_nucleus(nucleus, routes_repo),
+            "nucleus": mk_nucleus(nucleus),
             "station": st,
             "serving_lines": serving_lines,
             "live_trains": live_trains,
@@ -1052,7 +1048,7 @@ def trains_by_nucleus(
             "last_snapshot": cache.last_snapshot_iso(),
             "last_source": cache.last_source(),
             "repo": repo,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "nuclei": nuclei,
             "live_only": live_only,
         },
@@ -1091,7 +1087,7 @@ def train_detail(
             "last_snapshot": cache.last_snapshot_iso(),
             "last_source": cache.last_source(),
             "repo": repo,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "confidence": None,
             "train_seen_iso": vm["train_seen_iso"],
             "train_seen_age": vm["train_seen_age"],
@@ -1183,7 +1179,7 @@ def trip_updates_by_nucleus(request: Request, nucleus: str):
             "last_snapshot": cache.last_snapshot_iso(),
             "last_source": cache.last_source(),
             "repo": repo,
-            "nucleus": mk_nucleus(nucleus, repo),
+            "nucleus": mk_nucleus(nucleus),
             "nuclei": nuclei,
         },
     )
@@ -1378,7 +1374,7 @@ def train_timetables_by_nucleus(
             "request": request,
             "rows": page_rows,
             "repo": rrepo,
-            "nucleus": mk_nucleus(nucleus, rrepo),
+            "nucleus": mk_nucleus(nucleus),
             "route": None,
             "yyyymmdd": yyyymmdd,
             "page": page,
@@ -1468,7 +1464,7 @@ def train_timetables_by_route(
             "request": request,
             "rows": page_rows,
             "repo": rrepo,
-            "nucleus": mk_nucleus(nucleus, rrepo),
+            "nucleus": mk_nucleus(nucleus),
             "route": lv_any,
             "yyyymmdd": yyyymmdd,
             "page": page,

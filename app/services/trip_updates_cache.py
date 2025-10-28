@@ -7,6 +7,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from app.services.common_fetch import fetch_with_retry
 from app.services.trips_repo import get_repo as get_trips_repo
 
 log = logging.getLogger("trip_updates")
@@ -514,43 +515,33 @@ class TripUpdatesCache:
     def refresh(self) -> tuple[int, float]:
         self._last_error = None
 
-        feed = None
-        err_pb = None
-        for i in range(1 + FAST_RETRY_ATTEMPTS):
-            feed, err_pb = self._fetch_pb_once()
-            if feed is not None:
-                break
-            if i < FAST_RETRY_ATTEMPTS:
-                time.sleep(FAST_RETRY_DELAY)
+        data, source, err = fetch_with_retry(
+            self._fetch_pb_once,
+            self._fetch_json_once,
+            attempts=1 + FAST_RETRY_ATTEMPTS,
+            delay=FAST_RETRY_DELAY,
+            primary_label="pb",
+            fallback_label="json",
+        )
 
-        if feed is not None:
-            header_ts, now_s, items = self._parse_pb(feed)
-            self._last_source = "pb"
+        if data is None or source is None:
+            self._errors_streak += 1
+            self._last_error = err
+            log.warning(
+                "trip_updates fetch_error err=%s streak=%s",
+                self._last_error,
+                self._errors_streak,
+            )
+            now_s = int(time.time())
+            self._sweep_expired(now_s)
+            self._rebuild_views()
+            return len(self._items), self._last_fetch_s
+
+        if source == "pb":
+            header_ts, now_s, items = self._parse_pb(data)
         else:
-            raw = None
-            err_json = None
-            for i in range(1 + FAST_RETRY_ATTEMPTS):
-                raw, err_json = self._fetch_json_once()
-                if raw is not None:
-                    break
-                if i < FAST_RETRY_ATTEMPTS:
-                    time.sleep(FAST_RETRY_DELAY)
-
-            if raw is None:
-                self._errors_streak += 1
-                self._last_error = err_pb or err_json
-                log.warning(
-                    "trip_updates fetch_error err=%s streak=%s",
-                    self._last_error,
-                    self._errors_streak,
-                )
-                now_s = int(time.time())
-                self._sweep_expired(now_s)
-                self._rebuild_views()
-                return len(self._items), self._last_fetch_s
-
-            header_ts, now_s, items = self._parse_json(raw)
-            self._last_source = "json"
+            header_ts, now_s, items = self._parse_json(data)
+        self._last_source = source
 
         if header_ts:
             self._last_snapshot_ts = header_ts

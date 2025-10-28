@@ -14,11 +14,13 @@ from app.domain.live_models import (
     parse_train_gtfs_json,
     parse_train_gtfs_pb,
 )
+from app.services.common_fetch import fetch_with_retry
 from app.services.platform_habits import get_service as get_platform_habits
 from app.services.renfe_client import get_client
 from app.services.routes_repo import get_repo as get_lines_repo
 from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
+from app.utils.train_numbers import extract_train_number_int_from_train
 
 # Fast retries to avoid intermittent failures.
 FAST_RETRY_ATTEMPTS = 2
@@ -44,6 +46,12 @@ class LiveTrainsCache:
     def __init__(self):
         self._items: list[TrainPosition] = []
         self._by_id: dict[str, TrainPosition] = {}
+        self._items_sorted: list[TrainPosition] = []
+        self._by_route: dict[str, list[TrainPosition]] = {}
+        self._by_route_nucleus: dict[tuple[str, str], list[TrainPosition]] = {}
+        self._by_short: dict[str, list[TrainPosition]] = {}
+        self._by_nucleus: dict[str, list[TrainPosition]] = {}
+        self._by_nucleus_short: dict[tuple[str, str], list[TrainPosition]] = {}
 
         self._entries: dict[str, _TrainEntry] = {}
         self._last_fetch_s: float = 0.0
@@ -234,32 +242,10 @@ class LiveTrainsCache:
 
     # ---------------- Parity helpers ----------------
 
-    _NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
-    _PLATF_TOKEN_RE = re.compile(r"PLATF\.\(\s*[0-9A-Z]+\s*\)", re.IGNORECASE)
-
     @classmethod
     def _extract_train_number(cls, tp: TrainPosition) -> int | None:
         """Best-effort para extraer número de tren (23537, etc.)."""
-        cand_fields = (
-            getattr(tp, "train_number", None),
-            getattr(tp, "train_id", None),
-            getattr(tp, "vehicle_id", None),
-            getattr(tp, "label", None),
-        )
-        for val in cand_fields:
-            if val is None:
-                continue
-            s = str(val)
-            if not s:
-                continue
-            s = cls._PLATF_TOKEN_RE.sub("", s)  # quita "PLATF.(3)"
-            m = cls._NUM_RE.search(s)
-            if m:
-                try:
-                    return int(m.group(1))
-                except Exception:
-                    pass
-        return None
+        return extract_train_number_int_from_train(tp)
 
     def _maybe_infer_direction_by_parity(self, tp: TrainPosition) -> dict:
         metrics = {"parity_used": 0, "parity_final": 0, "parity_tentative": 0, "parity_no_map": 0}
@@ -524,52 +510,75 @@ class LiveTrainsCache:
         self._items = items
         self._by_id = {tp.train_id: tp for tp in items}
         by_num = defaultdict(list)
+        by_route: defaultdict[str, list[TrainPosition]] = defaultdict(list)
+        by_route_nucleus: defaultdict[tuple[str, str], list[TrainPosition]] = defaultdict(list)
+        by_short: defaultdict[str, list[TrainPosition]] = defaultdict(list)
+        by_nucleus: defaultdict[str, list[TrainPosition]] = defaultdict(list)
+        by_nucleus_short: defaultdict[tuple[str, str], list[TrainPosition]] = defaultdict(list)
+
         for tp in items:
             tid = getattr(tp, "train_id", None)
             num = self._extract_train_number(tp)
             if tid and num is not None:
                 by_num[str(num)].append(tid)
+            route_id = (getattr(tp, "route_id", None) or "").strip()
+            nucleus = (getattr(tp, "nucleus_slug", None) or "").strip().lower()
+            short = (getattr(tp, "route_short_name", None) or "").strip().lower()
+            if route_id:
+                by_route[route_id].append(tp)
+                if nucleus:
+                    by_route_nucleus[(nucleus, route_id)].append(tp)
+            if nucleus:
+                by_nucleus[nucleus].append(tp)
+            if short:
+                by_short[short].append(tp)
+                if nucleus:
+                    by_nucleus_short[(nucleus, short)].append(tp)
+
+        self._items_sorted = sorted(items, key=lambda t: (t.route_short_name, t.train_id))
+        self._by_route = {
+            rid: sorted(lst, key=lambda t: t.train_id) for rid, lst in by_route.items()
+        }
+        self._by_route_nucleus = {
+            key: sorted(lst, key=lambda t: t.train_id) for key, lst in by_route_nucleus.items()
+        }
+        self._by_short = {
+            key: sorted(lst, key=lambda t: t.train_id) for key, lst in by_short.items()
+        }
+        # Preserve arrival order for nucleus buckets (helps mirror original behaviour)
+        self._by_nucleus = {key: list(lst) for key, lst in by_nucleus.items()}
+        self._by_nucleus_short = {
+            key: sorted(lst, key=lambda t: t.train_id) for key, lst in by_nucleus_short.items()
+        }
         self._by_number = dict(by_num)
 
     # -------- Public API --------
     def refresh(self) -> tuple[int, float]:
         self._last_error = None
 
-        # ---- PB
-        feed = None
-        err_pb = None
-        for i in range(1 + FAST_RETRY_ATTEMPTS):
-            feed, err_pb = self._fetch_pb_once()
-            if feed is not None:
-                break
-            if i < FAST_RETRY_ATTEMPTS:
-                time.sleep(FAST_RETRY_DELAY)
+        data, source, err = fetch_with_retry(
+            self._fetch_pb_once,
+            self._fetch_json_once,
+            attempts=1 + FAST_RETRY_ATTEMPTS,
+            delay=FAST_RETRY_DELAY,
+            primary_label="pb",
+            fallback_label="json",
+        )
 
-        if feed is not None:
-            header_ts, now_s, items = self._parse_pb(feed)
-            self._last_source = "pb"
+        if data is None or source is None:
+            self._errors_streak += 1
+            self._last_error = err
+            self._log("fetch_error", error=self._last_error, errors_streak=self._errors_streak)
+            now_s = int(time.time())
+            self._sweep_expired(now_s)
+            self._rebuild_views()
+            return len(self._items), self._last_fetch_s
+
+        if source == "pb":
+            header_ts, now_s, items = self._parse_pb(data)
         else:
-            # ---- Fallback JSON
-            raw = None
-            err_json = None
-            for i in range(1 + FAST_RETRY_ATTEMPTS):
-                raw, err_json = self._fetch_json_once()
-                if raw is not None:
-                    break
-                if i < FAST_RETRY_ATTEMPTS:
-                    time.sleep(FAST_RETRY_DELAY)
-
-            if raw is None:
-                self._errors_streak += 1
-                self._last_error = err_pb or err_json
-                self._log("fetch_error", error=self._last_error, errors_streak=self._errors_streak)
-                now_s = int(time.time())
-                self._sweep_expired(now_s)
-                self._rebuild_views()
-                return len(self._items), self._last_fetch_s
-
-            header_ts, now_s, items = self._parse_json(raw)
-            self._last_source = "json"
+            header_ts, now_s, items = self._parse_json(data)
+        self._last_source = source
 
         # ---- Parsing and merge
         if header_ts:
@@ -609,49 +618,32 @@ class LiveTrainsCache:
         return list(self._items)
 
     def list_sorted(self) -> list[TrainPosition]:
-        return sorted(self._items, key=lambda t: (t.route_short_name, t.train_id))
+        return list(self._items_sorted)
 
     def get_by_id(self, train_id: str) -> TrainPosition | None:
         return self._by_id.get(train_id)
 
     def get_by_nucleus(self, nucleus_slug: str) -> list[TrainPosition]:
-        s = nucleus_slug.strip().lower()
-        return [tp for tp in self._items if (tp.nucleus_slug or "").lower() == s]
+        s = (nucleus_slug or "").strip().lower()
+        return list(self._by_nucleus.get(s, []))
 
     def get_by_route_short(self, short_name: str) -> list[TrainPosition]:
-        s = short_name.lower()
-        return sorted(
-            [t for t in self._items if t.route_short_name.lower() == s],
-            key=lambda t: (t.route_short_name, t.train_id),
-        )
+        s = (short_name or "").strip().lower()
+        return list(self._by_short.get(s, []))
 
     def get_by_nucleus_and_short(self, nucleus_slug: str, short_name: str) -> list[TrainPosition]:
-        s = short_name.lower()
-        n = (nucleus_slug or "").lower()
-        return sorted(
-            [
-                t
-                for t in self._items
-                if (t.nucleus_slug or "").lower() == n and t.route_short_name.lower() == s
-            ],
-            key=lambda t: t.train_id,
-        )
+        s = (short_name or "").strip().lower()
+        n = (nucleus_slug or "").strip().lower()
+        return list(self._by_nucleus_short.get((n, s), []))
 
     def get_by_route_id(self, route_id: str) -> list[TrainPosition]:
         r = (route_id or "").strip()
-        return sorted([t for t in self._items if (t.route_id or "") == r], key=lambda t: t.train_id)
+        return list(self._by_route.get(r, []))
 
     def get_by_nucleus_and_route(self, nucleus_slug: str, route_id: str) -> list[TrainPosition]:
-        n = (nucleus_slug or "").lower()
+        n = (nucleus_slug or "").strip().lower()
         r = (route_id or "").strip()
-        return sorted(
-            [
-                t
-                for t in self._items
-                if (t.nucleus_slug or "").lower() == n and (t.route_id or "") == r
-            ],
-            key=lambda t: t.train_id,
-        )
+        return list(self._by_route_nucleus.get((n, r), []))
 
     def last_snapshot_iso(self) -> str:
         ts = self._last_snapshot_ts or int(self._last_fetch_s)

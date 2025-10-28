@@ -992,7 +992,7 @@ ul.chip-list {
     --icon-border-dot-size: 4px;
     --line-color: var(--jotaele-blue);
     --station-block-height: 4.5rem;
-    --connections-icon-size: 0.85rem;
+    --connections-icon-size: 0.95rem;
 
     display: grid;
     width: 100%;
@@ -1040,6 +1040,7 @@ ul.chip-list {
     background: var(--jotaele-white);
     border: var(--icon-border-dot-size) solid var(--line-color);
     box-sizing: border-box;
+    transition: box-shadow 0.3s var(--vt-ease);
 }
 
 .grid-route-map .grid-route-station-info {
@@ -1059,7 +1060,9 @@ ul.chip-list {
     display: inline-block;
     padding: 0.2em 0.3em;
     position: relative;
+    transform: translateY(-0.2em);
     transition: ease 0.2s;
+    overflow-y: clip;
 }
 
 .grid-route-map-station.origin-station .route-line-fragment {
@@ -1076,7 +1079,8 @@ ul.chip-list {
     flex-direction: row;
     margin-bottom: 0.5rem;
     gap: 0.25rem;
-    padding: 0.2em 0.3em;
+    padding: 0.1em 0.3em;
+    transition: padding 0.2s var(--vt-ease);
 }
 
 .grid-route-map .grid-route-connections .connections-group {
@@ -1588,35 +1592,52 @@ ul.chip-list {
 /* -- Active stop marker -- */
 
 .grid-route-map-station .grid-route-station-name {
-    transition: background-color 0.18s var(--vt-ease) 0.18s, color 0.18s var(--vt-ease) 0.18s;
+    transition:
+        background-color 0.18s var(--vt-ease),
+        color 0.18s var(--vt-ease),
+        margin-left 0.18s var(--vt-ease);
+    transition-delay: 0.18s, 0.18s, 0.18s;
 }
 
 .grid-route-map-station.is-active .grid-route-station-name {
     color: var(--jotaele-white);
     background-color: var(--jotaele-blue);
-    margin-left: 10px;
-    transition-delay: 0s, 0s;
+    margin-left: 7px;
+    transition-delay: 0s, 0s, 0s;
+}
+
+.grid-route-map-station.is-active a:hover .grid-route-station-name,
+.grid-route-map-station.is-active a:active .grid-route-station-name {
+    color: var(--jotaele-white) !important;
+}
+
+.grid-route-map-station.is-active .route-dot {
+    border-color: var(--line-color);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--line-color) 25%, transparent);
+}
+
+.grid-route-map .grid-route-map-station.is-active .grid-route-connections {
+    padding: 0.3em 0.3em;
 }
 
 .grid-route-map-station .grid-route-station-name::before {
     content: "";
     position: absolute;
     left: 0;
-    top: 50%;
-    width: 0;
-    height: 0;
-    transform: translateY(-50%);
-    border-top: 12px solid transparent;
-    border-bottom: 12px solid transparent;
-    border-right: 10px solid var(--jotaele-blue);
+    top: 0;
+    width: 9px;
+    height: 100%;
+    background-color: var(--jotaele-blue);
+    clip-path: polygon(100% 0, 0 50%, 100% 100%);
     opacity: 0;
     z-index: -1;
-    transition: left 0.18s var(--vt-ease) 0s;
+    transition: left 0.18s var(--vt-ease), opacity 0.12s var(--vt-ease);
+    transition-delay: 0s, 0.18s;
 }
 
 .grid-route-map-station.is-active .grid-route-station-name::before {
     opacity: 1;
-    left: -10px;
+    left: -9px;
     transition-delay: 0.18s, 0.18s;
 }
 
@@ -2025,6 +2046,14 @@ ul.chip-list {
 .grid-route-map .stop-times .scheduled-time-is-not-current .stop-time-label {
     text-decoration: line-through;
     font-weight: 300;
+}
+
+.grid-route-map.live-train .grid-route-map-station:not(.destination-station) .stop-time.scheduled-time.scheduled-time-is-not-current {
+    display: none;
+}
+
+.grid-route-map.live-train .grid-route-map-station:not(.destination-station) .stop-times .delay-label {
+    display: none;
 }
 
 .grid-route-map .stop-times .stop-time-label.delay-label {

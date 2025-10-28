@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.config import settings
+from app.utils.train_numbers import extract_train_number_str
 
 log = logging.getLogger("trips_repo")
 TRUST_DELIM = bool(getattr(settings, "GTFS_TRUST_DELIMITER", False))
@@ -101,17 +102,17 @@ class TripsRepo:
             pass
         return []
 
-    def _build_train_number_indexes(self) -> None:
+    def _build_train_number_indexes(self, rows: Iterable[dict] | None = None) -> None:
         self._trip_to_train_number.clear()
-        rows = self._autodetect_rows()
-        for row in rows:
+        source_rows = rows if rows is not None else self._autodetect_rows()
+        for row in source_rows:
             trip_id = (row.get("trip_id") or "").strip()
             if not trip_id:
                 continue
             short_name = (row.get("trip_short_name") or "").strip()
             block_id = (row.get("block_id") or "").strip()
             headsign = (row.get("trip_headsign") or "").strip()
-            tn = short_name or _extract_train_number(block_id, trip_id, headsign)
+            tn = short_name or extract_train_number_str(block_id, trip_id, headsign)
             if tn:
                 self._trip_to_train_number[trip_id] = tn
 
@@ -196,20 +197,12 @@ class TripsRepo:
             if trip_id and sid:
                 self._trip_to_service[trip_id] = sid
 
-            short_name = (row.get("trip_short_name") or "").strip()
-            block_id = (row.get("block_id") or "").strip()
-            headsign = (row.get("trip_headsign") or "").strip()
-            if trip_id:
-                tn = short_name or _extract_train_number(block_id, trip_id, headsign)
-                if tn:
-                    self._trip_to_train_number[trip_id] = tn
-
         self._trip_to_route_up = {k.upper(): v for k, v in self._trip_to_route.items()}
         self._trip_to_direction_up = {k.upper(): v for k, v in self._trip_to_direction.items()}
 
         self._index_stop_times()
         self._load_calendar()
-        self._build_train_number_indexes()
+        self._build_train_number_indexes(rows)
 
     # ----------------- Infer direction from stop_times -----------------
 
@@ -824,7 +817,7 @@ class TripsRepo:
 
             tn = self._trip_to_train_number.get(trip_id)
             if not tn:
-                tn = _extract_train_number(trip_id)
+                tn = extract_train_number_str(trip_id)
             if tn:
                 numbers_by_dir[did].add(tn)
 
@@ -851,7 +844,7 @@ class TripsRepo:
             if direction_id in ("0", "1") and did != direction_id:
                 continue
 
-            tn = self._trip_to_train_number.get(trip_id) or _extract_train_number(trip_id)
+            tn = self._trip_to_train_number.get(trip_id) or extract_train_number_str(trip_id)
             if tn == tnum:
                 out.append(trip_id)
 
@@ -885,23 +878,3 @@ def get_repo() -> TripsRepo:
         _repo = TripsRepo(trips_path, stop_times_csv_path=stop_times_path)
         _repo.load()
     return _repo
-
-
-_NUM_AT_END = re.compile(r"(\d{4,6})(?!.*\d)")
-_NUM_ANY = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
-
-
-def _extract_train_number(*candidates: str | None) -> str | None:
-    for s in candidates:
-        if not s:
-            continue
-        m = _NUM_AT_END.search(s)
-        if m:
-            return m.group(1)
-    for s in candidates:
-        if not s:
-            continue
-        m = _NUM_ANY.search(s)
-        if m:
-            return m.group(1)
-    return None
