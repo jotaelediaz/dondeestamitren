@@ -16,6 +16,7 @@ from app.domain.models import (
     RealtimeInfo,
     ScheduledTrain,
     ServiceInstance,
+    get_train_mode,
 )
 from app.services.live_trains_cache import LiveTrainsCache, get_live_trains_cache
 from app.services.routes_repo import get_repo as get_routes_repo
@@ -452,6 +453,7 @@ def link_vehicle_to_service(
     direction_id = str(dir_raw) if dir_raw in (0, 1, "0", "1") else None
 
     trip_id = getattr(live, "trip_id", None)
+    sch = None
     vehicle_id = getattr(live, "vehicle_id", None) or getattr(live, "train_id", None)
     train_number = extract_train_number_from_train(live)
 
@@ -530,6 +532,13 @@ def link_vehicle_to_service(
             confidence = "low"
             method = "none"
 
+    if scheduled_trip_id and sch is None:
+        try:
+            ymd = int(_service_date_str(tz_name))
+            sch = srepo.get_trip(ymd, scheduled_trip_id)
+        except Exception:
+            sch = None
+
     rid_from_trip = _trip_route_id(scheduled_trip_id or trip_id)
     if rid_from_trip and rid_from_trip != route_id:
         route_id = rid_from_trip
@@ -545,6 +554,7 @@ def link_vehicle_to_service(
         scheduled_trip_id=scheduled_trip_id or trip_id,
         route_id=route_id,
         direction_id=direction_id,
+        scheduled=sch,
         realtime=RealtimeInfo(
             vehicle_id=vehicle_id,
             last_ts=_get_live_ts(live),
@@ -560,6 +570,7 @@ def link_vehicle_to_service(
         ),
         derived=DerivedInfo(),
     )
+    inst.kind = get_train_mode(inst)
     return inst, confidence
 
 

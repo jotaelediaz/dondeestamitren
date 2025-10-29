@@ -1,6 +1,7 @@
 # app/services/eta_projector.py
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 # ---------------- Models & helpers ----------------
@@ -29,6 +30,20 @@ def _fld(obj, name, default=None):
         return getattr(obj, name, default)
     except Exception:
         return default
+
+
+def _normalize_stop_id(stop) -> str:
+    if stop is None:
+        return ""
+    if isinstance(stop, str):
+        return stop.strip()
+    try:
+        return str(getattr(stop, "stop_id", "")).strip()
+    except Exception:
+        try:
+            return str(stop.get("stop_id", "")).strip()  # type: ignore[arg-type]
+        except Exception:
+            return str(stop).strip()
 
 
 def _epoch_from_stu(stu):
@@ -375,6 +390,164 @@ def build_rt_arrival_epochs_from_vm(
         except Exception:
             pass
     return out
+
+
+def _scheduled_arrival_epoch_for_stop(
+    vm, stop_id: str, *, tz_name: str = "Europe/Madrid"
+) -> int | None:
+    from contextlib import suppress
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
+
+    stop_id = _normalize_stop_id(stop_id)
+    if not stop_id:
+        return None
+
+    trip_obj = _fld(vm, "trip")
+    unified = _fld(vm, "unified", {}) or {}
+    trip_id = (
+        _fld(unified, "trip_id")
+        or _fld(trip_obj, "trip_id")
+        or _fld(trip_obj, "id")
+        or _fld(vm, "trip_id")
+    )
+    if not trip_id:
+        return _fld(vm, "next_epoch") if isinstance(_fld(vm, "next_epoch"), int) else None
+
+    srepo = get_scheduled_repo()
+    sch = None
+    with suppress(Exception):
+        if hasattr(srepo, "get_scheduled_train_by_trip_id"):
+            sch = srepo.get_scheduled_train_by_trip_id(trip_id)
+    if not sch:
+        with suppress(Exception):
+            if hasattr(srepo, "get_trip"):
+                sch = srepo.get_trip(trip_id)
+    if not sch:
+        return None
+
+    calls = _fld(sch, "ordered_calls") or _fld(sch, "calls") or []
+    if not calls:
+        return None
+
+    with suppress(Exception):
+        calls = list(calls)
+
+    service_date = None
+    with suppress(Exception):
+        service_date = int(_fld(sch, "service_date", 0) or 0)
+
+    tz = ZoneInfo(tz_name)
+
+    for call in calls:
+        cid = _normalize_stop_id(_fld(call, "stop_id"))
+        if cid != stop_id:
+            continue
+
+        arr_epoch = _fld(call, "arrival_epoch")
+        if isinstance(arr_epoch, int):
+            return int(arr_epoch)
+
+        dep_epoch = _fld(call, "departure_epoch")
+        if isinstance(dep_epoch, int):
+            return int(dep_epoch)
+
+        for raw_time in (_fld(call, "arrival_time"), _fld(call, "departure_time")):
+            if not isinstance(raw_time, (int | float)):
+                continue
+            if service_date:
+                year = service_date // 10000
+                month = (service_date % 10000) // 100
+                day = service_date % 100
+                try:
+                    base = datetime(year, month, day, tzinfo=tz)
+                    dt = base + timedelta(seconds=int(raw_time))
+                    return int(dt.timestamp())
+                except Exception:
+                    continue
+        break
+
+
+def get_arrival_epoch_for_stop(
+    vm,
+    stop,
+    *,
+    tz_name: str = "Europe/Madrid",
+    prefer_realtime: bool = True,
+    epochs_map: dict[str, int] | None = None,
+) -> int | None:
+    stop_id = _normalize_stop_id(stop)
+    if not stop_id:
+        return None
+
+    epoch = None
+    if prefer_realtime:
+        if epochs_map is None:
+            epochs_map = build_rt_arrival_epochs_from_vm(vm, tz_name=tz_name)
+        epoch = epochs_map.get(stop_id) if epochs_map else None
+    if isinstance(epoch, int):
+        return epoch
+    return _scheduled_arrival_epoch_for_stop(vm, stop_id, tz_name=tz_name)
+
+
+def get_arrival_minutes_for_stop(
+    vm,
+    stop,
+    *,
+    tz_name: str = "Europe/Madrid",
+    prefer_realtime: bool = True,
+    epochs_map: dict[str, int] | None = None,
+    now_ts: int | None = None,
+) -> int | None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    epoch = get_arrival_epoch_for_stop(
+        vm,
+        stop,
+        tz_name=tz_name,
+        prefer_realtime=prefer_realtime,
+        epochs_map=epochs_map,
+    )
+    if not isinstance(epoch, int):
+        return None
+
+    if now_ts is None:
+        now_ts = int(datetime.now(ZoneInfo(tz_name)).timestamp())
+    delta = int(epoch) - int(now_ts)
+    if delta <= 0:
+        return 0
+    return int(math.ceil(delta / 60))
+
+
+def get_arrival_time_str_for_stop(
+    vm,
+    stop,
+    *,
+    tz_name: str = "Europe/Madrid",
+    prefer_realtime: bool = True,
+    epochs_map: dict[str, int] | None = None,
+    fmt: str | None = "%H:%M",
+):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    epoch = get_arrival_epoch_for_stop(
+        vm,
+        stop,
+        tz_name=tz_name,
+        prefer_realtime=prefer_realtime,
+        epochs_map=epochs_map,
+    )
+    if not isinstance(epoch, int):
+        return None
+
+    dt = datetime.fromtimestamp(int(epoch), ZoneInfo(tz_name))
+    if fmt is None:
+        return dt
+    return dt.strftime(fmt)
 
 
 def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Madrid"):

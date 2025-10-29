@@ -359,6 +359,66 @@ class MatchingInfo:
     method: str | None = None  # trip_id | train_number | heuristic | none
 
 
+def get_train_mode(vm) -> str:
+    """
+    Infer whether a view-model/service instance represents a live or scheduled train.
+    Accepts ServiceInstance, dicts or simple namespace objects used across the project.
+    """
+
+    def _norm(value: str | None) -> str | None:
+        if not value or not isinstance(value, str):
+            return None
+        s = value.strip().lower()
+        return s if s in {"live", "scheduled"} else None
+
+    # Prefer explicit attribute
+    kind = _norm(getattr(vm, "kind", None))
+    if kind:
+        return kind
+
+    # Unified payload (train detail VMs)
+    unified = getattr(vm, "unified", None)
+    if isinstance(unified, dict):
+        kind = _norm(unified.get("kind"))
+        if kind:
+            return kind
+
+    # ServiceInstance heuristics
+    service_cls = globals().get("ServiceInstance")
+    if service_cls and isinstance(vm, service_cls):
+        if getattr(vm, "realtime", None) and (
+            getattr(vm.realtime, "vehicle_id", None)
+            or getattr(vm.realtime, "last_ts", None)
+            or getattr(vm.realtime, "lat", None)
+        ):
+            return "live"
+        if getattr(vm, "scheduled", None):
+            return "scheduled"
+        return _norm(getattr(vm, "kind", None)) or "unknown"
+
+    # Dict-based fallback
+    if isinstance(vm, dict):
+        kind = _norm(vm.get("kind"))
+        if kind:
+            return kind
+        unified = vm.get("unified")
+        if isinstance(unified, dict):
+            kind = _norm(unified.get("kind"))
+            if kind:
+                return kind
+        if vm.get("train"):
+            return "live"
+        if vm.get("scheduled") or vm.get("schedule"):
+            return "scheduled"
+        return "unknown"
+
+    if getattr(vm, "train", None):
+        return "live"
+    if getattr(vm, "scheduled", None):
+        return "scheduled"
+    return "unknown"
+
+
 @dataclass
 class DerivedInfo:
     eta_by_stop: dict[str, int] = field(default_factory=dict)  # stop_id -> eta_secs
@@ -377,6 +437,16 @@ class ServiceInstance:
     realtime: RealtimeInfo = field(default_factory=RealtimeInfo)
     matching: MatchingInfo = field(default_factory=MatchingInfo)
     derived: DerivedInfo = field(default_factory=DerivedInfo)
+
+    kind: str = "unknown"
+
+    @property
+    def is_live(self) -> bool:
+        return self.kind == "live"
+
+    @property
+    def is_scheduled(self) -> bool:
+        return self.kind == "scheduled"
 
 
 @dataclass(frozen=True)

@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import os
 import re
 import threading
+import time
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.config import settings
@@ -57,6 +60,8 @@ class TripsRepo:
         self._numbers_by_route: dict[str, set[str]] = {}
         self._numbers_by_route_dir: dict[tuple[str, str], set[str]] = {}
         self._trips_by_route_dir_number: dict[tuple[str, str, str], list[str]] = {}
+        self._directions_release_token: str | None = None
+        self._directions_cache_loaded: bool = False
 
     # --------------------------- util csv trips ---------------------------
 
@@ -116,6 +121,104 @@ class TripsRepo:
             if tn:
                 self._trip_to_train_number[trip_id] = tn
 
+    # ---------------------- Directions cache helpers ----------------------
+
+    def _directions_cache_path(self) -> Path:
+        custom = getattr(settings, "TRIP_DIRECTIONS_CACHE_PATH", None)
+        if custom:
+            return Path(custom)
+        return Path("app/data/derived/trip_directions.json")
+
+    def _current_release_token(self) -> str | None:
+        try:
+            from app.services.gtfs_static_manager import STATE_FILE
+
+            if STATE_FILE.exists():
+                state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+                return state.get("active_release") or state.get("sha256")
+        except Exception:
+            pass
+        return None
+
+    def _sync_direction_upper_cache(self) -> None:
+        self._trip_to_direction_up = {k.upper(): v for k, v in self._trip_to_direction.items()}
+
+    def _load_cached_directions(self) -> bool:
+        path = self._directions_cache_path()
+        if not path.exists():
+            return False
+
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log.warning("trips_repo: could not read directions cache %s: %r", path, exc)
+            return False
+
+        if not isinstance(data, dict):
+            return False
+
+        version = data.get("version", 1)
+        if version != 1:
+            log.warning("trips_repo: unsupported directions cache version %s", version)
+            return False
+
+        cached_token = data.get("active_release")
+        if (
+            self._directions_release_token
+            and cached_token
+            and cached_token != self._directions_release_token
+        ):
+            return False
+
+        mapping = data.get("trip_directions") or {}
+        if not isinstance(mapping, dict):
+            return False
+
+        loaded = 0
+        for trip_id, did in mapping.items():
+            if did not in ("0", "1"):
+                continue
+            if trip_id not in self._trip_to_route:
+                continue
+            if trip_id in self._trip_to_direction:
+                continue
+            self._trip_to_direction[trip_id] = did
+            loaded += 1
+
+        if loaded == 0 and not self._trip_to_direction:
+            return False
+
+        self._sync_direction_upper_cache()
+        self._directions_ready = True
+        self._directions_cache_loaded = True
+        if cached_token:
+            self._directions_release_token = cached_token
+        log.info("trips_repo: loaded %s cached directions from %s", loaded, path)
+        return True
+
+    def _persist_directions_cache(self) -> None:
+        directions = {k: v for k, v in self._trip_to_direction.items() if v in ("0", "1")}
+        if not directions:
+            return
+
+        path = self._directions_cache_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        token = self._directions_release_token or self._current_release_token()
+        payload = {
+            "version": 1,
+            "generated_at": int(time.time()),
+            "active_release": token,
+            "trip_directions": directions,
+        }
+
+        tmp_path = path.parent / (path.name + ".tmp")
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp_path.replace(path)
+        self._directions_release_token = token
+        self._directions_cache_loaded = True
+        log.info("trips_repo: persisted %s trip directions to cache %s", len(directions), path)
+
     # ---------------------- util csv stop_times ----------------------
 
     def _read_stop_times_with(self, delimiter: str) -> list[dict]:
@@ -169,6 +272,7 @@ class TripsRepo:
         self._trip_to_direction.clear()
         self._trip_to_direction_up.clear()
         self._directions_ready = False
+        self._directions_cache_loaded = False
         self._stop_times_by_stopid.clear()
         self._stop_times_by_seq.clear()
         self._trip_to_service.clear()
@@ -198,7 +302,9 @@ class TripsRepo:
                 self._trip_to_service[trip_id] = sid
 
         self._trip_to_route_up = {k.upper(): v for k, v in self._trip_to_route.items()}
-        self._trip_to_direction_up = {k.upper(): v for k, v in self._trip_to_direction.items()}
+        self._sync_direction_upper_cache()
+        self._directions_release_token = self._current_release_token()
+        self._load_cached_directions()
 
         self._index_stop_times()
         self._load_calendar()
@@ -288,7 +394,9 @@ class TripsRepo:
 
         if fixed:
             log.info("trips_repo: inferred direction_id for %s trips from stop_times", fixed)
+        self._sync_direction_upper_cache()
         self._directions_ready = True
+        self._persist_directions_cache()
 
     # ------------------------------ lookup helpers ------------------------------
 

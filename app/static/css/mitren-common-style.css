@@ -1914,9 +1914,11 @@ ul.chip-list {
 
 .rolling-number__prefix {
     display: inline-block;
-    width: 0.81ch;
+    width: 0.61ch;
     text-align: right;
-    margin-right: 0.072em;
+    margin-right: 0.41ch;
+    margin-left: -0.61ch;
+    font-size: 0.7em;
 }
 
 .rolling-number__stopped {
