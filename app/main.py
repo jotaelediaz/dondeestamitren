@@ -17,6 +17,7 @@ from app.routers.lines_api import router as lines_api
 from app.routers.live_api import router as live_api_router
 from app.routers.prefs_api import router as prefs_router
 from app.routers.search_station_api import router as search_station_api_router
+from app.routers.trains_api import router as trains_api_router
 from app.routers.web import router as web_router
 from app.routers.web_admin import router as web_admin_router
 from app.routers.web_alpha import router as web_alpha_router
@@ -183,6 +184,7 @@ app.add_middleware(ActivityMiddleware)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 app.include_router(lines_api)
+app.include_router(trains_api_router)
 app.include_router(web_router)
 app.include_router(live_api_router)
 app.include_router(prefs_router)

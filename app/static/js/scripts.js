@@ -180,7 +180,10 @@
                     lineId:  n.getAttribute('data-line-id') || '',
                     routeId: n.getAttribute('data-route-id') || '',
                     dir:     n.getAttribute('data-dir') || '',
-                    stopId:  n.getAttribute('data-stop-id') || ''
+                    stopId:  n.getAttribute('data-stop-id') || '',
+                    servicesUrl: n.getAttribute('data-services-url') || '',
+                    servicesLimit: n.getAttribute('data-services-limit') || '',
+                    servicesTz: n.getAttribute('data-services-tz') || ''
                 };
             } catch (_) { return null; }
         },
@@ -999,11 +1002,12 @@
             panel.__stopAuto = {
                 timerId: null,
                 abort: null,
-                baseInterval: 60_000,
-                maxInterval: 300_000,
+                baseInterval: 30_000,
+                maxInterval: 180_000,
                 errors: 0,
                 running: false,
-                lastUrl: ''
+                apiUrl: '',
+                inFlight: false
             };
         }
 
@@ -1030,24 +1034,38 @@
             if (st.abort) { try { st.abort.abort(); } catch(_) {} st.abort = null; }
             st.errors = 0;
             st.running = false;
+            st.inFlight = false;
         }
 
         function scheduleNextStopTick(ms) {
             const st = panel.__stopAuto;
-            if (!st) return;
+            if (!st || !st.running) return;
             if (st.timerId) clearTimeout(st.timerId);
-            st.timerId = setTimeout(refreshStopApproachingNow, ms);
+            st.timerId = setTimeout(() => refreshStopApproachingNow(false), ms);
         }
 
         function startStopAutoRefresh() {
             const st = panel.__stopAuto;
             if (!st || st.running) return;
             st.running = true;
+            st.errors = 0;
+            st.inFlight = false;
+            if (st.timerId) { clearTimeout(st.timerId); st.timerId = null; }
 
-            const now = Date.now();
-            const toNextMinute = 60_000 - (now % 60_000);
-            const jitter = Math.floor(Math.random() * 700);
-            scheduleNextStopTick(toNextMinute + jitter);
+            if (!panel.dataset.stopApi) {
+                const ctxEl = body.querySelector('#drawer-context');
+                if (ctxEl) {
+                    const rid = ctxEl.getAttribute('data-route-id') || '';
+                    const sid = ctxEl.getAttribute('data-stop-id') || '';
+                    if (rid && sid) {
+                        const limitAttr = ctxEl.getAttribute('data-services-limit') || '10';
+                        const tzAttr = ctxEl.getAttribute('data-services-tz') || 'Europe/Madrid';
+                        panel.dataset.stopApi = `/api/stops/${rid}/${sid}/services?limit=${limitAttr}&tz=${tzAttr}`;
+                    }
+                }
+            }
+
+            refreshStopApproachingNow(true);
         }
 
         if (!stopGlobalHandlersBound) {
@@ -1057,15 +1075,222 @@
                 if (!st) return;
                 if (document.hidden) {
                     teardownStopAutoRefresh();
+            panel.dataset.stopApi = '';
+            panel.dataset.stopRouteId = '';
+            panel.dataset.stopStopId = '';
+            panel.dataset.stopDir = '';
                 } else if (panel.classList.contains('open') && panel.dataset.mode === 'stop') {
                     startStopAutoRefresh();
                 }
             }, { passive: true });
         }
 
-        async function refreshStopApproachingNow() {
+
+        function applyStopServicesPayload(payload) {
+            const root = body.querySelector('[data-stop-panel]');
+            if (!root) return;
+            const services = Array.isArray((payload && payload.services)) ? payload.services : [];
+            const primary = services[0] || null;
+            const secondary = services[1] || null;
+
+            const ctxEl = body.querySelector('#drawer-context');
+            const nucleusSlug = ctxEl ? (ctxEl.getAttribute('data-nucleus') || '') : '';
+
+            const card = root.querySelector('[data-stop-primary]');
+            const footer = root.querySelector('[data-stop-footer]');
+            const empty = root.querySelector('[data-field="empty-message"]');
+            const lastSeen = root.querySelector('[data-field="last-seen"]');
+
+            if (!primary) {
+                if (card) card.setAttribute('hidden', '');
+                if (footer) footer.setAttribute('hidden', '');
+                if (lastSeen) lastSeen.setAttribute('hidden', '');
+                if (empty) empty.hidden = false;
+                return;
+            }
+
+            if (card) card.removeAttribute('hidden');
+            if (footer) footer.removeAttribute('hidden');
+            if (empty) empty.hidden = true;
+
+            updatePrimaryCard(card, primary, nucleusSlug);
+            updateSecondary(card, secondary);
+            updateFooter(footer, primary, nucleusSlug);
+            updateLastSeen(lastSeen, primary);
+            wireETA(card);
+        }
+
+        function minutesFromService(service) {
+            if (!service) return null;
+            const sec = typeof service.eta_seconds === 'number' ? service.eta_seconds : null;
+            if (sec === null) return null;
+            return Math.max(0, Math.round(sec / 60));
+        }
+
+        function hhmmFromService(service) {
+            if (!service) return null;
+            if (service.hhmm) return service.hhmm;
+            if (typeof service.epoch === 'number') {
+                try {
+                    const dt = new Date(service.epoch * 1000);
+                    return dt.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                } catch (_) {
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        function formatDelayText(service) {
+            if (!service) return '';
+            if (typeof service.delay_seconds !== 'number') return '';
+            const mins = Math.round(service.delay_seconds / 60);
+            if (mins === 0) return '';
+            return ` (${mins > 0 ? '+' : ''}${mins} min)`;
+        }
+
+        function updatePrimaryCard(card, service, nucleusSlug) {
+            if (!card) return;
+            const minutes = minutesFromService(service);
+            const hhmm = hhmmFromService(service);
+
+            const label = card.querySelector('[data-field="primary-label"]');
+            if (label) label.textContent = service.status === 'realtime' ? 'Próximo tren en:' : 'Próxima salida:';
+
+            const statusText = card.querySelector('[data-field="primary-status-text"]');
+            if (statusText) {
+                let text = service.status === 'realtime' ? 'En tiempo real' : 'Programado';
+                const source = (service.source || '').toUpperCase();
+                if (source === 'SCHEDULED') text += ' · Horario';
+                else if (source.startsWith('TU')) text += ' · TU';
+                const delay = formatDelayText(service);
+                statusText.textContent = delay ? text + delay : text;
+            }
+
+            const pill = card.querySelector('[data-field="primary-pill"]');
+            if (pill) {
+                pill.classList.remove('is-tu', 'is-sched', 'is-est');
+                pill.classList.add(service.status === 'realtime' ? 'is-tu' : 'is-sched');
+            }
+
+            const minEl = card.querySelector('[data-field="primary-minutes"]');
+            if (minEl) {
+                const value = Number.isFinite(minutes) ? minutes : 0;
+                minEl.setAttribute('data-eta-min', value);
+                const timeNode = minEl.querySelector('time');
+                if (timeNode) timeNode.textContent = Number.isFinite(minutes) ? String(value) : '--';
+                RollingNumber.ensure(minEl);
+            }
+
+            const clockEl = card.querySelector('[data-field="primary-clock"]');
+            if (clockEl) {
+                clockEl.setAttribute('data-eta-min', Number.isFinite(minutes) ? minutes : 0);
+                const timeNode = clockEl.querySelector('time');
+                if (timeNode) timeNode.textContent = hhmm || '--:--';
+                RollingClock.ensure(clockEl);
+            }
+
+            const platformBadge = card.querySelector('[data-field="platform"]');
+            const platformLabel = card.querySelector('[data-field="platform-label"]');
+            const platformNote = card.querySelector('[data-field="platform-note"]');
+            let platformText = '—';
+            let platformSource = 'none';
+            let platformNoteText = '';
+            const info = service.platform_info || {};
+            const observed = info.observed || null;
+            const predicted = info.predicted || info.predicted_alt || null;
+            if (observed) {
+                platformText = observed;
+                platformSource = 'live';
+                if (predicted && predicted !== observed) platformNoteText = `Habitual: ${predicted}`;
+            } else if (predicted) {
+                platformText = predicted;
+                platformSource = 'habitual';
+                if (typeof info.confidence === 'number') platformNoteText = `Confianza ${(info.confidence * 100).toFixed(0)}%`;
+            } else if (info.source === 'predicted_alt' && info.predicted_alt) {
+                platformText = info.predicted_alt;
+                platformSource = 'habitual';
+            }
+            if (platformBadge) {
+                platformBadge.dataset.platform = platformText;
+                platformBadge.classList.remove('is-live','is-habitual','is-unknown','exceptional-platform');
+                if (platformSource === 'live') platformBadge.classList.add('is-live');
+                else if (platformSource === 'habitual') platformBadge.classList.add('is-habitual');
+                else platformBadge.classList.add('is-unknown');
+                if (platformSource === 'live' && predicted && predicted !== observed) {
+                    platformBadge.classList.add('exceptional-platform');
+                }
+            }
+            if (platformLabel) platformLabel.textContent = platformText;
+            if (platformNote) {
+                platformNote.textContent = platformNoteText;
+                platformNote.hidden = !platformNoteText;
+            }
+
+            card.dataset.serviceStatus = service.status || '';
+            card.dataset.serviceSource = service.source || '';
+        }
+
+        function updateSecondary(card, service) {
+            const minEl = card?.querySelector('[data-field="secondary-minutes"]');
+            const clockEl = card?.querySelector('[data-field="secondary-clock"]');
+            if (!minEl) return;
+            if (!service) {
+                minEl.textContent = '—';
+                if (clockEl) clockEl.textContent = '';
+                return;
+            }
+            const minutes = minutesFromService(service);
+            const hhmm = hhmmFromService(service);
+            minEl.textContent = Number.isFinite(minutes) ? `${minutes} min` : '—';
+            if (clockEl) clockEl.textContent = hhmm ? `(${hhmm})` : '';
+        }
+
+        function updateFooter(footer, service, nucleusSlug) {
+            if (!footer) return;
+            const trainId = (service.train && service.train.train_id) || service.train_id || '';
+            const link = footer.querySelector('[data-field="train-link"]');
+            const placeholder = footer.querySelector('[data-field="train-id-placeholder"]');
+            const viewBlock = footer.querySelector('[data-field="train-view-link"]');
+            const viewAnchor = footer.querySelector('[data-field="train-view-anchor"]');
+
+            if (trainId) {
+                const href = `/trains/${nucleusSlug}/${trainId}`;
+                if (link) {
+                    link.hidden = false;
+                    link.href = href;
+                    link.setAttribute('aria-label', `Ver detalle del tren ${trainId}`);
+                    const span = link.querySelector('[data-field="train-id"]');
+                    if (span) span.textContent = trainId;
+                }
+                if (placeholder) { placeholder.hidden = true; }
+                if (viewBlock && viewAnchor) {
+                    viewBlock.hidden = false;
+                    viewAnchor.href = href;
+                    viewAnchor.setAttribute('aria-label', `Ver detalle del tren ${trainId}`);
+                }
+            } else {
+                if (link) link.hidden = true;
+                if (placeholder) { placeholder.hidden = false; placeholder.textContent = service.status === 'realtime' ? '—' : 'Programado'; }
+                if (viewBlock) viewBlock.hidden = true;
+            }
+        }
+
+        function updateLastSeen(node, service) {
+            if (!node) return;
+            const age = service?.train_seen?.age_s;
+            if (typeof age === 'number') {
+                node.hidden = false;
+                const span = node.querySelector('[data-field="last-seen-seconds"]');
+                if (span) span.textContent = String(Math.max(0, Math.round(age)));
+            } else {
+                node.hidden = true;
+            }
+        }
+
+        async function refreshStopApproachingNow(forceImmediate = false) {
             const st = panel.__stopAuto;
-            if (!st) return;
+            if (!st || !st.running) return;
 
             const isOpen = panel.classList.contains('open') && panel.dataset.mode === 'stop';
             if (!isOpen || document.hidden) {
@@ -1073,202 +1298,44 @@
                 return;
             }
 
-            const bodyEl = document.getElementById('drawer-content');
+            const apiUrl = panel.dataset.stopApi;
+            if (!apiUrl) {
+                scheduleNextStopTick(st.baseInterval);
+                return;
+            }
 
-            const baseUrl = panel.dataset.stopUrl || location.href;
-            const ctx     = RouteCtx.getMain();
-            const url     = RouteCtx.appendToURL(baseUrl, ctx);
-            st.lastUrl    = url;
-
-            if (st.abort) { try { st.abort.abort(); } catch(_) {} }
+            if (st.abort) { try { st.abort.abort(); } catch (_) {} }
             st.abort = new AbortController();
 
-            let html = '';
+            let url = apiUrl;
             try {
-                const r = await fetch(url, { headers: { 'HX-Request': 'true' }, signal: st.abort.signal });
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                html = await r.text();
+                const u = new URL(apiUrl, location.origin);
+                u.searchParams.set('_ts', Date.now().toString());
+                url = u.toString();
+            } catch (_) {
+                const sep = apiUrl.includes('?') ? '&' : '?';
+                url = `${apiUrl}${sep}_ts=${Date.now()}`;
+            }
 
-                const incomingCtx = DrawerStopCtx.getFromHTML(html);
-                const main = RouteCtx.getMain() || {};
-                const current = {
-                    nucleus: main.nucleus || '',
-                    lineId:  main.lineId || '',
-                    routeId: main.routeId || '',
-                    dir:     main.dir || '',
-                    stopId:  (function(){
-                        try {
-                            const m = String(url).match(/\/stops\/([^\/?#]+)/);
-                            return m ? decodeURIComponent(m[1]) : '';
-                        } catch(_) { return ''; }
-                    })()
-                };
-
-                if (incomingCtx && !DrawerStopCtx.equal(current, incomingCtx)) {
-                    console.warn('[stop-refresh] Descartado por cambio de contexto', { current, incomingCtx });
-                    scheduleNextStopTick(st.baseInterval);
-                    return;
-                }
-
-                const tpl = document.createElement('template');
-                tpl.innerHTML = html;
-
-                let processedNode = null;
-
-                const newWrapper = tpl.content.querySelector('#approaching-trains');
-                const curWrapper = bodyEl.querySelector('#approaching-trains');
-
-                if (newWrapper && curWrapper) {
-                    const prevClockEl    = curWrapper.querySelector('#eta-clock');
-                    const prevShowClock  = !!(prevClockEl && !prevClockEl.hidden);
-
-                    const incomingEtaEl  = newWrapper.querySelector('#eta-primary');
-                    const currentEtaEl   = curWrapper.querySelector('#eta-primary');
-                    const incomingState  = incomingEtaEl && (incomingEtaEl.getAttribute('data-train-state') || incomingEtaEl.getAttribute('data-state') || '');
-                    if (currentEtaEl && incomingState != null) currentEtaEl.setAttribute('data-train-state', incomingState);
-
-                    if (incomingEtaEl && currentEtaEl) {
-                        const vAttr = incomingEtaEl.getAttribute('data-eta-min');
-                        const nextVal = (function(a, t){
-                            const s = (a != null && a !== '') ? String(a) : String(t || '');
-                            const norm = s.replace(/[^\d,.\-]/g, '').replace(',', '.');
-                            const n = Number(norm);
-                            if (Number.isFinite(n)) return Math.round(n);
-                            const m = norm.match(/-?\d+/);
-                            return m ? Math.round(Number(m[0])) : 0;
-                        })(vAttr, incomingEtaEl.textContent);
-
-                        RollingNumber.ensure(currentEtaEl);
-                        RollingNumber.update(currentEtaEl, nextVal);
-
-                        const incomingClockEl = newWrapper.querySelector('#eta-clock');
-                        const currentClockEl  = curWrapper.querySelector('#eta-clock');
-                        if (currentClockEl) {
-                            currentClockEl.setAttribute('data-eta-min', String(nextVal));
-                            if (incomingState != null) currentClockEl.setAttribute('data-train-state', incomingState);
-                            if (typeof RollingClock !== 'undefined') {
-                                RollingClock.ensure(currentClockEl);
-                                RollingClock.update(currentClockEl, nextVal);
-                            }
-                        } else if (incomingClockEl) {
-                            const where = curWrapper.querySelector('.nearest-train-card .train-eta-chip') || curWrapper.querySelector('.nearest-train-card') || curWrapper;
-                            where.appendChild(incomingClockEl);
-                            if (typeof RollingClock !== 'undefined') {
-                                RollingClock.ensure(incomingClockEl);
-                                RollingClock.update(incomingClockEl, nextVal);
-                            }
-                        }
-
-                    } else if (incomingEtaEl && !currentEtaEl) {
-                        const where = curWrapper.querySelector('.nearest-train-card .train-eta-chip') || curWrapper.querySelector('.nearest-train-card') || curWrapper;
-                        where.appendChild(incomingEtaEl);
-                        RollingNumber.ensure(incomingEtaEl);
-
-                        const incomingClockEl = newWrapper.querySelector('#eta-clock');
-                        if (incomingClockEl) {
-                            where.appendChild(incomingClockEl);
-                            if (typeof RollingClock !== 'undefined') RollingClock.ensure(incomingClockEl);
-                        }
-
-                    } else if (!incomingEtaEl && currentEtaEl) {
-                        currentEtaEl.remove();
-                        const currentClockEl = curWrapper.querySelector('#eta-clock');
-                        if (currentClockEl) currentClockEl.remove();
-                    }
-
-                    (function preserveVisibility(){
-                        const nowMin   = curWrapper.querySelector('#eta-primary');
-                        const nowClock = curWrapper.querySelector('#eta-clock');
-                        if (prevClockEl && (nowMin || nowClock)) {
-                            const showClock = prevShowClock;
-                            if (nowMin) {
-                                nowMin.hidden = showClock;
-                                nowMin.setAttribute('aria-hidden', showClock ? 'true' : 'false');
-                                nowMin.toggleAttribute('inert', showClock);
-                            }
-                            if (nowClock) {
-                                nowClock.hidden = !showClock;
-                                nowClock.setAttribute('aria-hidden', showClock ? 'false' : 'true');
-                                nowClock.toggleAttribute('inert', !showClock);
-                            }
-                        }
-                    })();
-
-                    const incomingList = newWrapper.querySelector('#approaching-list');
-                    const currentList  = curWrapper.querySelector('#approaching-list');
-                    if (incomingList && currentList) {
-                        incomingList.style.opacity = '0';
-                        currentList.replaceWith(incomingList);
-                        requestAnimationFrame(() => { void incomingList.offsetWidth; incomingList.style.opacity = '1'; });
-                    } else {
-                        const newItems = Array.from(newWrapper.querySelectorAll('.train-approaching:not(.nearest-train-card)'));
-                        const curItems = Array.from(curWrapper.querySelectorAll('.train-approaching:not(.nearest-train-card)'));
-                        curItems.forEach(n => n.remove());
-                        if (newItems.length) {
-                            const frag = document.createDocumentFragment();
-                            newItems.forEach(n => frag.appendChild(n));
-                            const h2 = curWrapper.querySelector('h2');
-                            if (h2 && h2.after) h2.after(frag); else curWrapper.appendChild(frag);
-                        }
-                    }
-                    if (window.htmx) htmx.process(curWrapper);
-
-                    try {
-                        wireETA(curWrapper);
-                        if (prevClockEl) {
-                            const nowMin   = curWrapper.querySelector('#eta-primary');
-                            const nowClock = curWrapper.querySelector('#eta-clock');
-                            const showClock = prevShowClock;
-                            if (nowMin) {
-                                nowMin.hidden = showClock;
-                                nowMin.setAttribute('aria-hidden', showClock ? 'true' : 'false');
-                                nowMin.toggleAttribute('inert', showClock);
-                            }
-                            if (nowClock) {
-                                nowClock.hidden = !showClock;
-                                nowClock.setAttribute('aria-hidden', showClock ? 'false' : 'true');
-                                nowClock.toggleAttribute('inert', !showClock);
-                            }
-                        }
-                    } catch(_) {}
-                    processedNode = curWrapper;
-                    st.errors = 0;
-                    scheduleNextStopTick(st.baseInterval);
-                    return;
-                } else {
-                    const newItems = Array.from(tpl.content.querySelectorAll('.train-approaching'));
-                    const curItems = Array.from(bodyEl.querySelectorAll('.train-approaching'));
-                    if (!curItems.length && !newItems.length) {
-                        scheduleNextStopTick(st.baseInterval);
-                        st.errors = 0;
-                        return;
-                    }
-                    let parent = null;
-                    if (curItems.length) parent = curItems[0].parentElement;
-                    if (!parent) parent = bodyEl.querySelector('.stop-modal-body') || bodyEl;
-
-                    curItems.forEach(n => n.remove());
-                    if (newItems.length) {
-                        const frag = document.createDocumentFragment();
-                        newItems.forEach(n => frag.appendChild(n));
-                        parent.appendChild(frag);
-                    }
-                    processedNode = parent;
-                }
-
-                if (window.htmx && processedNode) {
-                    htmx.process(processedNode);
-                }
-
+            try {
+                const resp = await fetch(url, {
+                    signal: st.abort.signal,
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store',
+                });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const payload = await resp.json();
+                applyStopServicesPayload(payload);
                 st.errors = 0;
-                scheduleNextStopTick(st.baseInterval);
+                const jitter = Math.floor(Math.random() * 500);
+                scheduleNextStopTick(st.baseInterval + jitter);
             } catch (err) {
                 console.debug('[stop-refresh] Error', err);
                 st.errors = Math.min(st.errors + 1, 6);
                 const penalty = Math.min(st.baseInterval * (2 ** (st.errors - 1)), st.maxInterval);
                 scheduleNextStopTick(penalty);
             } finally {
-                if (st && st.abort) { st.abort = null; }
+                if (st) st.abort = null;
             }
         }
 
@@ -1290,6 +1357,7 @@
                     const template = document.createElement('template');
                     template.innerHTML = html;
                     if (template.content.firstChild) {
+                        const incomingCtx = DrawerStopCtx.getFromHTML(html);
                         body.innerHTML = html;
                         if (window.htmx) htmx.process(body);
                         wireETA(body);
@@ -1298,15 +1366,30 @@
                                 closePanel();
                             });
                         });
+
+                        if (incomingCtx) {
+                            let apiUrl = incomingCtx.servicesUrl || '';
+                            if (!apiUrl && incomingCtx.routeId && incomingCtx.stopId) {
+                                const lim = incomingCtx.servicesLimit || '10';
+                                const tz = incomingCtx.servicesTz || 'Europe/Madrid';
+                                apiUrl = `/api/stops/${incomingCtx.routeId}/${incomingCtx.stopId}/services?limit=${lim}&tz=${tz}`;
+                            }
+                            if (apiUrl) panel.dataset.stopApi = apiUrl; else panel.dataset.stopApi = panel.dataset.stopApi || '';
+                            panel.dataset.stopRouteId = incomingCtx.routeId || '';
+                            panel.dataset.stopStopId = incomingCtx.stopId || '';
+                            panel.dataset.stopDir = incomingCtx.dir || '';
+                        }
+
                         try { history.replaceState({}, '', effectiveUrl); } catch(_) {}
                         panel.dataset.stopUrl = effectiveUrl;
                         teardownStopAutoRefresh();
                         startStopAutoRefresh();
                     }
                 })
-                .catch(() => { body.innerHTML = '<p>Error al cargar la parada.</p>'; });
-
-            try { document.dispatchEvent(new CustomEvent('open:stop-drawer')); } catch(_) {}
+                .catch(() => {
+                    const { body } = getStaticDrawer();
+                    if (body) body.innerHTML = '<p>Error al cargar los datos.</p>';
+                });
         }
 
         function closePanel() {
@@ -1314,6 +1397,10 @@
             if (panel.contains(document.activeElement)) { try { fallback.focus(); } catch(_) {} }
 
             teardownStopAutoRefresh();
+            panel.dataset.stopApi = '';
+            panel.dataset.stopRouteId = '';
+            panel.dataset.stopStopId = '';
+            panel.dataset.stopDir = '';
             try { document.dispatchEvent(new CustomEvent('close:stop-drawer')); } catch(_) {}
 
             closeStaticDrawer();

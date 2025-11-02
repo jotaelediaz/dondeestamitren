@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import math
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
@@ -152,6 +153,24 @@ def platform_for_live(live: Any) -> str | None:
         if p:
             return p
     return LiveTrainsCache.extract_platform_from_label(getattr(live, "label", None))
+
+
+@dataclass
+class StopPrediction:
+    status: str  # "realtime" | "scheduled"
+    epoch: int | None
+    hhmm: str | None
+    eta_seconds: int | None
+    delay_seconds: int | None
+    confidence: str
+    source: str | None
+    trip_id: str | None
+    service_instance_id: str | None
+    vehicle_id: str | None
+    train_id: str | None
+    route_id: str | None
+    direction_id: str | None
+    row: dict[str, Any] | None
 
 
 def enrich_with_trip_update(trip_id: str, *, tz_name: str = "Europe/Madrid") -> dict | None:
@@ -1396,6 +1415,407 @@ def nearest_for_stop(
         confidence="med",
         platform_pred=None,
     )
+
+
+def _row_primary_epoch(row: dict[str, Any]) -> tuple[int | None, str | None]:
+    for key in (
+        "eta_arr_epoch",
+        "eta_dep_epoch",
+        "tu_arr_epoch",
+        "tu_dep_epoch",
+        "sched_arr_epoch",
+        "sched_dep_epoch",
+    ):
+        val = row.get(key)
+        if isinstance(val, int | float):
+            return int(val), key
+    return None, None
+
+
+def _row_scheduled_epoch(row: dict[str, Any]) -> int | None:
+    for key in ("sched_arr_epoch", "sched_dep_epoch"):
+        val = row.get(key)
+        if isinstance(val, int | float):
+            return int(val)
+    return None
+
+
+def _infer_seq_from_rows(rows: list[dict[str, Any]]) -> int | None:
+    for st in ("CURRENT",):
+        for r in rows:
+            if (r.get("status") or "").upper() == st and isinstance(r.get("seq"), int):
+                return int(r["seq"])
+    for r in rows:
+        if (r.get("status") or "").upper() == "NEXT" and isinstance(r.get("seq"), int):
+            return max(int(r["seq"]) - 1, 0)
+    passed = [
+        int(r["seq"])
+        for r in rows
+        if (r.get("status") or "").upper() == "PASSED" and isinstance(r.get("seq"), int)
+    ]
+    if passed:
+        return max(passed)
+    return None
+
+
+def list_predictions_for_stop(
+    *,
+    stop_id: str,
+    route_id: str,
+    direction_id: str | None,
+    tz_name: str = "Europe/Madrid",
+    allow_next_day: bool = True,
+    limit: int = 5,
+) -> list[StopPrediction]:
+    tz = ZoneInfo(tz_name)
+    now_ts = int(datetime.now(tz).timestamp())
+
+    stoprepo = get_stops_repo()
+    dir_candidates: list[str] = []
+    if direction_id in (0, 1, "0", "1") or direction_id not in (None, ""):
+        dir_candidates.append(str(direction_id))
+    dir_candidates.extend([d for d in ("0", "1", "") if d not in dir_candidates])
+
+    target_stop = None
+    dir_norm = None
+    stop_id_str = str(stop_id)
+    for did in dir_candidates:
+        try:
+            target_stop = stoprepo.get_by_id(route_id, did, stop_id_str)
+        except TypeError:
+            target_stop = None
+        if target_stop:
+            dir_norm = did
+            break
+    if not target_stop:
+        return []
+
+    stops_on_route = stoprepo.list_by_route(route_id, dir_norm or "")
+    if not stops_on_route and dir_norm not in ("", None):
+        stops_on_route = stoprepo.list_by_route(route_id, "")
+    seq_by_stop: dict[str, int] = {}
+    for st in stops_on_route or []:
+        if st.stop_id and isinstance(getattr(st, "seq", None), int):
+            seq_by_stop[str(st.stop_id)] = int(st.seq)
+
+    target_seq = seq_by_stop.get(stop_id_str)
+    if target_seq is None and isinstance(getattr(target_stop, "seq", None), int):
+        target_seq = int(target_stop.seq)
+
+    rrepo = get_routes_repo()
+    line_obj = None
+    with contextlib.suppress(Exception):
+        line_obj = rrepo.get_by_route_and_dir(route_id, dir_norm or "")
+    nucleus = getattr(line_obj, "nucleus_id", None) if line_obj else None
+
+    cache = get_live_trains_cache()
+    live_trains = cache.get_by_route_id(route_id) or []
+
+    candidates: list[tuple[tuple[int, int, int], StopPrediction]] = []
+    INF_EPOCH = 9_999_999_999
+
+    for live in live_trains:
+        live_dir = str(getattr(live, "direction_id", "") or "")
+        if dir_norm and live_dir and live_dir not in (dir_norm,):
+            continue
+
+        try:
+            inst, _ = link_vehicle_to_service(live, tz_name=tz_name)
+        except Exception:
+            continue
+
+        inst_route = inst.route_id or route_id
+        inst_dir = inst.direction_id or dir_norm
+        if inst_route and inst_route != route_id:
+            continue
+        if dir_norm and inst_dir and inst_dir != dir_norm:
+            continue
+
+        try:
+            trip_rows = _build_trip_rows(
+                trip_id=inst.scheduled_trip_id,
+                route_id=inst_route,
+                direction_id=inst_dir,
+                nucleus=nucleus,
+                live_obj=live,
+                tz_name=tz_name,
+            )
+        except Exception:
+            continue
+
+        rows = trip_rows.get("stops") or []
+        target_row = next(
+            (r for r in rows if str(r.get("stop_id")) == stop_id_str),
+            None,
+        )
+        if not target_row:
+            continue
+
+        status = (target_row.get("status") or "").upper()
+        if status in {"PASSED", "CANCELED", "SKIPPED"}:
+            continue
+
+        epoch, source_key = _row_primary_epoch(target_row)
+        if epoch is None and inst.scheduled:
+            with contextlib.suppress(Exception):
+                epoch = inst.scheduled.stop_epoch(stop_id_str, tz_name=tz_name)
+                source_key = "scheduled_stop_epoch"
+        if epoch is None:
+            continue
+        epoch = int(epoch)
+
+        sched_epoch = _row_scheduled_epoch(target_row)
+        delay_seconds = target_row.get("tu_delay_s")
+        if delay_seconds is None and sched_epoch is not None:
+            delay_seconds = int(epoch - sched_epoch)
+
+        train_stop_id = str(getattr(live, "stop_id", "") or "")
+        train_seq = seq_by_stop.get(train_stop_id)
+        if train_seq is None:
+            train_seq = _infer_seq_from_rows(rows)
+
+        seq_value = target_row.get("seq")
+        target_seq_row = seq_value if isinstance(seq_value, int) else target_seq
+
+        if target_seq_row is None:
+            continue
+        target_seq_row = int(target_seq_row)
+
+        if train_seq is not None and train_seq > target_seq_row:
+            continue
+
+        delta_seq = target_seq_row if train_seq is None else max(0, target_seq_row - int(train_seq))
+
+        confidence = inst.matching.confidence or "low"
+        conf_rank = {"high": 0, "med": 1}.get(confidence, 2)
+
+        row_copy = dict(target_row)
+        row_copy.setdefault("seq", target_seq_row)
+        row_copy["eta_source"] = source_key
+        row_copy["delta_seq_to_stop"] = delta_seq
+        row_copy["service_instance_id"] = inst.service_instance_id
+        row_copy["vehicle_id"] = inst.realtime.vehicle_id
+        row_copy["train_id"] = getattr(live, "train_id", None)
+        row_copy["matching_confidence"] = confidence
+        row_copy.setdefault(
+            "eta_arr_hhmm",
+            row_copy.get("eta_arr_hhmm") or _fmt_hhmm_local(row_copy.get("eta_arr_epoch"), tz_name),
+        )
+        row_copy.setdefault(
+            "eta_dep_hhmm",
+            row_copy.get("eta_dep_hhmm") or _fmt_hhmm_local(row_copy.get("eta_dep_epoch"), tz_name),
+        )
+
+        prediction = StopPrediction(
+            status="realtime",
+            epoch=epoch,
+            hhmm=_fmt_hhmm_local(epoch, tz_name),
+            eta_seconds=int(epoch - now_ts),
+            delay_seconds=int(delay_seconds) if isinstance(delay_seconds, int | float) else None,
+            confidence=confidence,
+            source=source_key,
+            trip_id=inst.scheduled_trip_id,
+            service_instance_id=inst.service_instance_id,
+            vehicle_id=inst.realtime.vehicle_id,
+            train_id=getattr(live, "train_id", None),
+            route_id=inst_route,
+            direction_id=(
+                inst_dir if isinstance(inst_dir, str) else str(inst_dir) if inst_dir else None
+            ),
+            row=row_copy,
+        )
+
+        key = (delta_seq, epoch if epoch is not None else INF_EPOCH, conf_rank)
+        candidates.append((key, prediction))
+
+    predictions: list[StopPrediction] = []
+    seen_trip_ids: set[str] = set()
+
+    if candidates:
+        candidates.sort(key=lambda item: item[0])
+        for _, pred in candidates:
+            if pred.trip_id and pred.trip_id in seen_trip_ids:
+                continue
+            predictions.append(pred)
+            if pred.trip_id:
+                seen_trip_ids.add(pred.trip_id)
+            if len(predictions) >= limit:
+                break
+
+    srepo = get_scheduled_repo()
+    direction_candidates: list[str | None] = []
+    if dir_norm not in ("", None):
+        direction_candidates.append(dir_norm)
+    for cand in ("0", "1", ""):
+        if cand not in direction_candidates:
+            direction_candidates.append(cand)
+    if None not in direction_candidates:
+        direction_candidates.append(None)
+
+    for alt_dir in direction_candidates:
+        if len(predictions) >= limit:
+            break
+        try:
+            ymd = int(_service_date_str(tz_name))
+        except Exception:
+            ymd = int(datetime.now(tz).strftime("%Y%m%d"))
+
+        needed = max(limit - len(predictions), 1)
+        try:
+            scheduled_items = srepo.for_stop_after(
+                stop_id=stop_id_str,
+                service_date=ymd,
+                after_epoch=now_ts,
+                limit=needed * 4,
+                route_id=route_id,
+                direction_id=alt_dir if alt_dir in ("0", "1", "") else None,
+                allow_next_day=allow_next_day,
+            )
+        except Exception:
+            scheduled_items = []
+
+        for sch, delta_s in scheduled_items or []:
+            trip_id = getattr(sch, "trip_id", None)
+            if trip_id and trip_id in seen_trip_ids:
+                continue
+            if getattr(sch, "route_id", None) and sch.route_id != route_id:
+                continue
+            try:
+                sched_epoch = sch.stop_epoch(stop_id_str, tz_name=tz_name)
+            except Exception:
+                sched_epoch = None
+            if not isinstance(sched_epoch, int):
+                try:
+                    sched_epoch = now_ts + int(delta_s)
+                except Exception:
+                    continue
+
+            hhmm = _fmt_hhmm_local(sched_epoch, tz_name)
+            stop_name = (
+                getattr(target_stop, "name", None)
+                or (rrepo.get_stop_name(stop_id_str) if rrepo else None)
+                or stop_id_str
+            )
+            row = {
+                "seq": target_seq,
+                "stop_id": stop_id_str,
+                "stop_name": stop_name,
+                "sched_arr_epoch": sched_epoch,
+                "sched_arr_hhmm": hhmm,
+                "eta_arr_epoch": sched_epoch,
+                "eta_arr_hhmm": hhmm,
+                "status": "FUTURE",
+                "eta_source": "scheduled",
+                "delta_seq_to_stop": 0 if target_seq is None else max(0, target_seq),
+            }
+
+            predictions.append(
+                StopPrediction(
+                    status="scheduled",
+                    epoch=int(sched_epoch),
+                    hhmm=hhmm,
+                    eta_seconds=int(sched_epoch - now_ts),
+                    delay_seconds=0,
+                    confidence="med",
+                    source="scheduled",
+                    trip_id=trip_id,
+                    service_instance_id=(
+                        f"{_service_date_str(tz_name)}:{trip_id}" if trip_id else None
+                    ),
+                    vehicle_id=None,
+                    train_id=None,
+                    route_id=route_id,
+                    direction_id=dir_norm,
+                    row=row,
+                )
+            )
+            if trip_id:
+                seen_trip_ids.add(trip_id)
+            if len(predictions) >= limit:
+                break
+
+    if not predictions:
+        epoch = hhmm = trip_id = None
+        next_at_stop = getattr(srepo, "next_departure_at_stop", None)
+        if callable(next_at_stop):
+            try:
+                epoch, hhmm, trip_id = next_at_stop(
+                    route_id=route_id,
+                    direction_id=dir_norm,
+                    stop_id=stop_id_str,
+                    tz_name=tz_name,
+                    allow_next_day=allow_next_day,
+                )
+            except Exception:
+                epoch = None
+
+        if epoch is not None:
+            epoch = int(epoch)
+            hhmm = hhmm or _fmt_hhmm_local(epoch, tz_name)
+            stop_name = (
+                getattr(target_stop, "name", None)
+                or (rrepo.get_stop_name(stop_id_str) if rrepo else None)
+                or stop_id_str
+            )
+            row = {
+                "seq": target_seq,
+                "stop_id": stop_id_str,
+                "stop_name": stop_name,
+                "sched_arr_epoch": epoch,
+                "sched_arr_hhmm": hhmm,
+                "eta_arr_epoch": epoch,
+                "eta_arr_hhmm": hhmm,
+                "status": "FUTURE",
+                "eta_source": "scheduled",
+                "delta_seq_to_stop": 0 if target_seq is None else max(0, target_seq),
+            }
+            predictions.append(
+                StopPrediction(
+                    status="scheduled",
+                    epoch=epoch,
+                    hhmm=hhmm,
+                    eta_seconds=int(epoch - now_ts),
+                    delay_seconds=0,
+                    confidence="med" if trip_id else "low",
+                    source="scheduled",
+                    trip_id=trip_id,
+                    service_instance_id=(
+                        f"{_service_date_str(tz_name)}:{trip_id}" if trip_id else None
+                    ),
+                    vehicle_id=None,
+                    train_id=None,
+                    route_id=route_id,
+                    direction_id=dir_norm,
+                    row=row,
+                )
+            )
+
+    predictions.sort(
+        key=lambda p: (
+            p.eta_seconds if isinstance(p.eta_seconds, (int | float)) else INF_EPOCH,
+            (p.trip_id or ""),
+        )
+    )
+    return predictions[:limit]
+
+
+def nearest_prediction_for_stop(
+    *,
+    stop_id: str,
+    route_id: str,
+    direction_id: str | None,
+    tz_name: str = "Europe/Madrid",
+    allow_next_day: bool = True,
+) -> StopPrediction | None:
+    preds = list_predictions_for_stop(
+        stop_id=stop_id,
+        route_id=route_id,
+        direction_id=direction_id,
+        tz_name=tz_name,
+        allow_next_day=allow_next_day,
+        limit=1,
+    )
+    return preds[0] if preds else None
 
 
 def resolve_route_from_vm(vm: dict, nucleus: str | None) -> object | None:

@@ -5,6 +5,7 @@ import re
 import time
 from contextlib import suppress
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -790,15 +791,54 @@ def stop_detail(
     if not candidates:
         raise HTTPException(404, f"Station {station_id} not found in route {route_id}")
     stop = sorted(candidates, key=lambda x: x.seq)[0]
-    nearest = stops_repo.nearest_trains(
-        route_id=route.route_id,
-        stop=stop,
-        direction_id=route.direction_id,
-        limit=30,
-        include_eta=True,
-        only_approaching=False,
-        allow_passed_max_km=10.0,
-    )
+
+    cache = get_live_trains_cache()
+    predictions = stops_repo.nearest_services_predictions(stop, limit=10)
+
+    nearest_services: list[dict[str, Any]] = []
+    nearest_seen_age: int | None = None
+
+    for idx, prediction in enumerate(predictions):
+        train = None
+        if prediction.train_id:
+            train = cache.get_by_id(str(prediction.train_id))
+        elif prediction.vehicle_id:
+            train = cache.get_by_id(str(prediction.vehicle_id))
+
+        minutes_rounded = None
+        if isinstance(prediction.eta_seconds, (int | float)):
+            minutes_rounded = max(0, int(round(float(prediction.eta_seconds) / 60.0)))
+
+        row = prediction.row or {}
+        platform_info = None
+        if train:
+            with suppress(Exception):
+                platform_info = stops_repo._build_platform_info_for(
+                    nucleus_slug=nucleus,
+                    route_id=route.route_id,
+                    direction_id=route.direction_id,
+                    stop=stop,
+                    train=train,
+                )
+
+        seen = None
+        if train:
+            seen = cache.seen_info(getattr(train, "train_id", "") or "")
+            if seen and idx == 0:
+                nearest_seen_age = seen.get("age_s")
+
+        nearest_services.append(
+            {
+                "prediction": prediction,
+                "train": train,
+                "minutes_rounded": minutes_rounded,
+                "row": row,
+                "platform_info": platform_info,
+                "seen": seen,
+            }
+        )
+
+    nearest_service: dict[str, Any] | None = nearest_services[0] if nearest_services else None
 
     habits = get_platform_habits()
     pred = habits.habitual_for(
@@ -806,6 +846,8 @@ def stop_detail(
         route_id=route.route_id,
         stop_id=stop.stop_id,
     )
+    habitual_platform_value = pred.primary if pred and pred.publishable else None
+    habitual_publishable = bool(pred.publishable) if pred else False
 
     return templates.TemplateResponse(
         "stop_detail.html",
@@ -814,9 +856,12 @@ def stop_detail(
             "nucleus": mk_nucleus(nucleus),
             "route": route,
             "stop": stop,
-            "nearest_trains": nearest,
+            "nearest_service": nearest_service,
+            "nearest_services": nearest_services,
+            "nearest_seen_age": nearest_seen_age,
             "repo": routes_repo,
-            "habitual_platform": pred,
+            "habitual_platform": habitual_platform_value,
+            "habitual_publishable": habitual_publishable,
         },
     )
 

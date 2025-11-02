@@ -449,28 +449,16 @@ def stop_detail(
         raise HTTPException(404, f"Station {station_id} not found in route {route_id}")
     stop = sorted(candidates, key=lambda x: x.seq)[0]
 
-    nearest = stops_repo.nearest_trains(
-        route_id=route.route_id,
-        stop=stop,
-        direction_id=route.direction_id,
-        limit=5,
-        include_eta=True,
-    )
-
     cache = get_live_trains_cache()
 
-    nearest_age: dict[str, int | None] = {}
-    for pair in nearest or []:
-        try:
-            rec, _eta = pair
-        except Exception:
-            continue
-        t = getattr(rec, "train", None)
-        tid = getattr(t, "train_id", None)
-        if not tid:
-            continue
-        s = cache.seen_info(tid) or {}
-        nearest_age[tid] = s.get("age_s")
+    services_limit = 10
+    services_tz = request.query_params.get("tz", "Europe/Madrid")
+    try:
+        services_api_url = request.url_for(
+            "upcoming_services_for_stop", route_id=route.route_id, stop_id=stop.stop_id
+        )
+    except Exception:
+        services_api_url = f"/api/stops/{route.route_id}/{stop.stop_id}/services"
 
     habits = get_platform_habits()
     pred = habits.habitual_for(
@@ -491,12 +479,13 @@ def stop_detail(
                 "nucleus": mk_nucleus(nucleus),
                 "route": route,
                 "stop": stop,
-                "nearest_trains": nearest,
-                "nearest_last_seen": nearest_age,
                 "repo": repo,
                 "last_snapshot": cache.last_snapshot_iso(),
                 "habitual_platform": habitual_platform,
                 "habitual_publishable": habitual_publishable,
+                "services_api_url": services_api_url,
+                "services_limit": services_limit,
+                "services_tz": services_tz,
             },
         )
 
@@ -508,11 +497,12 @@ def stop_detail(
             "route": route,
             "repo": repo,
             "last_snapshot": cache.last_snapshot_iso(),
-            "nearest_trains": nearest,
-            "nearest_age": nearest_age,
             "open_stop_id": station_id,
             "habitual_platform": habitual_platform,
             "habitual_publishable": habitual_publishable,
+            "services_api_url": services_api_url,
+            "services_limit": services_limit,
+            "services_tz": services_tz,
         },
     )
 

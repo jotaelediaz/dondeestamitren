@@ -12,7 +12,16 @@
 		<li><strong>Punto kilométrico:</strong> {{ '%.1f'|format(stop.km) }} km</li>
 		<li><strong>Destino de la ruta:</strong>→ {{repo.get_stop_name(repo.route_destination(route.route_id)) or '—' }}</li>
 		<li class="coords"><strong>Coordenadas:</strong> {{ '%.5f'|format(stop.lat) }}, {{ '%.5f'|format(stop.lon) }}</li>
-		<li><strong>Vía habitual:</strong> {% if habitual_platform %}{{ habitual_platform.primary }} <i>(Confianza: {{ (habitual_platform.confidence * 100)|round(2) }}% — Publicada: {{ 'Sí' if habitual_platform.publishable else 'No' }})</i> {% if habitual_platform.secondary %} | Secundaria: {{ habitual_platform.secondary }} {% endif %}</li>{% else %}???{% endif %}
+	<li><strong>Vía habitual:</strong>
+		{% if habitual_platform %}
+			{{ habitual_platform }}
+			{% if habitual_publishable is defined and not habitual_publishable %}
+				<i>(no publicable)</i>
+			{% endif %}
+		{% else %}
+			???
+		{% endif %}
+	</li>
 	</ul>
 	
 	<p>➜ <a href="/alpha/stations/{{ nucleus.slug }}/{{ stop.station_id | urlencode }}">Ver ficha de estación</a></p>
@@ -20,54 +29,67 @@
 
 <section>
 	<h2>Trenes más cercanos a la parada</h2>
-	
-	{% if nearest_trains and nearest_trains|length > 0 %}
+	{% set cards = nearest_services if nearest_services is defined else (nearest_service and [nearest_service]) %}
+	{% if cards %}
 		<table border="1" cellpadding="6" cellspacing="0">
 			<thead>
 			<tr>
+				<th>#</th>
 				<th>Tren</th>
-				<th>Ruta</th>
-				<th>Lat</th>
-				<th>Lon</th>
-				<th>Tiempos</th>
-				<th>¿Estación pasada?</th>
+				<th>Estado</th>
+				<th>ETA</th>
+				<th>Hora</th>
+				<th>Vía</th>
+				<th>Fuente</th>
 			</tr>
 			</thead>
 			<tbody>
-			{% for item in nearest_trains %}
-				{% set r   = (item[0] if (item is sequence and item|length >= 1) else item) %}
-				{% set eta = (item[1] if (item is sequence and item|length >= 2) else None) %}
-				
-				{% set route_obj = (repo.get_by_route_and_dir(r.route_id, r.direction_id) if repo is defined else None) %}
-				{% set route_label = route_obj.route_short_name if route_obj is not none else r.route_id %}
-				
-				{% set lat = r.train.lat or 0 %}
-				{% set lon = r.train.lon or 0 %}
-				{% set ts  = r.train.ts or '-' %}
-				{% set pasada = (not r.approaching) %}
-				
+			{% for card in cards[:10] %}
+				{% set prediction = card.get('prediction') %}
+				{% set row = card.get('row') or {} %}
+				{% set train = card.get('train') %}
+				{% set minutes = card.get('minutes_rounded') %}
+				{% set hhmm = prediction.hhmm if prediction else None %}
+				{% if not hhmm %}
+					{% set hhmm = row.get('eta_arr_hhmm') or row.get('eta_dep_hhmm') or row.get('sched_arr_hhmm') or row.get('sched_dep_hhmm') %}
+				{% endif %}
+				{% set epoch = prediction.epoch if prediction else None %}
+				{% if epoch is none %}
+					{% set epoch = row.get('eta_arr_epoch') or row.get('eta_dep_epoch') or row.get('sched_arr_epoch') or row.get('sched_dep_epoch') %}
+				{% endif %}
+				{% set status = (prediction.status if prediction else 'scheduled')|lower %}
+				{% set status_label = 'Tiempo real' if status == 'realtime' else 'Programado' %}
+				{% set platform_info = card.get('platform_info') or {} %}
+				{% set observed_platform = platform_info.get('observed') %}
+				{% set predicted_platform = platform_info.get('predicted_alt') or platform_info.get('predicted') %}
+				{% set row_platform = row.get('platform') %}
+				{% set habitual_plat = habitual_platform if habitual_platform else None %}
+				{% set display_platform = observed_platform or row_platform or predicted_platform or habitual_plat or '?' %}
+				{% set source = prediction.source if prediction else row.get('eta_source') %}
+				{% set train_id = prediction.train_id if prediction else None %}
+				{% if not train_id and train %}
+					{% set train_id = train.train_id %}
+				{% endif %}
 				<tr>
+					<td>{{ loop.index }}</td>
 					<td>
-						<a href="/alpha/trains/{{ nucleus.slug }}/{{ r.train.train_id }}">{{ r.train.train_id }}</a>
-					</td>
-					<td>{{ route_label }}</td>
-					<td>{{ '%.5f'|format(lat|float) }}</td>
-					<td>{{ '%.5f'|format(lon|float) }}</td>
-					<td>
-						{% if eta %}
-							~{{ eta.minutes_rounded }} min
-							<small class="muted">({{ '%.1f'|format(eta.distance_km) }} km)</small>
+						{% if train_id %}
+							<a href="/alpha/trains/{{ nucleus.slug }}/{{ train_id }}">{{ train_id }}</a>
 						{% else %}
 							—
 						{% endif %}
 					</td>
+					<td>{{ status_label }}</td>
 					<td>
-						{% if pasada %}
-							Sí <small class="muted">({{ '%.1f'|format(r.abs_delta_km|float) }} km atrás)</small>
+						{% if minutes is not none %}
+							{{ minutes }} min
 						{% else %}
-							No
+							—
 						{% endif %}
 					</td>
+					<td>{{ hhmm or '—' }}</td>
+					<td>{{ display_platform }}</td>
+					<td>{{ source or '—' }}</td>
 				</tr>
 			{% endfor %}
 			</tbody>

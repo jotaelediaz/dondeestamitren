@@ -115,8 +115,18 @@
 		</div>
 	</div>
 	
-	<div class="grid-route-train-position">
-		<span aria-hidden="true">T</span>
+	<div class="grid-route-train-platform">
+		<div class="platform-chip">
+			{% set base_cls = 'is-live' if platform_src=='live' else ('is-habitual' if platform_src=='habitual' else 'is-unknown') %}
+			{% set live_norm = (live_plat or '')|string|trim|upper %}
+			{% set habit_norm = (habitual_platform or '')|string|trim|upper %}
+			{% set has_habitual = habit_norm and habit_norm != '?' %}
+			<div class="train-platform-badge" aria-labelledby="platform-label-{{ stop.stop_id }}">
+				<div class="platform-badge {{ base_cls }}{% if platform_src=='live' and has_habitual and live_norm and live_norm != habit_norm %} exceptional-platform{% endif %}" data-platform="{{ show_plat }}" data-src="{{ platform_src }}">
+					<data value="{{ show_plat }}"><span class="platform-unit">{{ show_plat }}</span></data>
+				</div>
+			</div>
+		</div>
 	</div>
 </div>
 {%- endmacro -%}
