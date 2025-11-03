@@ -451,7 +451,7 @@ def stop_detail(
 
     cache = get_live_trains_cache()
 
-    services_limit = 10
+    services_limit = 2
     services_tz = request.query_params.get("tz", "Europe/Madrid")
     try:
         services_api_url = request.url_for(

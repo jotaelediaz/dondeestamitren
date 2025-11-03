@@ -1589,6 +1589,11 @@ ul.chip-list {
     padding: 0 0 var(--app-margin) 0;
 }
 
+.stop-modal-body[data-stop-state="loading"] .error-drawer,
+.stop-modal-body[data-stop-state="ready"] .error-drawer {
+    display: none !important;
+}
+
 /* -- Active stop marker -- */
 
 .grid-route-map-station .grid-route-station-name {
@@ -1720,11 +1725,13 @@ ul.chip-list {
     align-items: center;
     background: var(--jotaele-background-accent);
     border-radius: 9px;
-    padding: calc(var(--app-margin) / 2) calc(var(--app-margin) * 3);
+    padding: calc(var(--app-margin) / 2) 0;
     font-size: 1.35rem;
     font-family: 'Sora', sans-serif;
     font-weight: 700;
     color: var(--jotaele-black);
+    height: 100%;
+    flex: 1 1;
 }
 
 .nearest-train-card {
@@ -1876,17 +1883,24 @@ ul.chip-list {
     align-items: baseline;
     position: relative;
     font-variant-numeric: tabular-nums;
+    --rn-digit-height: 1.32em;
+    --rn-face-height: var(--rn-digit-height);
 }
 
 .rolling-number .unit {
     margin-left: 0.25em;
+    display: inline-flex;
+    align-items: center;
+    height: var(--rn-digit-height);
+    line-height: var(--rn-digit-height);
 }
 
 .rolling-number__column {
     position: relative;
     overflow: hidden;
-    height: 1em;
-    width: 0.81ch;
+    height: var(--rn-digit-height);
+    width: var(--rn-col-w, 0.81ch);
+    min-width: var(--rn-col-w, 0.81ch);
     display: inline-block;
 }
 
@@ -1901,7 +1915,8 @@ ul.chip-list {
     align-items: center;
     justify-content: center;
     line-height: 1;
-    height: 1em;
+    height: var(--rn-digit-height);
+    line-height: var(--rn-digit-height);
 }
 
 .rolling-number__digits > span .material-symbols-rounded,
@@ -1939,46 +1954,100 @@ ul.chip-list {
 }
 
 .train-eta-output-wrapper {
+    position: relative;
+    width: 11rem;
+    height: 2.9rem;
     display: flex;
     align-items: center;
-    position: relative;
-    height: 2.7rem;
-    width: 11rem;
+    justify-content: center;
+}
+
+.train-eta-output-wrapper .train-eta-loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.24s var(--vt-ease), visibility 0.24s var(--vt-ease);
+    color: var(--jotaele-blue);
+    background: var(--jotaele-background-accent);
+    border-radius: 9px;
+}
+
+.train-eta-loader .dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background-color: currentColor;
+    opacity: 0.3;
+    animation: eta-loader-pulse 1s infinite ease-in-out;
+}
+
+.train-eta-loader .dot:nth-child(2) { animation-delay: 0.12s; }
+.train-eta-loader .dot:nth-child(3) { animation-delay: 0.24s; }
+
+.nearest-train-card.is-loading .train-eta-loader {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.nearest-train-card.is-loading .train-eta-time {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+.nearest-train-card:not(.is-loading) .train-eta-loader {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.train-eta-time[data-loading="true"] {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+.train-eta-time[data-loading="false"] {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.nearest-train-card.is-loading .train-eta-chip {
+    cursor: default;
+}
+
+.nearest-train-card.is-loading .nearest-train-header,
+.nearest-train-card.is-loading [data-field="primary-status-text"] {
+    opacity: 0.8;
+}
+
+@keyframes eta-loader-pulse {
+    0%, 80%, 100% { opacity: 0.2; transform: scale(0.75); }
+    40% { opacity: 1; transform: scale(1); }
 }
 
 .train-eta-output-wrapper .train-eta-time {
-    position: absolute;
-    width: 5.5rem;
-    height: 1.7rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
     cursor: pointer;
+    transition: opacity 0.24s var(--vt-ease), visibility 0.24s var(--vt-ease);
 }
 
-.train-eta-chip #eta-primary,
-.train-eta-chip #eta-clock {
-    display: inline-flex !important;
-    opacity: 1;
-    visibility: visible;
-    transition: opacity 0.3s var(--vt-ease), visibility 0.3s var(--vt-ease);
-}
-
-.train-eta-chip #eta-clock {
-    opacity: 0;
-    visibility: hidden;
+.train-eta-time.is-clock {
     background: #d3f3e6;
 }
 
-.train-eta-chip #eta-clock .unit {
+.train-eta-time.is-clock .unit {
     display: none;
-}
-
-.train-eta-chip[data-view="clock"] #eta-clock {
-    opacity: 1;
-    visibility: visible;
-}
-
-.train-eta-chip[data-view="clock"] #eta-primary {
-    opacity: 0;
-    visibility: hidden;
 }
 
 .train-eta-chip #eta-primary[aria-hidden="true"],
@@ -1987,7 +2056,55 @@ ul.chip-list {
 }
 
 .train-eta-chip [hidden] {
-    display: inline-flex !important;
+    display: none !important;
+}
+
+.rolling-number__faces {
+    display: block;
+    overflow: hidden;
+    width: 100%;
+    height: var(--rn-face-height, 1.5em);
+    min-height: var(--rn-face-height, 1.5em);
+}
+
+.rolling-number__faces-inner {
+    display: flex;
+    flex-direction: column;
+    transform: translateY(0%);
+    transition: transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.rolling-number__faces-inner.is-station {
+    transform: translateY(-50%);
+}
+
+.rolling-number__face {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--rn-face-height);
+    height: var(--rn-face-height);
+    padding: 0.05em 0;
+    width: 100%;
+}
+
+.rolling-number__face--numeric {
+    gap: 0.15em;
+    align-items: center;
+}
+
+.rolling-number__face--station {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.02em;
+    line-height: 1.2;
+    font-family: 'Sora', sans-serif;
+    font-weight: 600;
+}
+
+.rolling-number.is-station .unit {
+    visibility: hidden;
 }
 
 .rolling-number__sep {
@@ -1996,7 +2113,8 @@ ul.chip-list {
     justify-content: center;
     width: 0.6ch;
     margin: 0 0.05ch;
-    line-height: 1;
+    height: var(--rn-digit-height);
+    line-height: var(--rn-digit-height);
 }
 
 /* - Trains detail section - */

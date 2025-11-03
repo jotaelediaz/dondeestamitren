@@ -1,7 +1,6 @@
 # app/routers/trains_api.py
 from __future__ import annotations
 
-import contextlib
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -109,15 +108,72 @@ def upcoming_services_for_stop(
         elif pred.vehicle_id:
             train = cache.get_by_id(str(pred.vehicle_id))
         platform_info = None
-        with contextlib.suppress(Exception):
-            nucleus_slug = getattr(stop, "nucleus_id", "") or ""
-            platform_info = stops_repo._build_platform_info_for(
-                nucleus_slug=nucleus_slug,
-                route_id=pred.route_id or route_id,
-                direction_id=pred.direction_id or (dir_norm or ""),
-                stop=stop,
-                train=train,
-            )
+        nucleus_slug = getattr(stop, "nucleus_id", "") or ""
+        raw_stop_dir = getattr(stop, "direction_id", None)
+        dir_candidates: list[str] = []
+        seen_dirs: set[str] = set()
+
+        def add_dir(
+            value: str | int | None,
+            candidates: list[str] = dir_candidates,
+            seen: set[str] = seen_dirs,
+        ) -> None:
+            if value is None:
+                return
+            s = str(value).strip()
+            if not s and s != "":
+                return
+            if s not in seen:
+                candidates.append(s)
+                seen.add(s)
+
+        for candidate in (
+            getattr(pred, "direction_id", None),
+            dir_norm,
+            raw_stop_dir,
+        ):
+            if candidate is None:
+                continue
+            if candidate in ("0", "1"):
+                add_dir(candidate)
+            elif isinstance(candidate, (int | float)) and str(int(candidate)) in ("0", "1"):
+                add_dir(str(int(candidate)))
+            else:
+                add_dir(candidate)
+
+        for fallback in ("", "0", "1"):
+            add_dir(fallback)
+
+        route_candidates: list[str] = []
+        for candidate in (
+            getattr(pred, "route_id", None),
+            route_id,
+            getattr(stop, "route_id", None),
+        ):
+            if candidate and candidate not in route_candidates:
+                route_candidates.append(candidate)
+
+        for rid in route_candidates:
+            for did in dir_candidates:
+                try:
+                    info = stops_repo._build_platform_info_for(
+                        nucleus_slug=nucleus_slug,
+                        route_id=rid,
+                        direction_id=did,
+                        stop=stop,
+                        train=train,
+                    )
+                except Exception:
+                    continue
+                if not info:
+                    continue
+                if platform_info is None:
+                    platform_info = info
+                if info.get("observed") or info.get("predicted") or info.get("predicted_alt"):
+                    platform_info = info
+                    break
+            if platform_info:
+                break
 
         seen = cache.seen_info(getattr(train, "train_id", "") or "") if train else None
 

@@ -196,16 +196,16 @@
     };
 
     const RollingNumber = (() => {
-        const IDX_ARROW = 0;
-        const IDX_GT    = 1;
-        const DIGIT_OFF = 2;
+        const DIGIT_OFFSET = 2;
+        const IDX_LT = 1;
+        const IDX_ONE = DIGIT_OFFSET + 1;
 
         function _parseNumberish(a, t) {
             const c = [];
             if (a != null && a !== '') c.push(String(a));
             if (t != null && t !== '') c.push(String(t));
             for (const v of c) {
-                const s = v.replace(/[^\d,.\-]/g,'').replace(',','.');
+                const s = v.replace(/[^\d,.\-]/g, '').replace(',', '.');
                 const n = Number(s);
                 if (Number.isFinite(n)) return Math.round(n);
                 const m = s.match(/-?\d+/);
@@ -213,103 +213,227 @@
             }
             return 0;
         }
-        function _pad2(n){ return String(Math.max(0, Math.min(99, Number(n)||0))).padStart(2,'0'); }
-        function _state(el){ return ((el.getAttribute('data-train-state')||el.getAttribute('data-state')||'')+'').toLowerCase().trim(); }
-        function _isStopped(st){ return st.includes('stopped_at'); }
 
-        function _measureStepPx(el){
-            const s = el.querySelector('.rolling-number__digits > span');
-            let px = s ? s.getBoundingClientRect().height : 0;
-            if (!px || !Number.isFinite(px) || px<=0){
+        function _pad2(n) {
+            return String(Math.max(0, Math.min(99, Number(n) || 0))).padStart(2, '0');
+        }
+
+        function _measureStepPx(el) {
+            const digits = el.__rnDigitColumns?.[0];
+            let span = digits && digits.children && digits.children[2];
+            if (!span && digits) span = digits.querySelector('span:nth-child(3)');
+            let px = span ? span.getBoundingClientRect().height : 0;
+            if (!px || !Number.isFinite(px) || px <= 0) {
                 const fs = parseFloat(getComputedStyle(el).fontSize);
-                px = Number.isFinite(fs)&&fs>0?fs:16;
+                px = Number.isFinite(fs) && fs > 0 ? fs : 16;
             }
             return px;
         }
-        function _measureColWidthPx(el){
+
+        function _measureColWidthPx(el) {
+            const cols = el.__rnDigitColumns || [];
             let w = 0;
-            el.querySelectorAll('.rolling-number__digits > span').forEach(s=>{
-                const r = s.getBoundingClientRect().width;
-                if (r > w) w = r;
+            cols.forEach((digits) => {
+                if (!digits) return;
+                const r = digits.getBoundingClientRect();
+                if (r && Number.isFinite(r.width) && r.width > w) w = r.width;
             });
             return w || 0;
         }
-        function _applyTransformsPx(el, idx0, idx1){
-            const step = el.__rnStepPx || (el.__rnStepPx=_measureStepPx(el));
-            const cols = el.querySelectorAll('.rolling-number__column .rolling-number__digits');
-            const a = [idx0, idx1];
-            for (let i=0;i<2;i++){
-                const dg=cols[i]; const t=a[i];
-                if(!dg || !Number.isFinite(t)) continue;
-                void dg.offsetWidth;
-                dg.style.transform='translateY('+(t*-step)+'px)';
+
+        function _applyTransformsPx(el, idx0, idx1) {
+            const step = el.__rnStepPx || (el.__rnStepPx = _measureStepPx(el));
+            const cols = el.__rnDigitColumns || [];
+            const targets = [idx0, idx1];
+            for (let i = 0; i < 2; i++) {
+                const digits = cols[i];
+                const target = targets[i];
+                if (!digits || !Number.isFinite(target)) continue;
+                void digits.offsetWidth;
+                digits.style.transform = `translateY(${target * -step}px)`;
             }
         }
-        function _frameIdxPair(val, st){
-            if (val===0 && !_isStopped(st)) return [IDX_GT, DIGIT_OFF + 1];
-            if (val===0 &&  _isStopped(st)) return [IDX_ARROW, IDX_ARROW];
-            const s=_pad2(val);
-            return [DIGIT_OFF + Number(s[0]), DIGIT_OFF + Number(s[1])];
-        }
-        function _unitText(el){ const u = el.querySelector && el.querySelector('.unit'); return u ? u.textContent : 'min'; }
 
-        function _build(el, val){
-            const st=_state(el);
-            const [i0,i1]=_frameIdxPair(val, st);
-            const unit=_unitText(el);
+        function _frameIdxPair(val, ltMinute) {
+            const safe = Number.isFinite(val) ? val : _parseNumberish(val);
+            const n = Math.max(0, Math.min(99, Number(safe) || 0));
+            if (ltMinute) return [IDX_LT, IDX_ONE];
+            const s = _pad2(n);
+            return [DIGIT_OFFSET + Number(s[0]), DIGIT_OFFSET + Number(s[1])];
+        }
+
+        function _unitText(el) {
+            const u = el.querySelector && el.querySelector('.unit');
+            return u ? u.textContent : 'min';
+        }
+
+        function _stationLabel(el) {
+            return el.getAttribute('data-station-label')
+                || el.dataset.stationLabel
+                || DEFAULT_STOP_PANEL_STRINGS.stationStatusLabel;
+        }
+
+        function _build(el, val, ltMinute) {
+            const initialStationActive = el.dataset.stationActive === 'true';
+            const showLtMinute = !!ltMinute;
+            const [i0, i1] = _frameIdxPair(val, showLtMinute);
+            const unit = _unitText(el);
+            const stationLabel = _stationLabel(el);
 
             el.classList.add('rolling-number');
-            el.innerHTML='';
+            el.innerHTML = '';
 
-            for (let k=0;k<2;k++){
-                const col=document.createElement('span');
-                col.className='rolling-number__column';
-                const digits=document.createElement('span');
-                digits.className='rolling-number__digits';
+            const facesWrapper = document.createElement('span');
+            facesWrapper.className = 'rolling-number__faces';
 
-                { const s=document.createElement('span'); const i=document.createElement('i'); i.className='material-symbols-rounded'; i.textContent='arrow_downward'; s.appendChild(i); digits.appendChild(s); }
-                { const s=document.createElement('span'); s.textContent='<'; digits.appendChild(s); }
-                for(let d=0; d<=9; d++){ const s=document.createElement('span'); s.textContent=String(d); digits.appendChild(s); }
+            const facesInner = document.createElement('span');
+            facesInner.className = 'rolling-number__faces-inner';
+
+            const numericFace = document.createElement('span');
+            numericFace.className = 'rolling-number__face rolling-number__face--numeric';
+
+            const digitColumns = [];
+            for (let k = 0; k < 2; k++) {
+                const col = document.createElement('span');
+                col.className = 'rolling-number__column';
+                const digits = document.createElement('span');
+                digits.className = 'rolling-number__digits';
+
+                const blank = document.createElement('span');
+                blank.textContent = '';
+                digits.appendChild(blank);
+
+                const lt = document.createElement('span');
+                lt.textContent = '<';
+                digits.appendChild(lt);
+
+                for (let d = 0; d <= 9; d += 1) {
+                    const span = document.createElement('span');
+                    span.textContent = String(d);
+                    digits.appendChild(span);
+                }
 
                 col.appendChild(digits);
-                el.appendChild(col);
+                numericFace.appendChild(col);
+                digitColumns.push(digits);
             }
 
-            const u=document.createElement('span');
-            u.className='unit';
-            u.textContent=unit;
-            el.appendChild(u);
+            const unitSpan = document.createElement('span');
+            unitSpan.className = 'unit';
+            unitSpan.textContent = unit;
+            numericFace.appendChild(unitSpan);
 
-            requestAnimationFrame(()=>{
-                el.__rnStepPx=_measureStepPx(el);
-                const cw=_measureColWidthPx(el);
-                if (cw) el.style.setProperty('--rn-col-w', cw+'px');
+            const stationFace = document.createElement('span');
+            stationFace.className = 'rolling-number__face rolling-number__face--station';
+            const stationLabelNode = document.createElement('span');
+            stationLabelNode.className = 'rolling-number__station-label';
+            stationLabelNode.textContent = stationLabel;
+            stationFace.appendChild(stationLabelNode);
+
+            facesInner.appendChild(numericFace);
+            facesInner.appendChild(stationFace);
+            facesWrapper.appendChild(facesInner);
+            el.appendChild(facesWrapper);
+
+            el.__rnDigitColumns = digitColumns;
+            el.__rnFaces = {
+                wrapper: facesWrapper,
+                inner: facesInner,
+                numericFace,
+                stationFace,
+                stationLabel: stationLabelNode,
+                unit: unitSpan,
+            };
+
+            requestAnimationFrame(() => {
+                el.__rnStepPx = _measureStepPx(el);
+                const cw = _measureColWidthPx(el);
+                if (cw) el.style.setProperty('--rn-col-w', `${cw}px`);
+                const sampleDigit = digitColumns[0] && digitColumns[0].children && digitColumns[0].children[2]
+                    ? digitColumns[0].children[2]
+                    : digitColumns[0]?.querySelector('span:nth-child(3)');
+                const digitRect = sampleDigit ? sampleDigit.getBoundingClientRect() : null;
+                if (digitRect && Number.isFinite(digitRect.height) && digitRect.height > 0) {
+                    el.style.setProperty('--rn-digit-height', `${digitRect.height}px`);
+                }
+                const numericRect = numericFace.getBoundingClientRect();
+                const stationRect = stationFace.getBoundingClientRect();
+                const faceHeight = Math.max(
+                    0,
+                    Number.isFinite(numericRect?.height) ? numericRect.height : 0,
+                    Number.isFinite(stationRect?.height) ? stationRect.height : 0,
+                );
+                if (faceHeight > 0) facesWrapper.style.setProperty('--rn-face-height', `${faceHeight}px`);
                 _applyTransformsPx(el, i0, i1);
+                setStationState(el, initialStationActive, stationLabel);
             });
 
             el.dataset.value0 = String(i0);
             el.dataset.value1 = String(i1);
+            el.dataset.ltMinute = showLtMinute ? 'true' : 'false';
+            setStationState(el, initialStationActive, stationLabel);
         }
 
-        function build(el, value){ _build(el, _parseNumberish(value, el.textContent)); }
+        function build(el, value, ltMinuteOverride) {
+            const showLtMinute = typeof ltMinuteOverride === 'boolean'
+                ? ltMinuteOverride
+                : el.dataset.ltMinute === 'true';
+            _build(el, _parseNumberish(value, el.textContent), showLtMinute);
+        }
 
-        function update(el, next){
-            const val=_parseNumberish(next, el.textContent);
-            const st=_state(el);
-            if (!el.classList.contains('rolling-number')){ build(el, val); return; }
-            const [i0,i1]=_frameIdxPair(val, st);
-            if (el.dataset.value0===String(i0) && el.dataset.value1===String(i1)) return;
-            el.dataset.value0=String(i0); el.dataset.value1=String(i1);
+        function update(el, next, ltMinuteOverride) {
+            const val = _parseNumberish(next, el.textContent);
+            const showLtMinute = typeof ltMinuteOverride === 'boolean'
+                ? ltMinuteOverride
+                : el.dataset.ltMinute === 'true';
+            if (!el.classList.contains('rolling-number')) {
+                build(el, val, showLtMinute);
+                return;
+            }
+            const [i0, i1] = _frameIdxPair(val, showLtMinute);
+            el.dataset.ltMinute = showLtMinute ? 'true' : 'false';
+            if (el.dataset.value0 === String(i0) && el.dataset.value1 === String(i1)) return;
+            el.dataset.value0 = String(i0);
+            el.dataset.value1 = String(i1);
             _applyTransformsPx(el, i0, i1);
         }
 
-        function ensure(el){
-            const attr=el.getAttribute&&el.getAttribute('data-eta-min');
-            const val=_parseNumberish(attr, el.textContent);
-            if (!el.classList.contains('rolling-number')) build(el, val);
-            else update(el, val);
+        function ensure(el) {
+            const attr = el.getAttribute && el.getAttribute('data-eta-min');
+            const val = _parseNumberish(attr, el.textContent);
+            const showLtMinute = el.dataset.ltMinute === 'true';
+            if (!el.classList.contains('rolling-number')) build(el, val, showLtMinute);
+            else update(el, val, showLtMinute);
         }
-        return { build, update, ensure };
+
+        function setStationState(el, active, label) {
+            if (!el) return;
+            const isActive = !!active;
+            if (!el.classList.contains('rolling-number')) {
+                if (label) el.setAttribute('data-station-label', label);
+                el.dataset.stationActive = isActive ? 'true' : 'false';
+                return;
+            }
+            const faces = el.__rnFaces;
+            if (!faces) return;
+            if (label && faces.stationLabel) faces.stationLabel.textContent = label;
+
+            el.dataset.stationActive = isActive ? 'true' : 'false';
+            el.classList.toggle('is-station', isActive);
+            if (faces.inner) {
+                faces.inner.classList.toggle('is-station', isActive);
+                faces.inner.style.removeProperty('transform');
+            }
+            if (faces.numericFace) {
+                faces.numericFace.setAttribute('aria-hidden', isActive ? 'true' : 'false');
+            }
+            if (faces.stationFace) {
+                faces.stationFace.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+            }
+            if (faces.unit) faces.unit.setAttribute('aria-hidden', isActive ? 'true' : 'false');
+        }
+
+        return { build, update, ensure, setStationState };
     })();
 
     const RollingClock = (() => {
@@ -394,6 +518,11 @@
                 el.__rcStepPx = _measureStepPx(el);
                 const cw=_measureColWidthPx(el);
                 if (cw) el.style.setProperty('--rn-col-w', cw+'px');
+                const sampleDigit = el.querySelector('.rolling-number__column .rolling-number__digits > span:nth-child(3)');
+                const digitRect = sampleDigit ? sampleDigit.getBoundingClientRect() : null;
+                if (digitRect && Number.isFinite(digitRect.height) && digitRect.height > 0) {
+                    el.style.setProperty('--rn-digit-height', `${digitRect.height}px`);
+                }
                 _apply4(el, idxs);
             });
 
@@ -429,51 +558,151 @@
         return { ensure:_ensure, update:_update };
     })();
 
+    const DEFAULT_STOP_PANEL_STRINGS = Object.freeze({
+        primaryLabelRealtime: 'Próximo tren en:',
+        primaryLabelScheduled: 'Próxima salida:',
+        statusRealtime: 'En tiempo real',
+        statusScheduled: 'Programado',
+        statusSuffixScheduled: ' · Horario',
+        statusSuffixTu: ' · TU',
+        trainPlaceholderRealtime: '—',
+        trainPlaceholderScheduled: 'Programado',
+        trainAriaTemplate: 'Ver detalle del tren %trainId%',
+        platformNoteHabitual: 'Habitual: %value%',
+        platformNoteConfidence: 'Confianza %value%%',
+        platformNoteUnpublishable: 'Sin vía habitual publicable',
+        stationStatusLabel: 'En estación',
+    });
+
+    const stopPanelStringsCache = new WeakMap();
+
+    function getStopPanelStrings(card) {
+        if (!card) return DEFAULT_STOP_PANEL_STRINGS;
+        if (stopPanelStringsCache.has(card)) return stopPanelStringsCache.get(card);
+        const ds = card.dataset || {};
+        const strings = {
+            primaryLabelRealtime: ds.stringPrimaryLabelRt || DEFAULT_STOP_PANEL_STRINGS.primaryLabelRealtime,
+            primaryLabelScheduled: ds.stringPrimaryLabelSched || DEFAULT_STOP_PANEL_STRINGS.primaryLabelScheduled,
+            statusRealtime: ds.stringStatusLive || DEFAULT_STOP_PANEL_STRINGS.statusRealtime,
+            statusScheduled: ds.stringStatusSched || DEFAULT_STOP_PANEL_STRINGS.statusScheduled,
+            statusSuffixScheduled: ds.stringStatusSuffixScheduled || DEFAULT_STOP_PANEL_STRINGS.statusSuffixScheduled,
+            statusSuffixTu: ds.stringStatusSuffixTu || DEFAULT_STOP_PANEL_STRINGS.statusSuffixTu,
+            trainPlaceholderRealtime: ds.stringTrainPlaceholderLive || DEFAULT_STOP_PANEL_STRINGS.trainPlaceholderRealtime,
+            trainPlaceholderScheduled: ds.stringTrainPlaceholderSched || DEFAULT_STOP_PANEL_STRINGS.trainPlaceholderScheduled,
+            trainAriaTemplate: ds.stringTrainAriaTemplate || DEFAULT_STOP_PANEL_STRINGS.trainAriaTemplate,
+            platformNoteHabitual: ds.stringPlatformNoteHabitual || DEFAULT_STOP_PANEL_STRINGS.platformNoteHabitual,
+            platformNoteConfidence: ds.stringPlatformNoteConfidence || DEFAULT_STOP_PANEL_STRINGS.platformNoteConfidence,
+            platformNoteUnpublishable: ds.stringPlatformNoteUnpublishable || DEFAULT_STOP_PANEL_STRINGS.platformNoteUnpublishable,
+            stationStatusLabel: ds.stringStationLabel || DEFAULT_STOP_PANEL_STRINGS.stationStatusLabel,
+        };
+        stopPanelStringsCache.set(card, strings);
+        return strings;
+    }
+
+    function formatStopPanelString(template, params, fallback = '') {
+        if (typeof template !== 'string' || template.length === 0) return fallback;
+        const hasTokens = /%(\w+)%/.test(template);
+        const result = template.replace(/%(\w+)%/g, (match, key) => {
+            if (Object.prototype.hasOwnProperty.call(params, key)) {
+                return params[key];
+            }
+            return '';
+        });
+        if (!hasTokens && fallback) return fallback;
+        return result;
+    }
+
+    function normalizeStopId(value) {
+        if (value === null || value === undefined) return null;
+        let text = String(value).trim();
+        if (!text) return null;
+        text = text.toUpperCase();
+        if (/^\d+$/.test(text)) {
+            try {
+                const n = Number.parseInt(text, 10);
+                if (Number.isFinite(n)) return String(n);
+            } catch (_) {
+                /* ignore */
+            }
+            return text.replace(/^0+/, '') || '0';
+        }
+        return text;
+    }
+
+    function stopIdsMatch(reference, candidates) {
+        const target = normalizeStopId(reference);
+        if (!target || !Array.isArray(candidates)) return false;
+        for (const candidate of candidates) {
+            const normalized = normalizeStopId(candidate);
+            if (normalized && normalized === target) return true;
+        }
+        return false;
+    }
 
     function wireETA(root=document) {
         const chip = root.querySelector ? root.querySelector('.train-eta-chip') : null;
         if (!chip) return;
 
-        const minEl   = chip.querySelector ? chip.querySelector('#eta-primary') : null;
-        let   clockEl = chip.querySelector ? chip.querySelector('#eta-clock')   : null;
+        const card = chip.closest ? chip.closest('[data-stop-primary]') : null;
+        const minEl = chip.querySelector ? chip.querySelector('#eta-primary') : null;
+        let clockEl = chip.querySelector ? chip.querySelector('#eta-clock') : null;
 
-        if (minEl)   RollingNumber.ensure(minEl);
+        const isLoading = !!(
+            (card && card.dataset && card.dataset.loaded === 'false') ||
+            (minEl && minEl.getAttribute && minEl.getAttribute('data-loading') === 'true')
+        );
+        if (isLoading) return;
+
+        if (minEl) RollingNumber.ensure(minEl);
 
         if (!clockEl) {
-            clockEl = document.createElement('span');
+            clockEl = document.createElement('output');
             clockEl.id = 'eta-clock';
+            clockEl.className = 'train-eta-time is-clock';
+            clockEl.setAttribute('role', 'status');
+            clockEl.setAttribute('aria-live', 'polite');
+            clockEl.setAttribute('aria-atomic', 'true');
+            clockEl.setAttribute('data-field', 'primary-clock');
             const attr = minEl && minEl.getAttribute ? minEl.getAttribute('data-eta-min') : null;
             if (attr != null) clockEl.setAttribute('data-eta-min', attr);
             clockEl.hidden = true;
             clockEl.setAttribute('aria-hidden','true');
             clockEl.setAttribute('inert','');
+            const time = document.createElement('time');
+            time.textContent = '--:--';
+            clockEl.appendChild(time);
+            const unit = document.createElement('span');
+            unit.className = 'unit';
+            unit.textContent = 'h';
+            clockEl.appendChild(unit);
             chip.appendChild(clockEl);
         }
 
         if (clockEl) RollingClock.ensure(clockEl);
 
-        function setVisible(showClock){
-            const minNode   = chip.querySelector('#eta-primary');
+        function setVisible(showClock) {
+            const minNode = chip.querySelector('#eta-primary');
             const clockNode = chip.querySelector('#eta-clock');
-            const hasClock  = !!clockNode;
+            const hasClock = !!clockNode;
             const wantClock = !!showClock && hasClock;
-            const wantMin   = !showClock || !hasClock;
+            const wantMin = !wantClock;
 
             chip.setAttribute('data-view', wantClock ? 'clock' : 'min');
 
-            if (minNode){
+            if (minNode) {
                 minNode.hidden = !wantMin;
                 minNode.setAttribute('aria-hidden', wantMin ? 'false' : 'true');
                 minNode.toggleAttribute('inert', !wantMin);
             }
-            if (clockNode){
+            if (clockNode) {
                 clockNode.hidden = !wantClock;
                 clockNode.setAttribute('aria-hidden', wantClock ? 'false' : 'true');
                 clockNode.toggleAttribute('inert', !wantClock);
             }
         }
 
-        setVisible(false);
+        const initialViewIsClock = chip.getAttribute('data-view') === 'clock';
+        setVisible(initialViewIsClock);
     }
 
     let etaDelegatedBound = false;
@@ -485,28 +714,27 @@
             const chip = ev.target.closest('.train-eta-chip');
             if (!chip) return;
 
-            const minEl   = chip.querySelector('#eta-primary');
+            const minEl = chip.querySelector('#eta-primary');
             const clockEl = chip.querySelector('#eta-clock');
 
-            if (minEl)   RollingNumber.ensure(minEl);
+            if (minEl) RollingNumber.ensure(minEl);
             if (clockEl) {
                 const mm = (minEl && (minEl.getAttribute('data-eta-min') || minEl.textContent)) || clockEl.getAttribute('data-eta-min') || '0';
-                clockEl.setAttribute('data-eta-min', String(mm).replace(/[^\d,.\-]/g,'').replace(',','.'));
+                clockEl.setAttribute('data-eta-min', String(mm).replace(/[^\d,.\-]/g, '').replace(',', '.'));
                 RollingClock.ensure(clockEl);
             }
 
             const currentView = chip.getAttribute('data-view') || (clockEl && !clockEl.hidden ? 'clock' : 'min');
             const nextIsClock = currentView !== 'clock';
-
             const wantClock = !!nextIsClock && !!clockEl;
-            const wantMin   = !nextIsClock || !clockEl;
+            const wantMin = !wantClock;
 
-            if (minEl){
+            if (minEl) {
                 minEl.hidden = !wantMin;
                 minEl.setAttribute('aria-hidden', wantMin ? 'false' : 'true');
                 minEl.toggleAttribute('inert', !wantMin);
             }
-            if (clockEl){
+            if (clockEl) {
                 clockEl.hidden = !wantClock;
                 clockEl.setAttribute('aria-hidden', wantClock ? 'false' : 'true');
                 clockEl.toggleAttribute('inert', !wantClock);
@@ -1087,31 +1315,77 @@
 
 
         function applyStopServicesPayload(payload) {
-            const root = body.querySelector('[data-stop-panel]');
-            if (!root) return;
-            const services = Array.isArray((payload && payload.services)) ? payload.services : [];
-            const primary = services[0] || null;
-            const secondary = services[1] || null;
+        const root = body.querySelector('[data-stop-panel]');
+        if (!root) return;
+        const services = Array.isArray((payload && payload.services)) ? payload.services : [];
+        const primary = services[0] || null;
+        const secondary = services[1] || null;
 
-            const ctxEl = body.querySelector('#drawer-context');
-            const nucleusSlug = ctxEl ? (ctxEl.getAttribute('data-nucleus') || '') : '';
+        const ctxEl = body.querySelector('#drawer-context');
+        const nucleusSlug = ctxEl ? (ctxEl.getAttribute('data-nucleus') || '') : '';
 
-            const card = root.querySelector('[data-stop-primary]');
-            const footer = root.querySelector('[data-stop-footer]');
-            const empty = root.querySelector('[data-field="empty-message"]');
-            const lastSeen = root.querySelector('[data-field="last-seen"]');
+        const card = root.querySelector('[data-stop-primary]');
+        const footer = root.querySelector('[data-stop-footer]');
+        const empty = root.querySelector('[data-field="empty-message"]');
+        const lastSeen = root.querySelector('[data-field="last-seen"]');
+        const stopAuto = panel.__stopAuto || null;
 
-            if (!primary) {
-                if (card) card.setAttribute('hidden', '');
-                if (footer) footer.setAttribute('hidden', '');
-                if (lastSeen) lastSeen.setAttribute('hidden', '');
-                if (empty) empty.hidden = false;
-                return;
+        if (root && root.dataset) {
+            root.dataset.stopState = primary ? 'ready' : 'loading';
+        }
+
+        if (stopAuto && stopAuto.emptyTimer) {
+            clearTimeout(stopAuto.emptyTimer);
+            stopAuto.emptyTimer = null;
+        }
+
+        if (empty) {
+            empty.hidden = true;
+            empty.setAttribute('aria-hidden', 'true');
+            empty.style.display = 'none';
+        }
+
+        if (!primary) {
+            if (card) {
+                card.dataset.loaded = 'false';
+                card.classList.add('is-loading');
+                card.removeAttribute('hidden');
             }
+            if (footer) footer.setAttribute('hidden', '');
+            if (lastSeen) lastSeen.setAttribute('hidden', '');
+
+            if (stopAuto) {
+                const timer = setTimeout(() => {
+                    if (stopAuto.emptyTimer !== timer) return;
+                    stopAuto.emptyTimer = null;
+                    if (card) card.setAttribute('hidden', '');
+                    if (empty) {
+                        if (root && root.dataset) root.dataset.stopState = 'empty';
+                        empty.hidden = false;
+                        empty.removeAttribute('hidden');
+                        empty.setAttribute('aria-hidden', 'false');
+                        empty.style.display = '';
+                    }
+                }, 1200);
+                stopAuto.emptyTimer = timer;
+            } else if (empty) {
+                if (root && root.dataset) root.dataset.stopState = 'empty';
+                empty.hidden = false;
+                empty.removeAttribute('hidden');
+                empty.setAttribute('aria-hidden', 'false');
+                empty.style.display = '';
+            }
+            return;
+        }
 
             if (card) card.removeAttribute('hidden');
             if (footer) footer.removeAttribute('hidden');
-            if (empty) empty.hidden = true;
+            if (empty) {
+                empty.hidden = true;
+                empty.setAttribute('aria-hidden', 'true');
+                empty.setAttribute('hidden', '');
+                empty.style.display = 'none';
+            }
 
             updatePrimaryCard(card, primary, nucleusSlug);
             updateSecondary(card, secondary);
@@ -1151,20 +1425,99 @@
 
         function updatePrimaryCard(card, service, nucleusSlug) {
             if (!card) return;
+            const strings = getStopPanelStrings(card);
             const minutes = minutesFromService(service);
             const hhmm = hhmmFromService(service);
+            const etaSeconds = (typeof service.eta_seconds === 'number' && Number.isFinite(service.eta_seconds))
+                ? Math.max(0, service.eta_seconds)
+                : null;
+            const isLessThanOneMinute = etaSeconds !== null && etaSeconds < 60;
+
+            card.dataset.loaded = 'true';
+            card.classList.remove('is-loading');
+
+            const loader = card.querySelector('[data-field="primary-loader"]');
+            if (loader) {
+                loader.setAttribute('aria-busy', 'false');
+                loader.setAttribute('aria-hidden', 'true');
+            }
+
+            const chip = card.querySelector('.train-eta-chip');
 
             const label = card.querySelector('[data-field="primary-label"]');
-            if (label) label.textContent = service.status === 'realtime' ? 'Próximo tren en:' : 'Próxima salida:';
+            if (label) {
+                label.textContent = service.status === 'realtime'
+                    ? strings.primaryLabelRealtime
+                    : strings.primaryLabelScheduled;
+            }
 
             const statusText = card.querySelector('[data-field="primary-status-text"]');
             if (statusText) {
-                let text = service.status === 'realtime' ? 'En tiempo real' : 'Programado';
+                let text = service.status === 'realtime' ? strings.statusRealtime : strings.statusScheduled;
                 const source = (service.source || '').toUpperCase();
-                if (source === 'SCHEDULED') text += ' · Horario';
-                else if (source.startsWith('TU')) text += ' · TU';
+                if (source === 'SCHEDULED' && strings.statusSuffixScheduled) text += strings.statusSuffixScheduled;
+                else if (source.startsWith('TU') && strings.statusSuffixTu) text += strings.statusSuffixTu;
                 const delay = formatDelayText(service);
                 statusText.textContent = delay ? text + delay : text;
+            }
+
+            card.dataset.serviceStatus = service.status || '';
+            card.dataset.serviceSource = service.source || '';
+
+            const stopPanel = card.closest('[data-stop-panel]');
+            const stopIdAttr = card.getAttribute('data-stop-id') || card.dataset.stopId || (stopPanel ? stopPanel.dataset.stopId : '') || '';
+            const stopId = stopIdAttr != null ? String(stopIdAttr) : '';
+            const train = service.train || {};
+            const trainState = (train.current_status || '').toUpperCase();
+            const actualStopCandidates = [];
+            const pushActualStop = (value) => {
+                if (value === null || value === undefined) return;
+                const text = String(value).trim();
+                if (!text) return;
+                actualStopCandidates.push(text);
+            };
+            pushActualStop(train.stop_id);
+            pushActualStop(train.stopId);
+            const serviceActualKeys = [
+                'actual_stop_id', 'actualStopId',
+                'current_stop_id', 'currentStopId',
+                'realtime_stop_id', 'realtimeStopId',
+                'stopped_stop_id', 'stoppedStopId',
+            ];
+            for (const key of serviceActualKeys) {
+                pushActualStop(service[key]);
+            }
+            const row = (service.row && typeof service.row === 'object') ? service.row : {};
+            const rowActualKeys = [
+                'actual_stop_id', 'actualStopId',
+                'current_stop_id', 'currentStopId',
+                'realtime_stop_id', 'realtimeStopId',
+                'stopped_stop_id', 'stoppedStopId',
+                'last_stop_id', 'lastStopId',
+            ];
+            for (const key of rowActualKeys) {
+                pushActualStop(row[key]);
+            }
+            if (row.current_stop && typeof row.current_stop === 'object') {
+                const cur = row.current_stop;
+                pushActualStop(cur.stop_id);
+                pushActualStop(cur.stopId);
+                pushActualStop(cur.id);
+            }
+            if (row.actual_stop && typeof row.actual_stop === 'object') {
+                const cur = row.actual_stop;
+                pushActualStop(cur.stop_id);
+                pushActualStop(cur.stopId);
+                pushActualStop(cur.id);
+            }
+            const isRealtime = (service.status || '').toLowerCase() === 'realtime';
+            const stopMatches = stopIdsMatch(stopId, actualStopCandidates);
+            const isStoppedAtStation = isRealtime
+                && trainState === 'STOPPED_AT'
+                && stopMatches;
+
+            if (chip) {
+                chip.setAttribute('data-view', 'min');
             }
 
             const pill = card.querySelector('[data-field="primary-pill"]');
@@ -1177,14 +1530,24 @@
             if (minEl) {
                 const value = Number.isFinite(minutes) ? minutes : 0;
                 minEl.setAttribute('data-eta-min', value);
+                minEl.setAttribute('data-loading', 'false');
+                minEl.dataset.ltMinute = isLessThanOneMinute ? 'true' : 'false';
                 const timeNode = minEl.querySelector('time');
-                if (timeNode) timeNode.textContent = Number.isFinite(minutes) ? String(value) : '--';
+                if (timeNode) {
+                    if (Number.isFinite(minutes)) {
+                        timeNode.textContent = isLessThanOneMinute ? '<1' : String(value);
+                    } else {
+                        timeNode.textContent = '--';
+                    }
+                }
                 RollingNumber.ensure(minEl);
+                RollingNumber.setStationState(minEl, isStoppedAtStation, strings.stationStatusLabel);
             }
 
             const clockEl = card.querySelector('[data-field="primary-clock"]');
             if (clockEl) {
                 clockEl.setAttribute('data-eta-min', Number.isFinite(minutes) ? minutes : 0);
+                clockEl.setAttribute('data-loading', 'false');
                 const timeNode = clockEl.querySelector('time');
                 if (timeNode) timeNode.textContent = hhmm || '--:--';
                 RollingClock.ensure(clockEl);
@@ -1194,41 +1557,76 @@
             const platformLabel = card.querySelector('[data-field="platform-label"]');
             const platformNote = card.querySelector('[data-field="platform-note"]');
             let platformText = '—';
-            let platformSource = 'none';
+            let platformSource = 'unknown';
             let platformNoteText = '';
-            const info = service.platform_info || {};
-            const observed = info.observed || null;
-            const predicted = info.predicted || info.predicted_alt || null;
+            const info = service.platform_info;
+            if (!info) {
+                // Keep initial platform badge state until the API provides data.
+                if (platformLabel && platformBadge) {
+                    platformLabel.textContent = platformBadge.dataset.platform || '—';
+                }
+                return;
+            }
+            const normalizePlatformValue = (value) => {
+                if (value === null || value === undefined) return null;
+                const text = String(value).trim();
+                return text && text !== '?' ? text : null;
+            };
+            const publishable = info.publishable === undefined ? true : !!info.publishable;
+            const observed = normalizePlatformValue(info.observed);
+            const predicted = normalizePlatformValue(info.predicted);
+            const predictedAlt = normalizePlatformValue(info.predicted_alt);
+            const habitual = predicted || predictedAlt;
+
             if (observed) {
                 platformText = observed;
                 platformSource = 'live';
-                if (predicted && predicted !== observed) platformNoteText = `Habitual: ${predicted}`;
-            } else if (predicted) {
-                platformText = predicted;
+                if (habitual && habitual !== observed) {
+                    platformNoteText = formatStopPanelString(
+                        strings.platformNoteHabitual,
+                        { value: habitual },
+                        `Habitual: ${habitual}`,
+                    );
+                }
+            } else if (habitual) {
+                platformText = habitual;
                 platformSource = 'habitual';
-                if (typeof info.confidence === 'number') platformNoteText = `Confianza ${(info.confidence * 100).toFixed(0)}%`;
-            } else if (info.source === 'predicted_alt' && info.predicted_alt) {
-                platformText = info.predicted_alt;
-                platformSource = 'habitual';
+                if (publishable && typeof info.confidence === 'number') {
+                    const confidenceValue = (info.confidence * 100).toFixed(0);
+                    platformNoteText = formatStopPanelString(
+                        strings.platformNoteConfidence,
+                        { value: confidenceValue },
+                        `Confianza ${confidenceValue}%`,
+                    );
+                } else if (!publishable) {
+                    platformNoteText = strings.platformNoteUnpublishable;
+                }
+            } else {
+                platformText = '—';
+                platformSource = 'unknown';
+                if (!publishable) {
+                    platformNoteText = strings.platformNoteUnpublishable;
+                }
             }
+
             if (platformBadge) {
                 platformBadge.dataset.platform = platformText;
+                platformBadge.dataset.src = platformSource;
                 platformBadge.classList.remove('is-live','is-habitual','is-unknown','exceptional-platform');
                 if (platformSource === 'live') platformBadge.classList.add('is-live');
                 else if (platformSource === 'habitual') platformBadge.classList.add('is-habitual');
                 else platformBadge.classList.add('is-unknown');
-                if (platformSource === 'live' && predicted && predicted !== observed) {
+                if (platformSource === 'live' && habitual && habitual !== observed) {
                     platformBadge.classList.add('exceptional-platform');
                 }
             }
+
             if (platformLabel) platformLabel.textContent = platformText;
             if (platformNote) {
                 platformNote.textContent = platformNoteText;
                 platformNote.hidden = !platformNoteText;
             }
 
-            card.dataset.serviceStatus = service.status || '';
-            card.dataset.serviceSource = service.source || '';
         }
 
         function updateSecondary(card, service) {
@@ -1248,6 +1646,8 @@
 
         function updateFooter(footer, service, nucleusSlug) {
             if (!footer) return;
+            const card = footer.closest('.nearest-train-card');
+            const strings = getStopPanelStrings(card);
             const trainId = (service.train && service.train.train_id) || service.train_id || '';
             const link = footer.querySelector('[data-field="train-link"]');
             const placeholder = footer.querySelector('[data-field="train-id-placeholder"]');
@@ -1259,7 +1659,12 @@
                 if (link) {
                     link.hidden = false;
                     link.href = href;
-                    link.setAttribute('aria-label', `Ver detalle del tren ${trainId}`);
+                    const ariaLabel = formatStopPanelString(
+                        strings.trainAriaTemplate,
+                        { trainId },
+                        `Ver detalle del tren ${trainId}`,
+                    );
+                    link.setAttribute('aria-label', ariaLabel);
                     const span = link.querySelector('[data-field="train-id"]');
                     if (span) span.textContent = trainId;
                 }
@@ -1267,11 +1672,25 @@
                 if (viewBlock && viewAnchor) {
                     viewBlock.hidden = false;
                     viewAnchor.href = href;
-                    viewAnchor.setAttribute('aria-label', `Ver detalle del tren ${trainId}`);
+                    const viewAriaLabel = formatStopPanelString(
+                        strings.trainAriaTemplate,
+                        { trainId },
+                        `Ver detalle del tren ${trainId}`,
+                    );
+                    viewAnchor.setAttribute('aria-label', viewAriaLabel);
                 }
             } else {
-                if (link) link.hidden = true;
-                if (placeholder) { placeholder.hidden = false; placeholder.textContent = service.status === 'realtime' ? '—' : 'Programado'; }
+                if (link) {
+                    link.hidden = true;
+                    const span = link.querySelector('[data-field="train-id"]');
+                    if (span) span.textContent = strings.trainPlaceholderRealtime;
+                }
+                if (placeholder) {
+                    placeholder.hidden = false;
+                    placeholder.textContent = service.status === 'realtime'
+                        ? strings.trainPlaceholderRealtime
+                        : strings.trainPlaceholderScheduled;
+                }
                 if (viewBlock) viewBlock.hidden = true;
             }
         }
@@ -1327,8 +1746,18 @@
                 const payload = await resp.json();
                 applyStopServicesPayload(payload);
                 st.errors = 0;
+                let interval = st.baseInterval;
+                try {
+                    const primary = Array.isArray(payload?.services) ? payload.services[0] : null;
+                    const etaSeconds = Number(primary?.eta_seconds);
+                    if (Number.isFinite(etaSeconds) && etaSeconds < 60) {
+                        interval = Math.min(st.baseInterval, 15_000);
+                    }
+                } catch (_) {
+                    interval = st.baseInterval;
+                }
                 const jitter = Math.floor(Math.random() * 500);
-                scheduleNextStopTick(st.baseInterval + jitter);
+                scheduleNextStopTick(interval + jitter);
             } catch (err) {
                 console.debug('[stop-refresh] Error', err);
                 st.errors = Math.min(st.errors + 1, 6);
