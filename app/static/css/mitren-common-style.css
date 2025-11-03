@@ -1725,7 +1725,7 @@ ul.chip-list {
     align-items: center;
     background: var(--jotaele-background-accent);
     border-radius: 9px;
-    padding: calc(var(--app-margin) / 2) 0;
+    padding: 0 0;
     font-size: 1.35rem;
     font-family: 'Sora', sans-serif;
     font-weight: 700;
@@ -1785,6 +1785,10 @@ ul.chip-list {
     font-family: 'Sora', sans-serif;
     font-weight: 700;
     font-size: 1.35rem;
+}
+
+.platform-badge.is-habitual {
+    background: var(--jotaele-text-muted);
 }
 
 .platform-badge.is-unknown {
@@ -1897,10 +1901,9 @@ ul.chip-list {
 
 .rolling-number__column {
     position: relative;
-    overflow: hidden;
+    overflow-y: clip;
     height: var(--rn-digit-height);
-    width: var(--rn-col-w, 0.81ch);
-    min-width: var(--rn-col-w, 0.81ch);
+    width: 0.68ch;
     display: inline-block;
 }
 
@@ -1914,7 +1917,6 @@ ul.chip-list {
     display: flex;
     align-items: center;
     justify-content: center;
-    line-height: 1;
     height: var(--rn-digit-height);
     line-height: var(--rn-digit-height);
 }
@@ -1956,7 +1958,7 @@ ul.chip-list {
 .train-eta-output-wrapper {
     position: relative;
     width: 11rem;
-    height: 2.9rem;
+    height: 2.8rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2097,10 +2099,11 @@ ul.chip-list {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    font-size: 1.02em;
-    line-height: 1.2;
+    font-size: 1em;
+    line-height: 1.5;
     font-family: 'Sora', sans-serif;
-    font-weight: 600;
+    font-weight: 700;
+    animation: blink-animation-effect 1.1s var(--vt-ease) infinite;
 }
 
 .rolling-number.is-station .unit {

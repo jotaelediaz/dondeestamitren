@@ -300,6 +300,25 @@ def _build_trip_rows(
     def hhmm(ts):
         return _fmt_hhmm_local(ts, tz_name)
 
+    def _to_int(value) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _norm_status(val: Any) -> str:
+        if val is None:
+            return ""
+        if isinstance(val, str):
+            return val.strip().upper()
+        name = getattr(val, "name", None)
+        if isinstance(name, str):
+            return name.strip().upper()
+        try:
+            return str(val).strip().upper()
+        except Exception:
+            return ""
+
     route_obj = _resolve_route_obj(
         route_id=route_id,
         direction_id=direction_id,
@@ -333,7 +352,7 @@ def _build_trip_rows(
 
     tu = tuc.get_by_trip_id(trip_id) if trip_id else None
     tu_by_stop: dict[str, dict] = {}
-    tu_next_idx, tu_ts = None, None
+    tu_next_idx, tu_next_stop_id, tu_ts = None, None, None
     if tu:
         with suppress(Exception):
             tu_ts = int(getattr(tu, "timestamp", 0) or 0)
@@ -368,9 +387,50 @@ def _build_trip_rows(
             and (getattr(x, "schedule_relationship", "SCHEDULED") or "SCHEDULED") != "CANCELED"
         ]
         if fut:
-            tu_next_idx = getattr(fut[0], "stop_sequence", None)
+            nxt = fut[0]
+            tu_next_idx = getattr(nxt, "stop_sequence", None)
+            with suppress(Exception):
+                sid = getattr(nxt, "stop_id", None)
+                tu_next_stop_id = str(sid) if sid is not None else None
 
-    live_sid = getattr(live_obj, "stop_id", None) if live_obj else None
+    live_sid = str(getattr(live_obj, "stop_id", "") or "") if live_obj else None
+    live_status = _norm_status(getattr(live_obj, "current_status", None) if live_obj else None)
+    is_in_transit = live_status == "IN_TRANSIT_TO"
+
+    cur_seq = None
+    if live_sid:
+        for c in calls:
+            seq_val = _to_int(c.get("seq"))
+            if seq_val is None:
+                continue
+            if str(c.get("stop_id")) == live_sid:
+                cur_seq = seq_val
+                break
+
+    next_seq_after_live = None
+    next_stop_after_live = None
+    if cur_seq is not None:
+        seq_stop_pairs = [
+            (
+                seq_val,
+                str(call.get("stop_id")) if call.get("stop_id") is not None else None,
+            )
+            for call in calls
+            for seq_val in (_to_int(call.get("seq")),)
+            if seq_val is not None and seq_val > cur_seq
+        ]
+        if seq_stop_pairs:
+            seq_stop_pairs.sort(key=lambda item: item[0])
+            next_seq_after_live, next_stop_after_live = seq_stop_pairs[0]
+
+    tu_next_seq = _to_int(tu_next_idx)
+    effective_next_seq = tu_next_seq
+    if effective_next_seq is None and is_in_transit:
+        effective_next_seq = next_seq_after_live
+
+    effective_next_stop_id = tu_next_stop_id
+    if effective_next_stop_id is None and is_in_transit:
+        effective_next_stop_id = next_stop_after_live
 
     rows = []
     carry_delay = None
@@ -407,15 +467,32 @@ def _build_trip_rows(
             status = "CANCELED"
         elif rel in {"SKIPPED"}:
             status = "SKIPPED"
-        elif live_sid and sid == str(live_sid):
-            status = "CURRENT"
-        elif tu_next_idx is not None and c["seq"] == tu_next_idx:
-            status = "NEXT"
         else:
-            cur_seq = next((x["seq"] for x in calls if str(x["stop_id"]) == str(live_sid)), None)
-            pivot = cur_seq if cur_seq is not None else tu_next_idx
-            if pivot is not None and (c["seq"] or 0) < pivot:
+            seq_val = _to_int(c.get("seq"))
+            if is_in_transit and live_sid and sid == live_sid:
                 status = "PASSED"
+            elif live_sid and sid == live_sid:
+                status = "CURRENT"
+            elif (
+                effective_next_seq is not None
+                and seq_val is not None
+                and seq_val == effective_next_seq
+            ) or (
+                is_in_transit
+                and effective_next_stop_id
+                and sid == effective_next_stop_id
+                and (effective_next_seq is None or seq_val is None)
+            ):
+                status = "NEXT"
+            else:
+                pivot_seq = cur_seq
+                if pivot_seq is None:
+                    pivot_seq = tu_next_seq
+                if is_in_transit and pivot_seq is None and effective_next_seq is not None:
+                    pivot_seq = effective_next_seq
+                pivot_val = _to_int(pivot_seq)
+                if pivot_val is not None and seq_val is not None and seq_val < pivot_val:
+                    status = "PASSED"
 
         platform = None
         with suppress(Exception):
