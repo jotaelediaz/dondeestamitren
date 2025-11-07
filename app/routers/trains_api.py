@@ -42,7 +42,13 @@ def _train_as_dict(train) -> dict[str, Any] | None:
         "lon": getattr(train, "lon", None),
         "speed_kmh": getattr(train, "speed_kmh", None),
         "timestamp": getattr(train, "timestamp", None),
+        "platform": getattr(train, "platform", None),
+        "platform_source": getattr(train, "platform_source", None),
+        "label": getattr(train, "label", None),
     }
+    platform_map = getattr(train, "platform_by_stop", None)
+    if isinstance(platform_map, dict) and platform_map:
+        info["platform_by_stop"] = platform_map
     return info
 
 

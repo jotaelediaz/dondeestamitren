@@ -491,9 +491,17 @@
                 c.className='rolling-number__column';
                 const d=document.createElement('span');
                 d.className='rolling-number__digits';
-                { const s=document.createElement('span'); const i=document.createElement('i'); i.className='material-symbols-rounded'; i.textContent='arrow_downward'; s.appendChild(i); d.appendChild(s); }
-                { const s=document.createElement('span'); s.textContent='<'; d.appendChild(s); }
-                for(let k=0;k<=9;k++){ const s=document.createElement('span'); s.textContent=String(k); d.appendChild(s); }
+                const blank=document.createElement('span');
+                blank.textContent='';
+                d.appendChild(blank);
+                const lt=document.createElement('span');
+                lt.textContent='<';
+                d.appendChild(lt);
+                for(let k=0;k<=9;k+=1){
+                    const s=document.createElement('span');
+                    s.textContent=String(k);
+                    d.appendChild(s);
+                }
                 c.appendChild(d);
                 return c;
             }
@@ -1226,6 +1234,14 @@
         const close = panel.querySelector('.drawer-close');
         if (!body) return;
 
+        const STOP_REFRESH_INTERVALS = {
+            subMinute: 12_000,
+            halfMinute: 7_000,
+            imminent: 4_000,
+            dwell: 2_500,
+            min: 2_000,
+        };
+
         if (!panel.__stopAuto) {
             panel.__stopAuto = {
                 timerId: null,
@@ -1235,7 +1251,8 @@
                 errors: 0,
                 running: false,
                 apiUrl: '',
-                inFlight: false
+                inFlight: false,
+                minInterval: STOP_REFRESH_INTERVALS.min,
             };
         }
 
@@ -1388,7 +1405,7 @@
             }
 
             updatePrimaryCard(card, primary, nucleusSlug);
-            updateSecondary(card, secondary);
+            updateSecondary(card, secondary, nucleusSlug);
             updateFooter(footer, primary, nucleusSlug);
             updateLastSeen(lastSeen, primary);
             wireETA(card);
@@ -1421,6 +1438,14 @@
             const mins = Math.round(service.delay_seconds / 60);
             if (mins === 0) return '';
             return ` (${mins > 0 ? '+' : ''}${mins} min)`;
+        }
+
+        function extractPlatformFromLabel(label) {
+            if (!label) return null;
+            const match = /PLATF\.?\(?([^)]+)\)?/i.exec(String(label));
+            if (!match || !match[1]) return null;
+            const value = match[1].trim();
+            return value && value !== '?' ? value : null;
         }
 
         function updatePrimaryCard(card, service, nucleusSlug) {
@@ -1553,45 +1578,80 @@
                 RollingClock.ensure(clockEl);
             }
 
+            const rowStatus = (service?.row?.status || '').toUpperCase();
+            const nextStopMatches = rowStatus === 'NEXT';
+            const approachingStop = stopMatches || nextStopMatches;
+
             const platformBadge = card.querySelector('[data-field="platform"]');
             const platformLabel = card.querySelector('[data-field="platform-label"]');
             const platformNote = card.querySelector('[data-field="platform-note"]');
-            let platformText = '—';
-            let platformSource = 'unknown';
+            const currentBadgeValue = platformBadge?.dataset?.platform || platformLabel?.textContent || '—';
+            const currentBadgeSource = platformBadge?.dataset?.src || 'unknown';
+            let platformText = currentBadgeValue;
+            let platformSource = currentBadgeSource;
             let platformNoteText = '';
-            const info = service.platform_info;
-            if (!info) {
-                // Keep initial platform badge state until the API provides data.
-                if (platformLabel && platformBadge) {
-                    platformLabel.textContent = platformBadge.dataset.platform || '—';
-                }
-                return;
-            }
+            const info = service.platform_info || null;
             const normalizePlatformValue = (value) => {
                 if (value === null || value === undefined) return null;
                 const text = String(value).trim();
                 return text && text !== '?' ? text : null;
             };
-            const publishable = info.publishable === undefined ? true : !!info.publishable;
-            const observed = normalizePlatformValue(info.observed);
-            const predicted = normalizePlatformValue(info.predicted);
-            const predictedAlt = normalizePlatformValue(info.predicted_alt);
-            const habitual = predicted || predictedAlt;
+            const publishable = info?.publishable === undefined ? true : !!info?.publishable;
+            const predicted = normalizePlatformValue(info?.predicted);
+            const predictedAlt = normalizePlatformValue(info?.predicted_alt);
+            const habitualCandidate = predicted || predictedAlt || null;
+            const initialHabitual = normalizePlatformValue(platformBadge?.dataset?.habitual);
+            if (habitualCandidate && platformBadge) {
+                platformBadge.dataset.habitual = habitualCandidate;
+            }
+            const habitualReference = normalizePlatformValue(platformBadge?.dataset?.habitual)
+                || habitualCandidate
+                || initialHabitual
+                || null;
+            const rowPlatform = normalizePlatformValue(service?.row?.platform);
+            const trainObj = (service?.train && typeof service.train === 'object') ? service.train : null;
+            const rowDelta = Number(service?.row?.delta_seq_to_stop);
+            const isRowApproaching = rowStatus === 'NEXT' || rowStatus === 'CURRENT';
+            const isRowClose = Number.isFinite(rowDelta) && rowDelta <= 1;
+            const extendedApproach = approachingStop || isRowApproaching || isRowClose;
+            const trainStatus = (trainObj?.current_status || trainState || '').toUpperCase();
+            const trainApproaching = ['IN_TRANSIT_TO','INCOMING_AT','STOPPED_AT'].includes(trainStatus);
 
-            if (observed) {
-                platformText = observed;
+            let liveCandidate = normalizePlatformValue(info?.observed) || null;
+            if (!liveCandidate && trainObj && extendedApproach && trainApproaching) {
+                const mapping = trainObj.platform_by_stop || trainObj.platformByStop;
+                if (mapping && stopId && mapping[stopId]) {
+                    liveCandidate = normalizePlatformValue(mapping[stopId]);
+                }
+                if (!liveCandidate && nextStopMatches) {
+                    liveCandidate = normalizePlatformValue(trainObj.platform);
+                }
+                if (!liveCandidate && trainObj.label) {
+                    liveCandidate = normalizePlatformValue(extractPlatformFromLabel(trainObj.label));
+                }
+                if (!liveCandidate && rowPlatform && (stopMatches || isRowApproaching)) {
+                    liveCandidate = rowPlatform;
+                }
+            }
+
+            let updated = false;
+
+            if (liveCandidate) {
+                platformText = liveCandidate;
                 platformSource = 'live';
-                if (habitual && habitual !== observed) {
+                updated = true;
+                if (habitualCandidate && habitualCandidate !== liveCandidate) {
                     platformNoteText = formatStopPanelString(
                         strings.platformNoteHabitual,
-                        { value: habitual },
-                        `Habitual: ${habitual}`,
+                        { value: habitualCandidate },
+                        `Habitual: ${habitualCandidate}`,
                     );
                 }
-            } else if (habitual) {
-                platformText = habitual;
+            } else if (habitualCandidate) {
+                platformText = habitualCandidate;
                 platformSource = 'habitual';
-                if (publishable && typeof info.confidence === 'number') {
+                updated = true;
+                if (publishable && typeof info?.confidence === 'number') {
                     const confidenceValue = (info.confidence * 100).toFixed(0);
                     platformNoteText = formatStopPanelString(
                         strings.platformNoteConfidence,
@@ -1601,12 +1661,24 @@
                 } else if (!publishable) {
                     platformNoteText = strings.platformNoteUnpublishable;
                 }
-            } else {
-                platformText = '—';
-                platformSource = 'unknown';
+            } else if (rowPlatform) {
+                platformText = rowPlatform;
+                platformSource = 'habitual';
+                updated = true;
                 if (!publishable) {
                     platformNoteText = strings.platformNoteUnpublishable;
                 }
+            } else if (!publishable) {
+                platformNoteText = strings.platformNoteUnpublishable;
+                updated = true;
+            }
+
+            if (!updated) {
+                if (platformNote) {
+                    platformNote.textContent = platformNoteText;
+                    platformNote.hidden = !platformNoteText;
+                }
+                return;
             }
 
             if (platformBadge) {
@@ -1616,7 +1688,7 @@
                 if (platformSource === 'live') platformBadge.classList.add('is-live');
                 else if (platformSource === 'habitual') platformBadge.classList.add('is-habitual');
                 else platformBadge.classList.add('is-unknown');
-                if (platformSource === 'live' && habitual && habitual !== observed) {
+                if (platformSource === 'live' && habitualReference && habitualReference !== platformText) {
                     platformBadge.classList.add('exceptional-platform');
                 }
             }
@@ -1629,82 +1701,233 @@
 
         }
 
-        function updateSecondary(card, service) {
+        function normalizeTrainToken(value) {
+            if (value === null || value === undefined) return '';
+            const str = String(value).trim();
+            return str;
+        }
+
+        function extractNumericTrainIdentifier(value) {
+            const token = normalizeTrainToken(value);
+            if (!token) return '';
+            if (/^\d{3,6}$/.test(token)) return token;
+            const matches = token.match(/\d{3,6}/g);
+            if (!matches || matches.length === 0) return '';
+            for (let i = matches.length - 1; i >= 0; i -= 1) {
+                const candidate = matches[i];
+                if (/^\d{3,6}$/.test(candidate)) return candidate;
+            }
+            return '';
+        }
+
+        function resolveTrainInfo(service) {
+            if (!service) return { label: '', identifier: '' };
+            const candidates = [
+                service?.train?.train_id,
+                service?.train?.train_number,
+                service?.train?.label,
+                service?.train_id,
+                service?.vehicle_id,
+                service?.row?.train_id,
+                service?.row?.train_number,
+                service?.row?.label,
+                service?.trip_id,
+                service?.service_instance_id,
+            ];
+            for (const candidate of candidates) {
+                const ident = extractNumericTrainIdentifier(candidate);
+                if (ident) {
+                    return { label: ident, identifier: ident };
+                }
+            }
+            return { label: '', identifier: '' };
+        }
+
+        function updateSecondary(card, service, nucleusSlug) {
+            const wrapper = card?.querySelector('[data-field="secondary-wrapper"]') || card?.querySelector('.second-train-approaching');
+            const link = card?.querySelector('[data-field="secondary-link"]');
             const minEl = card?.querySelector('[data-field="secondary-minutes"]');
             const clockEl = card?.querySelector('[data-field="secondary-clock"]');
-            if (!minEl) return;
+            if (!wrapper || !link || !minEl) return;
+            link.textContent = 'Siguiente tren';
+
+            const disableLink = () => {
+                link.removeAttribute('href');
+                link.setAttribute('aria-hidden', 'true');
+                link.setAttribute('tabindex', '-1');
+                link.removeAttribute('aria-label');
+            };
+
             if (!service) {
+                wrapper.style.opacity = '0';
+                wrapper.setAttribute('aria-hidden', 'true');
+                wrapper.style.pointerEvents = 'none';
                 minEl.textContent = '—';
                 if (clockEl) clockEl.textContent = '';
+                disableLink();
                 return;
             }
+
+            wrapper.style.opacity = '1';
+            wrapper.removeAttribute('aria-hidden');
+            wrapper.style.pointerEvents = '';
+
             const minutes = minutesFromService(service);
             const hhmm = hhmmFromService(service);
             minEl.textContent = Number.isFinite(minutes) ? `${minutes} min` : '—';
             if (clockEl) clockEl.textContent = hhmm ? `(${hhmm})` : '';
+
+            const slug = (nucleusSlug || '').trim().replace(/^\/+/, '');
+            const trainInfo = resolveTrainInfo(service);
+            const trainId = trainInfo.identifier;
+            if (trainId && slug) {
+                const href = `/trains/${slug}/${trainId}`;
+                link.href = href;
+                link.setAttribute('aria-hidden', 'false');
+                link.setAttribute('tabindex', '0');
+                const ariaLabel = `Ver detalle del tren ${trainId}`;
+                link.setAttribute('aria-label', ariaLabel);
+            } else {
+                disableLink();
+            }
         }
 
         function updateFooter(footer, service, nucleusSlug) {
             if (!footer) return;
             const card = footer.closest('.nearest-train-card');
             const strings = getStopPanelStrings(card);
-            const trainId = (service.train && service.train.train_id) || service.train_id || '';
+            const slug = (nucleusSlug || '').trim().replace(/^\/+/, '');
             const link = footer.querySelector('[data-field="train-link"]');
             const placeholder = footer.querySelector('[data-field="train-id-placeholder"]');
             const viewBlock = footer.querySelector('[data-field="train-view-link"]');
             const viewAnchor = footer.querySelector('[data-field="train-view-anchor"]');
+            const statusTag = footer.querySelector('[data-field="train-id-tag"]');
+            const trainInfo = resolveTrainInfo(service);
+            const isScheduled = (service.status || '').toLowerCase() === 'scheduled';
+            const fallbackLabel = service.status === 'realtime'
+                ? strings.trainPlaceholderRealtime
+                : strings.trainPlaceholderScheduled;
+            const labelText = trainInfo.label ? `Tren ${trainInfo.label}` : fallbackLabel;
+            const linkTarget = (trainInfo.identifier && slug) ? `/trains/${slug}/${trainInfo.identifier}` : '';
+            const ariaTrainId = trainInfo.label || labelText.replace(/^Tren\s+/i, '').trim() || labelText;
 
-            if (trainId) {
-                const href = `/trains/${nucleusSlug}/${trainId}`;
-                if (link) {
-                    link.hidden = false;
-                    link.href = href;
-                    const ariaLabel = formatStopPanelString(
-                        strings.trainAriaTemplate,
-                        { trainId },
-                        `Ver detalle del tren ${trainId}`,
-                    );
-                    link.setAttribute('aria-label', ariaLabel);
-                    const span = link.querySelector('[data-field="train-id"]');
-                    if (span) span.textContent = trainId;
-                }
-                if (placeholder) { placeholder.hidden = true; }
-                if (viewBlock && viewAnchor) {
-                    viewBlock.hidden = false;
-                    viewAnchor.href = href;
-                    const viewAriaLabel = formatStopPanelString(
-                        strings.trainAriaTemplate,
-                        { trainId },
-                        `Ver detalle del tren ${trainId}`,
-                    );
-                    viewAnchor.setAttribute('aria-label', viewAriaLabel);
-                }
-            } else {
-                if (link) {
-                    link.hidden = true;
-                    const span = link.querySelector('[data-field="train-id"]');
-                    if (span) span.textContent = strings.trainPlaceholderRealtime;
-                }
-                if (placeholder) {
+            const setAriaLabel = (node) => {
+                if (!node) return;
+                const ariaLabel = formatStopPanelString(
+                    strings.trainAriaTemplate,
+                    { trainId: ariaTrainId },
+                    `Ver detalle del tren ${ariaTrainId}`,
+                );
+                node.setAttribute('aria-label', ariaLabel);
+            };
+
+            if (link && linkTarget) {
+                link.hidden = false;
+                link.href = linkTarget;
+                link.setAttribute('aria-hidden', 'false');
+                link.setAttribute('tabindex', '0');
+                setAriaLabel(link);
+                const span = link.querySelector('[data-field="train-id"]');
+                if (span) span.textContent = labelText;
+            } else if (link) {
+                link.hidden = true;
+                link.removeAttribute('href');
+                link.setAttribute('aria-hidden', 'true');
+                link.setAttribute('tabindex', '-1');
+                const span = link.querySelector('[data-field="train-id"]');
+                if (span) span.textContent = fallbackLabel;
+            }
+
+            if (placeholder) {
+                if (linkTarget) {
+                    placeholder.hidden = true;
+                } else {
                     placeholder.hidden = false;
-                    placeholder.textContent = service.status === 'realtime'
-                        ? strings.trainPlaceholderRealtime
-                        : strings.trainPlaceholderScheduled;
+                    placeholder.textContent = labelText;
                 }
-                if (viewBlock) viewBlock.hidden = true;
+            }
+
+            if (viewBlock && viewAnchor) {
+                if (linkTarget) {
+                    viewBlock.hidden = false;
+                    viewAnchor.href = linkTarget;
+                    setAriaLabel(viewAnchor);
+                } else {
+                    viewBlock.hidden = true;
+                }
+            }
+
+            if (statusTag) {
+                if (isScheduled && trainInfo.label) {
+                    statusTag.hidden = false;
+                    statusTag.removeAttribute('hidden');
+                    statusTag.setAttribute('aria-hidden', 'false');
+                } else {
+                    statusTag.hidden = true;
+                    statusTag.setAttribute('hidden', '');
+                    statusTag.setAttribute('aria-hidden', 'true');
+                }
             }
         }
 
         function updateLastSeen(node, service) {
             if (!node) return;
             const age = service?.train_seen?.age_s;
+            const panel = node.closest('[data-stop-panel]');
+            const pill = panel ? panel.querySelector('[data-field="primary-pill"]') : null;
+            const dot = pill ? pill.querySelector('.dot') : null;
+            const thresholdAttr = pill?.dataset?.staleThreshold;
+            const parsedThreshold = Number(thresholdAttr);
+            const threshold = Number.isFinite(parsedThreshold) ? parsedThreshold : 40;
+            const span = node.querySelector('[data-field="last-seen-seconds"]');
+            const MIN_VISIBLE_SECONDS = 60;
+
             if (typeof age === 'number') {
-                node.hidden = false;
-                const span = node.querySelector('[data-field="last-seen-seconds"]');
-                if (span) span.textContent = String(Math.max(0, Math.round(age)));
+                const rounded = Math.max(0, Math.round(age));
+                if (span) span.textContent = String(rounded);
+                if (dot) dot.setAttribute('title', `Visto hace ${rounded} s`);
+                if (rounded > MIN_VISIBLE_SECONDS) {
+                    node.hidden = false;
+                    node.removeAttribute('hidden');
+                } else {
+                    node.hidden = true;
+                    node.setAttribute('hidden', '');
+                }
+                if (pill) {
+                    if (age > threshold) pill.classList.add('is-semi-stale');
+                    else pill.classList.remove('is-semi-stale');
+                }
             } else {
                 node.hidden = true;
+                node.setAttribute('hidden', '');
+                if (pill) pill.classList.remove('is-semi-stale');
+                if (dot) dot.removeAttribute('title');
             }
+        }
+
+        function nextStopRefreshInterval(primary, baseInterval) {
+            let interval = baseInterval;
+            if (!primary) return interval;
+
+            const etaSeconds = Number(primary?.eta_seconds);
+            if (Number.isFinite(etaSeconds)) {
+                if (etaSeconds <= 5) {
+                    interval = Math.min(interval, STOP_REFRESH_INTERVALS.dwell);
+                } else if (etaSeconds <= 15) {
+                    interval = Math.min(interval, STOP_REFRESH_INTERVALS.imminent);
+                } else if (etaSeconds <= 30) {
+                    interval = Math.min(interval, STOP_REFRESH_INTERVALS.halfMinute);
+                } else if (etaSeconds <= 60) {
+                    interval = Math.min(interval, STOP_REFRESH_INTERVALS.subMinute);
+                }
+            }
+
+            const state = (primary?.train?.current_status || primary?.row?.status || '').toUpperCase();
+            if (state === 'STOPPED_AT') {
+                interval = Math.min(interval, STOP_REFRESH_INTERVALS.dwell);
+            }
+
+            return Math.max(interval, STOP_REFRESH_INTERVALS.min);
         }
 
         async function refreshStopApproachingNow(forceImmediate = false) {
@@ -1749,10 +1972,7 @@
                 let interval = st.baseInterval;
                 try {
                     const primary = Array.isArray(payload?.services) ? payload.services[0] : null;
-                    const etaSeconds = Number(primary?.eta_seconds);
-                    if (Number.isFinite(etaSeconds) && etaSeconds < 60) {
-                        interval = Math.min(st.baseInterval, 15_000);
-                    }
+                    interval = nextStopRefreshInterval(primary, st.baseInterval);
                 } catch (_) {
                     interval = st.baseInterval;
                 }

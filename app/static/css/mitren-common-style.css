@@ -1518,14 +1518,14 @@ ul.chip-list {
 
 .live-pill.is-semi-stale .dot,
 .live-pill.is-est .dot {
-    animation: live-blink 6s var(--vt-ease) infinite;
-    box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--jotaele-warning) 10%, transparent);
-    background: var(--jotaele-warning);
+    animation: live-blink 6s var(--vt-ease) infinite !important;
+    box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--jotaele-warning) 10%, transparent) !important;
+    background: var(--jotaele-warning) !important;
 }
 
 .live-pill.is-semi-stale .dot:after,
 .live-pill.is-est .dot:after {
-    display: none;
+    display: none !important;
 }
 
 @keyframes live-blink {
@@ -1776,6 +1776,7 @@ ul.chip-list {
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background 0.3s ease;
 }
 
 .platform-badge .platform-unit {
@@ -1958,7 +1959,7 @@ ul.chip-list {
 .train-eta-output-wrapper {
     position: relative;
     width: 12rem;
-    height: 2.2rem;
+    height: 2.5rem;
     display: flex;
     align-items: center;
     justify-content: center;
