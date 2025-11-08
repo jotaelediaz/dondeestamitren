@@ -1065,12 +1065,12 @@ ul.chip-list {
     overflow-y: clip;
 }
 
-.grid-route-map-station.origin-station .route-line-fragment {
+.grid-route-map .grid-route-map-station.origin-station .route-line-fragment {
     height: calc(100% - (var(--icon-dot-size) / 2));
     bottom: 0;
 }
 
-.grid-route-map-station.destination-station .route-line-fragment {
+.grid-route-map .grid-route-map-station.destination-station .route-line-fragment {
     height: calc(var(--icon-dot-size) / 2);
 }
 
@@ -2147,19 +2147,34 @@ ul.chip-list {
 .train-details-panel .train-details-header .train-details-preheader {
     display: flex;
     align-items: center;
+    color: var(--jotaele-text-muted);
+    font-weight: 500;
+    gap: calc(var(--app-margin) / 2);
+    margin-bottom: calc(var(--app-margin) * 1);
+    border-bottom: 2px solid var(--jotaele-background);
+    padding-bottom: calc(var(--app-margin) * 0.7);
 }
 
 .train-details-header {
     display: flex;
     flex-direction: column;
-    gap: calc(var(--app-margin) / 2.5);
+}
+
+.train-details-header .line-chip-icon.image-line-icon {
+    flex: 0 0 2rem;
 }
 
 .train-details-header-content {
-    display: flex;
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: fit-content(45%) 1fr fit-content(45%);
     align-items: center;
     gap: calc(var(--app-margin) / 1.5);
+    min-width: 0;
+    margin-bottom: var(--app-margin);
+}
+
+.train-header-terminal {
+    min-width: 0;
 }
 
 .train-details-header-content .train-header-terminal {
@@ -2177,16 +2192,14 @@ ul.chip-list {
     -webkit-box-orient: vertical;
 }
 
-.train-details-header-content .train-header-terminal.through {
-    flex: 1 1 1.5rem;
-    position: relative;
+.train-details-header-content .train-header-terminal.destination {
+    text-align: right;
+}
+
+.train-header-terminal.through {
     display: flex;
     align-items: center;
-    justify-content: center;
-    min-height: 0.75rem;
-    padding: 0.2rem 0;
-    -webkit-line-clamp: unset;
-    -webkit-box-orient: unset;
+    min-width: 2rem;
 }
 
 .train-details-header-content .train-header-terminal.through .through-line {
@@ -2194,7 +2207,7 @@ ul.chip-list {
     flex: 1 1 auto;
     min-width: 1.5rem;
     height: 0.2rem;
-    background: var(--jotaele-black);
+    background: var(--jotaele-color-button);
     border-radius: 999px;
     display: block;
 }
@@ -2202,9 +2215,82 @@ ul.chip-list {
 .train-details-header-content .train-header-terminal.through .through-arrow {
     width: 0;
     height: 0;
+    flex: 0 0 auto;
     border-top: 0.35rem solid transparent;
     border-bottom: 0.35rem solid transparent;
-    border-left: 0.55rem solid var(--jotaele-black);
+    border-left: 0.55rem solid var(--jotaele-color-button);
+}
+
+.mini-route-map-grid {
+    --line-route-width: 5px;
+    --number-of-stations: 3;
+    --icon-dot-size: calc(var(--line-route-width) * 2.5);
+
+    display: grid;
+    grid-template-rows: auto auto;
+    grid-template-columns: repeat(var(--number-of-stations), 1fr);
+    grid-row-gap: calc(var(--app-margin) * 0.5);
+    grid-auto-flow: column dense;
+}
+
+.mini-route-map-grid .route-line-wrapper {
+    display: flex;
+    width: 100%;
+    height: var(--icon-dot-size);
+    position: relative;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.mini-route-map-grid .route-line-fragment {
+    display: block;
+    position: absolute;
+    height: var(--line-route-width);
+    width: calc(100% + 1px);
+    background: var(--line-color);
+    top: calc(var(--icon-dot-size) / 3);
+}
+
+.mini-route-map-grid .route-dot {
+    position: absolute;
+    content: "";
+    display: block;
+    border-radius: 100%;
+    z-index: 2;
+    width: var(--icon-dot-size);
+    height: var(--icon-dot-size);
+    background: var(--line-color);
+    box-sizing: border-box;
+    transition: box-shadow 0.3s var(--vt-ease);
+}
+
+.mini-route-map-grid .grid-route-line {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--app-margin) / 1.5);
+}
+
+.mini-route-map-grid .grid-route-map-station.origin-station .route-line-wrapper,
+.mini-route-map-grid .grid-route-map-station.origin-station .grid-route-station-info {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.mini-route-map-grid .grid-route-map-station.destination-station .route-line-wrapper,
+.mini-route-map-grid .grid-route-map-station.destination-station .grid-route-station-info {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.mini-route-map-grid .arrival-hour {
+    color: var(--jotaele-black);
+    font-weight: 500;
+    font-size: 1.1rem;
+}
+
+.mini-route-map-grid .station-label {
+    color: var(--jotaele-text-subtle);
+    font-size: 1.1rem;
 }
 
 /* - Trains detail route map - */
