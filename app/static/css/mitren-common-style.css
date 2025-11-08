@@ -1810,6 +1810,10 @@ ul.chip-list {
     }
 }
 
+.second-train-approaching {
+    padding-top: 0.2rem;
+}
+
 .second-train-approaching .second-train-label {
     display: flex;
     gap: 0.225rem;

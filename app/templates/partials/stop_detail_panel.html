@@ -24,16 +24,10 @@
 	{% set i18n_primary_label_rt = 'Próximo tren:' %}
 	{% set i18n_primary_label_sched = 'Tren programado:' %}
 	{% set i18n_status_rt = 'En tiempo real' %}
-	{% set i18n_status_sched = 'Programado' %}
-	{% set i18n_status_suffix_sched = ' · Horario' %}
-	{% set i18n_status_suffix_tu = ' · TU' %}
-	{% set i18n_train_placeholder_rt = '—' %}
-	{% set i18n_train_placeholder_sched = 'Programado' %}
-	{% set i18n_train_aria = 'Ver detalle del tren %trainId%' %}
-	{% set i18n_platform_note_habitual = 'Habitual: %value%' %}
-	{% set i18n_platform_confidence = 'Confianza %value%%' %}
-	{% set i18n_platform_unpublishable = 'Sin vía habitual publicable' %}
 	{% set i18n_station_label = 'En estación' %}
+	{% set i18n_secondary_label = 'Siguiente tren:' %}
+	{% set i18n_secondary_placeholder = '—' %}
+	{% set i18n_secondary_clock_placeholder = '--:--' %}
 	<section class="stop-modal-body" data-stop-panel data-stop-state="loading" data-nucleus="{{ nucleus.slug }}" data-stop-id="{{ stop.stop_id }}">
 		<div class="nearest-train-card train-approaching is-loading"
 			     data-stop-primary
@@ -43,16 +37,10 @@
 			     data-string-primary-label-rt="{{ i18n_primary_label_rt }}"
 			     data-string-primary-label-sched="{{ i18n_primary_label_sched }}"
 			     data-string-status-live="{{ i18n_status_rt }}"
-			     data-string-status-sched="{{ i18n_status_sched }}"
-			     data-string-status-suffix-scheduled="{{ i18n_status_suffix_sched }}"
-			     data-string-status-suffix-tu="{{ i18n_status_suffix_tu }}"
-			     data-string-train-placeholder-live="{{ i18n_train_placeholder_rt }}"
-			     data-string-train-placeholder-sched="{{ i18n_train_placeholder_sched }}"
-			     data-string-train-aria-template="{{ i18n_train_aria }}"
-			     data-string-platform-note-habitual="{{ i18n_platform_note_habitual }}"
-			     data-string-platform-note-confidence="{{ i18n_platform_confidence }}"
-			     data-string-platform-note-unpublishable="{{ i18n_platform_unpublishable }}"
-			     data-string-station-label="{{ i18n_station_label }}">
+			     data-string-station-label="{{ i18n_station_label }}"
+			     data-string-secondary-label="{{ i18n_secondary_label }}"
+			     data-string-secondary-placeholder="{{ i18n_secondary_placeholder }}"
+			     data-string-secondary-clock-placeholder="{{ i18n_secondary_clock_placeholder }}">
 			<div class="train-eta-chip" id="eta-chip-{{ stop.stop_id }}">
 				<div class="nearest-train-header eta-header" id="eta-label-{{ stop.stop_id }}">
 					<span class="live-pill is-sched" data-field="primary-pill" data-stale-threshold="40" role="status" aria-live="polite" title="Próximo servicio">
@@ -97,19 +85,24 @@
 					</output>
 				</div>
 				
-				<p class="last-seen" data-field="last-seen" hidden><i class="material-symbols-rounded">hourglass_bottom</i> Última posición hace <span data-field="last-seen-seconds">0</span> s</p>
+				{#<p class="last-seen" data-field="last-seen" hidden><i class="material-symbols-rounded">hourglass_bottom</i> Última posición hace <span data-field="last-seen-seconds">0</span> s</p>#}
 				{#<p class="eta-source" data-field="primary-status-text">Cargando…</p>#}
 
-				<div class="second-train-approaching" data-field="secondary-wrapper" style="opacity: 0;">
+				<div class="second-train-approaching" data-field="secondary-wrapper" style="opacity: 0;" aria-hidden="true">
 					<p class="second-train-label">
 						<i class="material-symbols-rounded" aria-hidden="true">subdirectory_arrow_right</i>
 						<a class="second-train-link" data-field="secondary-link" href="#" aria-hidden="true" tabindex="-1">
-							Siguiente tren
+							{{ i18n_secondary_label }}
 						</a>
 						<span class="second-train-eta">
-							: <strong data-field="secondary-minutes">—</strong>
+							<data class="second-train-minutes" data-field="secondary-minutes" value="">
+								<span data-field="secondary-minutes-value">{{ i18n_secondary_placeholder }}</span>
+							</data>
+							<span class="unit">min</span>
 						</span>
-{#						<span class="second-train-clock" data-field="secondary-clock"></span>#}
+						<span class="second-train-clock" data-field="secondary-clock" hidden aria-hidden="true">
+							(<span data-field="secondary-clock-value">{{ i18n_secondary_clock_placeholder }}</span>)
+						</span>
 					</p>
 				</div>
 			</div>
@@ -128,26 +121,24 @@
 						<data value="{{ initial_platform_label }}"><span class="platform-unit" data-field="platform-label">{{ initial_platform_label }}</span></data>
 					</div>
 				</div>
-				{% set initial_note = i18n_platform_unpublishable if habitual_publishable is defined and not habitual_publishable else '' %}
-				<p class="platform-note" data-field="platform-note"{% if not initial_note %} hidden{% endif %}>{{ initial_note }}</p>
 			</div>
 		</div>
 
-		<div class="stop-modal-footer" data-stop-footer style="--train-color: {{ route.color_bg }}">
-				<div class="train-id-chip">
-					<div class="route-train-chip-icon chip-icon">
-						<i class="material-symbols-rounded" aria-hidden="true">train</i>
-					</div>
-					<div class="train-id-badge" data-field="train-id-wrapper">
-						<a data-field="train-link" href="#" aria-label="{{ i18n_train_aria|replace('%trainId%', '')|trim }}" hidden>
-							<data value=""><span class="train-id-unit" data-field="train-id">{{ i18n_train_placeholder_rt }}</span></data>
+			<div class="stop-modal-footer" data-stop-footer style="--train-color: {{ route.color_bg }}">
+					<div class="train-id-chip">
+						<div class="route-train-chip-icon chip-icon">
+							<i class="material-symbols-rounded" aria-hidden="true">train</i>
+						</div>
+						<div class="train-id-badge" data-field="train-id-wrapper">
+						<a data-field="train-link" href="#" aria-label="Ver detalle del tren" hidden>
+							<data value=""><span class="train-id-unit" data-field="train-id">—</span></data>
 						</a>
-						<span data-field="train-id-placeholder">{{ i18n_train_placeholder_rt }}</span>
+						<span data-field="train-id-placeholder">—</span>
 						{#<span class="train-id-status-tag" data-field="train-id-tag" hidden><i class="material-symbols-rounded">nest_clock_farsight_analog</i></span>#}
 					</div>
 				</div>
 			<div class="view-train-link" data-field="train-view-link" hidden>
-				<a href="#" aria-label="{{ i18n_train_aria|replace('%trainId%', '')|trim }}" data-field="train-view-anchor">
+				<a href="#" aria-label="Ver detalle del tren" data-field="train-view-anchor">
 					<i class="material-symbols-rounded" aria-hidden="true">directions_railway</i>
 					Ver tren
 					</a>
