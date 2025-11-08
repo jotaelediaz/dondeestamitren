@@ -200,6 +200,30 @@
         const IDX_LT = 1;
         const IDX_ONE = DIGIT_OFFSET + 1;
 
+        function _withVisible(el, fn) {
+            if (!el || typeof fn !== 'function') return typeof fn === 'function' ? fn() : undefined;
+            const wasHidden = el.hasAttribute('hidden');
+            const wasInert = el.hasAttribute('inert');
+            const prevAria = el.getAttribute('aria-hidden');
+            const prevVisibility = el.style.visibility;
+            const prevPointer = el.style.pointerEvents;
+            if (wasHidden) el.removeAttribute('hidden');
+            if (wasInert) el.removeAttribute('inert');
+            if (prevAria !== null) el.setAttribute('aria-hidden', prevAria);
+            el.style.visibility = 'hidden';
+            el.style.pointerEvents = 'none';
+            try {
+                return fn();
+            } finally {
+                el.style.visibility = prevVisibility || '';
+                el.style.pointerEvents = prevPointer || '';
+                if (wasHidden) el.setAttribute('hidden', '');
+                if (wasInert) el.setAttribute('inert', '');
+                if (prevAria !== null) el.setAttribute('aria-hidden', prevAria);
+                else el.removeAttribute('aria-hidden');
+            }
+        }
+
         function _parseNumberish(a, t) {
             const c = [];
             if (a != null && a !== '') c.push(String(a));
@@ -219,26 +243,30 @@
         }
 
         function _measureStepPx(el) {
-            const digits = el.__rnDigitColumns?.[0];
-            let span = digits && digits.children && digits.children[2];
-            if (!span && digits) span = digits.querySelector('span:nth-child(3)');
-            let px = span ? span.getBoundingClientRect().height : 0;
-            if (!px || !Number.isFinite(px) || px <= 0) {
-                const fs = parseFloat(getComputedStyle(el).fontSize);
-                px = Number.isFinite(fs) && fs > 0 ? fs : 16;
-            }
-            return px;
+            return _withVisible(el, () => {
+                const digits = el.__rnDigitColumns?.[0];
+                let span = digits && digits.children && digits.children[2];
+                if (!span && digits) span = digits.querySelector('span:nth-child(3)');
+                let px = span ? span.getBoundingClientRect().height : 0;
+                if (!px || !Number.isFinite(px) || px <= 0) {
+                    const fs = parseFloat(getComputedStyle(el).fontSize);
+                    px = Number.isFinite(fs) && fs > 0 ? fs : 16;
+                }
+                return px;
+            });
         }
 
         function _measureColWidthPx(el) {
-            const cols = el.__rnDigitColumns || [];
-            let w = 0;
-            cols.forEach((digits) => {
-                if (!digits) return;
-                const r = digits.getBoundingClientRect();
-                if (r && Number.isFinite(r.width) && r.width > w) w = r.width;
+            return _withVisible(el, () => {
+                const cols = el.__rnDigitColumns || [];
+                let w = 0;
+                cols.forEach((digits) => {
+                    if (!digits) return;
+                    const r = digits.getBoundingClientRect();
+                    if (r && Number.isFinite(r.width) && r.width > w) w = r.width;
+                });
+                return w || 0;
             });
-            return w || 0;
         }
 
         function _applyTransformsPx(el, idx0, idx1) {
@@ -346,26 +374,28 @@
             };
 
             requestAnimationFrame(() => {
-                el.__rnStepPx = _measureStepPx(el);
-                const cw = _measureColWidthPx(el);
-                if (cw) el.style.setProperty('--rn-col-w', `${cw}px`);
-                const sampleDigit = digitColumns[0] && digitColumns[0].children && digitColumns[0].children[2]
-                    ? digitColumns[0].children[2]
-                    : digitColumns[0]?.querySelector('span:nth-child(3)');
-                const digitRect = sampleDigit ? sampleDigit.getBoundingClientRect() : null;
-                if (digitRect && Number.isFinite(digitRect.height) && digitRect.height > 0) {
-                    el.style.setProperty('--rn-digit-height', `${digitRect.height}px`);
-                }
-                const numericRect = numericFace.getBoundingClientRect();
-                const stationRect = stationFace.getBoundingClientRect();
-                const faceHeight = Math.max(
-                    0,
-                    Number.isFinite(numericRect?.height) ? numericRect.height : 0,
-                    Number.isFinite(stationRect?.height) ? stationRect.height : 0,
-                );
-                if (faceHeight > 0) facesWrapper.style.setProperty('--rn-face-height', `${faceHeight}px`);
-                _applyTransformsPx(el, i0, i1);
-                setStationState(el, initialStationActive, stationLabel);
+                _withVisible(el, () => {
+                    el.__rnStepPx = _measureStepPx(el);
+                    const cw = _measureColWidthPx(el);
+                    if (cw) el.style.setProperty('--rn-col-w', `${cw}px`);
+                    const sampleDigit = digitColumns[0] && digitColumns[0].children && digitColumns[0].children[2]
+                        ? digitColumns[0].children[2]
+                        : digitColumns[0]?.querySelector('span:nth-child(3)');
+                    const digitRect = sampleDigit ? sampleDigit.getBoundingClientRect() : null;
+                    if (digitRect && Number.isFinite(digitRect.height) && digitRect.height > 0) {
+                        el.style.setProperty('--rn-digit-height', `${digitRect.height}px`);
+                    }
+                    const numericRect = numericFace.getBoundingClientRect();
+                    const stationRect = stationFace.getBoundingClientRect();
+                    const faceHeight = Math.max(
+                        0,
+                        Number.isFinite(numericRect?.height) ? numericRect.height : 0,
+                        Number.isFinite(stationRect?.height) ? stationRect.height : 0,
+                    );
+                    if (faceHeight > 0) facesWrapper.style.setProperty('--rn-face-height', `${faceHeight}px`);
+                    _applyTransformsPx(el, i0, i1);
+                    setStationState(el, initialStationActive, stationLabel);
+                });
             });
 
             el.dataset.value0 = String(i0);
@@ -693,6 +723,92 @@
         return { ensure: _ensure, update: _update };
     })();
 
+    const ETA_VIEW_PREF_PREFIX = 'stopPanelEtaView:';
+
+    function normalizeStopPanelStopId(reference) {
+        if (!reference) return '';
+        const attr =
+            (reference.dataset && reference.dataset.stopId)
+            || (reference.getAttribute && reference.getAttribute('data-stop-id'))
+            || '';
+        if (attr) return String(attr).trim();
+        const card = reference.closest ? reference.closest('[data-stop-primary]') : null;
+        if (card) {
+            const cardId =
+                (card.dataset && card.dataset.stopId)
+                || (card.getAttribute && card.getAttribute('data-stop-id'))
+                || '';
+            if (cardId) return String(cardId).trim();
+        }
+        const panel = reference.closest ? reference.closest('[data-stop-panel]') : null;
+        if (panel) {
+            const panelId =
+                (panel.dataset && panel.dataset.stopId)
+                || (panel.getAttribute && panel.getAttribute('data-stop-id'))
+                || '';
+            if (panelId) return String(panelId).trim();
+        }
+        return '';
+    }
+
+    function loadEtaViewPreference(stopId) {
+        if (!stopId || typeof window === 'undefined' || !window.localStorage) return null;
+        try {
+            const value = window.localStorage.getItem(`${ETA_VIEW_PREF_PREFIX}${stopId}`);
+            return value === 'clock' || value === 'min' ? value : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function saveEtaViewPreference(stopId, mode) {
+        if (!stopId || typeof window === 'undefined' || !window.localStorage) return;
+        const normalized = mode === 'clock' ? 'clock' : mode === 'min' ? 'min' : null;
+        if (!normalized) return;
+        try {
+            window.localStorage.setItem(`${ETA_VIEW_PREF_PREFIX}${stopId}`, normalized);
+        } catch (_) {
+            /* ignore */
+        }
+    }
+
+    function inferEtaViewFromMinutes(minutes) {
+        if (Number.isFinite(minutes) && minutes >= 60) return 'clock';
+        return 'min';
+    }
+
+    function applyEtaViewMode(chip, mode) {
+        if (!chip) return 'min';
+        const minNode = chip.querySelector('#eta-primary');
+        const clockNode = chip.querySelector('#eta-clock');
+        const hasClock = !!clockNode;
+        const wantClock = mode === 'clock' && hasClock;
+        const view = wantClock ? 'clock' : 'min';
+        const wantMin = !wantClock;
+
+        chip.setAttribute('data-view', view);
+
+        if (minNode) {
+            minNode.hidden = !wantMin;
+            minNode.setAttribute('aria-hidden', wantMin ? 'false' : 'true');
+            minNode.toggleAttribute('inert', !wantMin);
+        }
+        if (clockNode) {
+            clockNode.hidden = !wantClock;
+            clockNode.setAttribute('aria-hidden', wantClock ? 'false' : 'true');
+            clockNode.toggleAttribute('inert', !wantClock);
+        }
+
+        return view;
+    }
+
+    function resolvePreferredEtaView(card, minutes) {
+        const stopId = normalizeStopPanelStopId(card);
+        const stored = loadEtaViewPreference(stopId);
+        if (stored === 'clock' || stored === 'min') return stored;
+        return inferEtaViewFromMinutes(minutes);
+    }
+
     const DEFAULT_STOP_PANEL_STRINGS = Object.freeze({
         primaryLabelRealtime: 'Próximo tren en:',
         primaryLabelScheduled: 'Próxima salida:',
@@ -780,71 +896,55 @@
         return false;
     }
 
-    function wireETA(root=document) {
-        const chip = root.querySelector ? root.querySelector('.train-eta-chip') : null;
-        if (!chip) return;
+        function wireETA(root=document) {
+            const chip = root.querySelector ? root.querySelector('.train-eta-chip') : null;
+            if (!chip) return;
 
-        const card = chip.closest ? chip.closest('[data-stop-primary]') : null;
-        const minEl = chip.querySelector ? chip.querySelector('#eta-primary') : null;
-        let clockEl = chip.querySelector ? chip.querySelector('#eta-clock') : null;
+            const card = chip.closest ? chip.closest('[data-stop-primary]') : null;
+            const minEl = chip.querySelector ? chip.querySelector('#eta-primary') : null;
+            let clockEl = chip.querySelector ? chip.querySelector('#eta-clock') : null;
 
-        const isLoading = !!(
-            (card && card.dataset && card.dataset.loaded === 'false') ||
-            (minEl && minEl.getAttribute && minEl.getAttribute('data-loading') === 'true')
-        );
-        if (isLoading) return;
+            const isLoading = !!(
+                (card && card.dataset && card.dataset.loaded === 'false') ||
+                (minEl && minEl.getAttribute && minEl.getAttribute('data-loading') === 'true')
+            );
+            if (isLoading) return;
 
-        if (minEl) RollingNumber.ensure(minEl);
+            if (minEl) RollingNumber.ensure(minEl);
 
-        if (!clockEl) {
-            clockEl = document.createElement('output');
-            clockEl.id = 'eta-clock';
-            clockEl.className = 'train-eta-time is-clock';
-            clockEl.setAttribute('role', 'status');
-            clockEl.setAttribute('aria-live', 'polite');
-            clockEl.setAttribute('aria-atomic', 'true');
-            clockEl.setAttribute('data-field', 'primary-clock');
-            const attr = minEl && minEl.getAttribute ? minEl.getAttribute('data-eta-min') : null;
-            if (attr != null) clockEl.setAttribute('data-eta-min', attr);
-            clockEl.hidden = true;
-            clockEl.setAttribute('aria-hidden','true');
-            clockEl.setAttribute('inert','');
-            const time = document.createElement('time');
-            time.textContent = '--:--';
-            clockEl.appendChild(time);
-            const unit = document.createElement('span');
-            unit.className = 'unit';
-            unit.textContent = 'h';
-            clockEl.appendChild(unit);
-            chip.appendChild(clockEl);
-        }
-
-        if (clockEl) RollingClock.ensure(clockEl);
-
-        function setVisible(showClock) {
-            const minNode = chip.querySelector('#eta-primary');
-            const clockNode = chip.querySelector('#eta-clock');
-            const hasClock = !!clockNode;
-            const wantClock = !!showClock && hasClock;
-            const wantMin = !wantClock;
-
-            chip.setAttribute('data-view', wantClock ? 'clock' : 'min');
-
-            if (minNode) {
-                minNode.hidden = !wantMin;
-                minNode.setAttribute('aria-hidden', wantMin ? 'false' : 'true');
-                minNode.toggleAttribute('inert', !wantMin);
+            if (!clockEl) {
+                clockEl = document.createElement('output');
+                clockEl.id = 'eta-clock';
+                clockEl.className = 'train-eta-time is-clock';
+                clockEl.setAttribute('role', 'status');
+                clockEl.setAttribute('aria-live', 'polite');
+                clockEl.setAttribute('aria-atomic', 'true');
+                clockEl.setAttribute('data-field', 'primary-clock');
+                const attr = minEl && minEl.getAttribute ? minEl.getAttribute('data-eta-min') : null;
+                if (attr != null) clockEl.setAttribute('data-eta-min', attr);
+                clockEl.hidden = true;
+                clockEl.setAttribute('aria-hidden','true');
+                clockEl.setAttribute('inert','');
+                const time = document.createElement('time');
+                time.textContent = '--:--';
+                clockEl.appendChild(time);
+                const unit = document.createElement('span');
+                unit.className = 'unit';
+                unit.textContent = 'h';
+                clockEl.appendChild(unit);
+                chip.appendChild(clockEl);
             }
-            if (clockNode) {
-                clockNode.hidden = !wantClock;
-                clockNode.setAttribute('aria-hidden', wantClock ? 'false' : 'true');
-                clockNode.toggleAttribute('inert', !wantClock);
-            }
-        }
 
-        const initialViewIsClock = chip.getAttribute('data-view') === 'clock';
-        setVisible(initialViewIsClock);
-    }
+            if (clockEl) RollingClock.ensure(clockEl);
+
+            const stopId = normalizeStopPanelStopId(chip);
+            if (stopId) chip.dataset.stopId = stopId;
+            let desiredView = chip.getAttribute('data-view');
+            if (desiredView !== 'clock' && desiredView !== 'min') {
+                desiredView = loadEtaViewPreference(stopId) || 'min';
+            }
+            applyEtaViewMode(chip, desiredView);
+        }
 
     let etaDelegatedBound = false;
     function bindGlobalEtaToggleDelegation() {
@@ -871,19 +971,10 @@
             const currentView = chip.getAttribute('data-view') || (clockEl && !clockEl.hidden ? 'clock' : 'min');
             const nextIsClock = currentView !== 'clock';
             const wantClock = !!nextIsClock && !!clockEl;
-            const wantMin = !wantClock;
-
-            if (minEl) {
-                minEl.hidden = !wantMin;
-                minEl.setAttribute('aria-hidden', wantMin ? 'false' : 'true');
-                minEl.toggleAttribute('inert', !wantMin);
-            }
-            if (clockEl) {
-                clockEl.hidden = !wantClock;
-                clockEl.setAttribute('aria-hidden', wantClock ? 'false' : 'true');
-                clockEl.toggleAttribute('inert', !wantClock);
-            }
-            chip.setAttribute('data-view', wantClock ? 'clock' : 'min');
+            const nextMode = wantClock ? 'clock' : 'min';
+            applyEtaViewMode(chip, nextMode);
+            const stopId = normalizeStopPanelStopId(chip);
+            saveEtaViewPreference(stopId, nextMode);
         }, { passive: true });
     }
 
@@ -1628,6 +1719,7 @@
             const stopPanel = card.closest('[data-stop-panel]');
             const stopIdAttr = card.getAttribute('data-stop-id') || card.dataset.stopId || (stopPanel ? stopPanel.dataset.stopId : '') || '';
             const stopId = stopIdAttr != null ? String(stopIdAttr) : '';
+            if (chip && stopId) chip.dataset.stopId = stopId;
             const train = service.train || {};
             const trainState = (train.current_status || '').toUpperCase();
             const actualStopCandidates = [];
@@ -1677,10 +1769,6 @@
                 && trainState === 'STOPPED_AT'
                 && stopMatches;
 
-            if (chip) {
-                chip.setAttribute('data-view', 'min');
-            }
-
             const pill = card.querySelector('[data-field="primary-pill"]');
             if (pill) {
                 pill.classList.remove('is-tu', 'is-sched', 'is-est');
@@ -1715,6 +1803,11 @@
                 const timeNode = clockEl.querySelector('time');
                 if (timeNode) timeNode.textContent = hhmm || '--:--';
                 RollingClock.ensure(clockEl);
+            }
+
+            if (chip) {
+                const desiredView = resolvePreferredEtaView(card, minutes);
+                applyEtaViewMode(chip, desiredView);
             }
 
             const rowStatus = (service?.row?.status || '').toUpperCase();
@@ -1927,7 +2020,8 @@
             }
 
             if (clockEl) {
-                if (hhmm) {
+                const showClock = Number.isFinite(minutes) && minutes >= 60 && !!hhmm;
+                if (showClock) {
                     clockEl.hidden = false;
                     clockEl.setAttribute('aria-hidden', 'false');
                     clockEl.setAttribute('data-eta-hhmm', hhmm);

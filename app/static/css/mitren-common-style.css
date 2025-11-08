@@ -1825,6 +1825,10 @@ ul.chip-list {
     color: var(--jotaele-text-muted);
 }
 
+.second-train-approaching .second-train-label a {
+    color: var(--jotaele-text-muted);
+}
+
 .stop-modal-footer {
     margin-top: calc(var(--app-margin) * 1);
     display: flex;
