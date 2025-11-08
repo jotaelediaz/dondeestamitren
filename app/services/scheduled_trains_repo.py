@@ -696,6 +696,14 @@ class ScheduledTrainsRepo:
                 return sch
         return None
 
+    def trip_terminal_stop_ids(
+        self, trip_id: str, tz_name: str = "Europe/Madrid"
+    ) -> tuple[str | None, str | None]:
+        sch = self.get_scheduled_train_by_trip_id(trip_id, tz_name=tz_name)
+        if not sch:
+            return None, None
+        return sch.origin_id, sch.destination_id
+
     def get_trip_schedule(self, trip_id: str, tz_name: str = "Europe/Madrid") -> dict | None:
         sch = self.get_scheduled_train_by_trip_id(trip_id, tz_name=tz_name)
         if not sch:

@@ -747,110 +747,81 @@ def scheduled_departure_epoch_for_trip(
     return None
 
 
-def _destination_for_trip_or_route(
-    trip_id: str | None,
-    route_id: str | None,
-) -> tuple[str | None, str | None]:
-    dest_stop_id: str | None = None
-    srepo = get_scheduled_repo()
-
-    if trip_id:
-        for attr in ("get_trip_schedule", "get_scheduled_train_by_trip_id", "get_trip"):
-            if hasattr(srepo, attr):
-                try:
-                    v = getattr(srepo, attr)(trip_id)
-                except Exception:
-                    v = None
-                if not v:
-                    continue
-
-                if isinstance(v, dict):
-                    dest_stop_id = v.get("destination_id") or v.get("last_stop_id")
-                    if not dest_stop_id:
-                        calls = v.get("calls") or v.get("stops") or []
-                        if calls and isinstance(calls, list):
-                            try:
-                                last = max(
-                                    calls,
-                                    key=lambda c: (
-                                        c.get("stop_sequence")
-                                        if isinstance(c, dict)
-                                        else getattr(c, "stop_sequence", 0)
-                                    ),
-                                )
-                            except Exception:
-                                last = calls[-1]
-                            dest_stop_id = (
-                                last.get("stop_id")
-                                if isinstance(last, dict)
-                                else getattr(last, "stop_id", None)
-                            )
-                    if dest_stop_id:
-                        break
-
-                if hasattr(v, "destination_id"):
-                    dest_stop_id = getattr(v, "destination_id", None)
-                    if not dest_stop_id:
-                        calls = getattr(v, "ordered_calls", None) or getattr(v, "calls", None) or []
-                        if calls:
-                            try:
-                                last = max(
-                                    calls,
-                                    key=lambda c: (
-                                        getattr(c, "stop_sequence", 0),
-                                        getattr(c, "time_s", 0) if hasattr(c, "time_s") else 0,
-                                    ),
-                                )
-                                dest_stop_id = getattr(last, "stop_id", None)
-                            except Exception:
-                                pass
-                    if dest_stop_id:
-                        break
-
+def _route_terminal_stop_id(route_id: str | None, terminal: str) -> str | None:
+    if not route_id:
+        return None
     rrepo = get_routes_repo()
-    if not dest_stop_id and route_id:
+    if terminal == "destination":
+        with contextlib.suppress(Exception):
+            cand = rrepo.route_destination(route_id)
+            if cand:
+                return cand
+    for did in ("", "0", "1"):
         try:
-            dest_stop_id = rrepo.route_destination(route_id)
+            lv = rrepo.get_by_route_and_dir(route_id, did)
         except Exception:
-            dest_stop_id = None
-
-    if not dest_stop_id and route_id:
-        for did in ("", "0", "1"):
-            try:
-                lv = rrepo.get_by_route_and_dir(route_id, did)
-            except Exception:
-                lv = None
-            if not lv:
-                continue
+            lv = None
+        if not lv:
+            continue
+        cand = None
+        if terminal == "destination":
             cand = getattr(lv, "destination_id", None)
             if not cand and getattr(lv, "destination", None):
                 cand = getattr(lv.destination, "stop_id", None)
             if not cand:
                 stations = getattr(lv, "stations", None)
                 if stations:
-                    try:
+                    with contextlib.suppress(Exception):
                         cand = stations[-1].stop_id
-                    except Exception:
-                        cand = None
-            if cand:
-                dest_stop_id = cand
-                break
+        else:
+            cand = getattr(lv, "origin_id", None)
+            if not cand and getattr(lv, "origin", None):
+                cand = getattr(lv.origin, "stop_id", None)
+            if not cand:
+                stations = getattr(lv, "stations", None)
+                if stations:
+                    with contextlib.suppress(Exception):
+                        cand = stations[0].stop_id
+        if cand:
+            return cand
+    return None
 
-    dest_name: str | None = None
-    if dest_stop_id:
-        try:
-            dest_name = rrepo.get_stop_name(dest_stop_id)
-        except Exception:
-            dest_name = None
-        if not dest_name:
-            try:
-                st = get_stops_repo().get_by_id(dest_stop_id)
-                if st and getattr(st, "name", None):
-                    dest_name = st.name
-            except Exception:
-                pass
 
-    return dest_stop_id, dest_name
+def _stop_name_for_id(stop_id: str | None) -> str | None:
+    if not stop_id:
+        return None
+    rrepo = get_routes_repo()
+    with contextlib.suppress(Exception):
+        name = rrepo.get_stop_name(stop_id)
+        if name:
+            return name
+    return None
+
+
+def _origin_for_trip_or_route(
+    trip_id: str | None,
+    route_id: str | None,
+) -> tuple[str | None, str | None]:
+    origin_stop_id: str | None = None
+    if trip_id:
+        with contextlib.suppress(Exception):
+            origin_stop_id, _ = get_scheduled_repo().trip_terminal_stop_ids(trip_id)
+    if not origin_stop_id:
+        origin_stop_id = _route_terminal_stop_id(route_id, "origin")
+    return origin_stop_id, _stop_name_for_id(origin_stop_id)
+
+
+def _destination_for_trip_or_route(
+    trip_id: str | None,
+    route_id: str | None,
+) -> tuple[str | None, str | None]:
+    dest_stop_id: str | None = None
+    if trip_id:
+        with contextlib.suppress(Exception):
+            _, dest_stop_id = get_scheduled_repo().trip_terminal_stop_ids(trip_id)
+    if not dest_stop_id:
+        dest_stop_id = _route_terminal_stop_id(route_id, "destination")
+    return dest_stop_id, _stop_name_for_id(dest_stop_id)
 
 
 # ------------------------ Dual list by nucleus ------------------------
@@ -1151,6 +1122,8 @@ def build_train_detail_vm(
         "platform": None,
         "train_seen_iso": "—",
         "train_seen_age": None,
+        "origin_stop_id": None,
+        "origin_name": None,
         "destination_stop_id": None,
         "destination_name": None,
         "unified": None,
@@ -1212,6 +1185,7 @@ def build_train_detail_vm(
                 except Exception:
                     pass
 
+        origin_stop_id, origin_name = _origin_for_trip_or_route(trip_id, route_id)
         dest_stop_id, dest_name = _destination_for_trip_or_route(trip_id, route_id)
         hhmm_final = _fmt_hhmm_local(dep_epoch) if dep_epoch is not None else dep_hhmm_hint
 
@@ -1252,6 +1226,8 @@ def build_train_detail_vm(
             "scheduled_departure_epoch": dep_epoch,
             "scheduled_departure_hhmm": hhmm_final,
         }
+        vm["origin_stop_id"] = origin_stop_id
+        vm["origin_name"] = origin_name
         vm["destination_stop_id"] = dest_stop_id
         vm["destination_name"] = dest_name
 
@@ -1263,6 +1239,8 @@ def build_train_detail_vm(
             "route_id": route_id or "",
             "route_short_name": getattr(live_obj, "route_short_name", "")
             or _route_short_name(route_id),
+            "origin_stop_id": origin_stop_id,
+            "origin_name": origin_name,
             "destination_stop_id": dest_stop_id,
             "destination_name": dest_name,
             "status_text": status_text,
@@ -1284,7 +1262,10 @@ def build_train_detail_vm(
 
     trip_id = sched.get("trip_id") if sched else None
     route_id = sched.get("route_id") if sched else None
+    origin_stop_id, origin_name = _origin_for_trip_or_route(trip_id, route_id)
     dest_stop_id, dest_name = _destination_for_trip_or_route(trip_id, route_id)
+    vm["origin_stop_id"] = origin_stop_id
+    vm["origin_name"] = origin_name
     vm["destination_stop_id"] = dest_stop_id
     vm["destination_name"] = dest_name
 
@@ -1343,6 +1324,8 @@ def build_train_detail_vm(
         "nucleus_slug": nucleus,
         "route_id": (sched.get("route_id") if sched else "") or "",
         "route_short_name": (sched.get("route_short_name") if sched else "") or "",
+        "origin_stop_id": origin_stop_id,
+        "origin_name": origin_name,
         "destination_stop_id": dest_stop_id,
         "destination_name": dest_name,
         "status_text": status_text,

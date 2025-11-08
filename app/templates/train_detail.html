@@ -12,7 +12,6 @@
 					<div class="route-train-chip-icon chip-icon">
 						<i class="material-symbols-rounded" aria-hidden="true">train</i>
 					</div>
-					{#{{ get_cercanias_line_icon(route.route_short_name, route.nucleus_id, route.color_bg) }}#}
 				</div>
 				<h2 class="line-name">
 					Tren {{ train_service.train_label }}
@@ -24,6 +23,24 @@
 		
 		<div class="app-block-padding app-block-vertical-padding">
 			<div class="train-details-panel" data-train-id="{{ train_service.train_label }}">
+				<div class="train-details-header">
+					<a href="/routes/{{ nucleus.slug }}/{{ train_service.route_id }}" class="train-details-route-link train-details-preheader">
+						{{ get_cercanias_line_icon(train_service.route_short_name, nucleus.slug, red) }}
+						<span class="train-details-label">Cercanías {{ nucleus.name }}</span>
+					</a>
+					<div class="train-details-header-content">
+						<div class="train-header-terminal origin">
+							{{ train_service.origin_name or '—' }}
+						</div>
+						<div class="train-header-terminal through" aria-hidden="true">
+							<span class="through-line"></span>
+							<span class="through-arrow"></span>
+						</div>
+						<div class="train-header-terminal destination">
+							{{ train_service.destination_name or '—' }}
+						</div>
+					</div>
+				</div>
 				<li><strong>Estado:</strong> {{ train_service.status_text or '—' }}</li>
 				<li><strong>Parada actual:</strong>
 					{% if kind == 'live' and train %}
@@ -36,8 +53,6 @@
 						{{ '%.5f'|format(train_service.lat) }}, {{ '%.5f'|format(train_service.lon) }}
 					{% else %}—{% endif %}
 				</li>
-				<li><strong>Ruta:</strong>{{ train_service.route_id }}</li>
-				<li><strong>Código de línea:</strong> {{ train_service.route_short_name or '—' }}</li>
 			</div>
 		</div>
 
