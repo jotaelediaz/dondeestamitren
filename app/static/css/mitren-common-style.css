@@ -2139,20 +2139,23 @@ ul.chip-list {
 
 .train-details-panel {
     background: var(--jotaele-white);
-    padding: var(--app-margin) calc(var(--app-margin) * 1.2);
+    padding: calc(var(--app-margin) * 1.08) calc(var(--app-margin) * 1.5);
+    padding-top: calc(var(--app-margin) * 1);
     border-radius: 15px;
     box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
+    font-size: 0.9rem;
 }
 
 .train-details-panel .train-details-header .train-details-preheader {
     display: flex;
     align-items: center;
     color: var(--jotaele-text-muted);
+    font-size: 1rem;
     font-weight: 500;
-    gap: calc(var(--app-margin) / 2);
-    margin-bottom: calc(var(--app-margin) * 1);
+    gap: calc(var(--app-margin) * 0.5);
+    margin-bottom: calc(var(--app-margin) * 0.9);
     border-bottom: 2px solid var(--jotaele-background);
-    padding-bottom: calc(var(--app-margin) * 0.7);
+    padding-bottom: calc(var(--app-margin) * 0.65);
 }
 
 .train-details-header {
@@ -2161,16 +2164,17 @@ ul.chip-list {
 }
 
 .train-details-header .line-chip-icon.image-line-icon {
-    flex: 0 0 2rem;
+    flex: 0 0;
+    height: 1.26rem;
 }
 
 .train-details-header-content {
     display: grid;
-    grid-template-columns: fit-content(45%) 1fr fit-content(45%);
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    gap: calc(var(--app-margin) / 1.5);
+    gap: calc(var(--app-margin) * 0.6);
     min-width: 0;
-    margin-bottom: var(--app-margin);
+    margin-bottom: calc(var(--app-margin) * 0.63);
 }
 
 .train-header-terminal {
@@ -2183,7 +2187,7 @@ ul.chip-list {
     font-weight: 700;
     color: var(--jotaele-black);
     background: transparent;
-    font-size: 1rem;
+    font-size: 0.9rem;
     line-height: 1.1em;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2199,37 +2203,65 @@ ul.chip-list {
 .train-header-terminal.through {
     display: flex;
     align-items: center;
-    min-width: 2rem;
+    min-width: 2.5rem;
 }
 
-.train-details-header-content .train-header-terminal.through .through-line {
-    position: relative;
-    flex: 1 1 auto;
-    min-width: 1.5rem;
-    height: 0.2rem;
-    background: var(--jotaele-color-button);
-    border-radius: 999px;
-    display: block;
+.train-details-header-content .train-header-terminal.through .through-chevrons {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
 }
 
-.train-details-header-content .train-header-terminal.through .through-arrow {
-    width: 0;
-    height: 0;
-    flex: 0 0 auto;
-    border-top: 0.35rem solid transparent;
-    border-bottom: 0.35rem solid transparent;
-    border-left: 0.55rem solid var(--jotaele-color-button);
+.train-details-header-content .train-header-terminal.through .through-chevron {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-top: 0.2rem solid var(--jotaele-color-button);
+    border-right: 0.2rem solid var(--jotaele-color-button);
+    transform: rotate(45deg);
+    opacity: 0.25;
+    animation: through-chevron-pulse 2s ease-in-out infinite;
+}
+
+.train-details-header-content .train-header-terminal.through .through-chevron + .through-chevron {
+    margin-left: -0.2rem;
+}
+
+.train-details-header-content .train-header-terminal.through .through-chevron:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.train-details-header-content .train-header-terminal.through .through-chevron:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes through-chevron-pulse {
+    0% {
+        opacity: 0.2;
+        transform: translateX(0) rotate(45deg);
+    }
+    30% {
+        opacity: 1;
+        transform: translateX(0) rotate(45deg);
+    }
+    60% {
+        opacity: 0.4;
+        transform: translateX(0) rotate(45deg);
+    }
+    100% {
+        opacity: 0.2;
+        transform: translateX(0) rotate(45deg);
+    }
 }
 
 .mini-route-map-grid {
-    --line-route-width: 5px;
+    --line-route-width: 4.5px;
     --number-of-stations: 3;
     --icon-dot-size: calc(var(--line-route-width) * 2.5);
 
     display: grid;
     grid-template-rows: auto auto;
     grid-template-columns: repeat(var(--number-of-stations), 1fr);
-    grid-row-gap: calc(var(--app-margin) * 0.5);
+    grid-row-gap: calc(var(--app-margin) * 0.3);
     grid-auto-flow: column dense;
 }
 
@@ -2264,10 +2296,44 @@ ul.chip-list {
     transition: box-shadow 0.3s var(--vt-ease);
 }
 
+.mini-route-map-grid .grid-route-map-station.through-station {
+    --through-ellipsis-dot-size: calc(var(--line-route-width) * 1);
+    --through-ellipsis-inner-gap: calc(var(--through-ellipsis-dot-size) * 2);
+    --through-ellipsis-outer-gap: calc(var(--through-ellipsis-dot-size) * 4);
+    --through-ellipsis-break: calc(var(--through-ellipsis-outer-gap));
+}
+
+.mini-route-map-grid .grid-route-map-station.through-station .route-line-fragment {
+    background: linear-gradient(
+        to right,
+        var(--line-color) 0 calc(50% - var(--through-ellipsis-break)),
+        transparent calc(50% - var(--through-ellipsis-break)) calc(50% + var(--through-ellipsis-break)),
+        var(--line-color) calc(50% + var(--through-ellipsis-break)) 100%
+    );
+}
+
+.mini-route-map-grid .grid-route-map-station.through-station .route-dot {
+    top: calc(
+        (var(--icon-dot-size) / 3) + (var(--line-route-width) / 2) - (var(--through-ellipsis-dot-size) / 2)
+    );
+    left: 50%;
+    width: var(--through-ellipsis-dot-size);
+    height: var(--through-ellipsis-dot-size);
+    border-radius: 50%;
+    transform: translateX(-50%);
+    background: var(--line-color);
+    border: 0;
+    box-shadow:
+        calc(var(--through-ellipsis-inner-gap) * -1) 0 0 var(--line-color),
+        calc(var(--through-ellipsis-inner-gap) * 1) 0 0 var(--line-color),
+        calc(var(--through-ellipsis-outer-gap) * -1) 0 0 var(--line-color),
+        calc(var(--through-ellipsis-outer-gap) * 1) 0 0 var(--line-color);
+}
+
 .mini-route-map-grid .grid-route-line {
     display: flex;
     align-items: center;
-    gap: calc(var(--app-margin) / 1.5);
+    gap: calc(var(--app-margin) * 0.6);
 }
 
 .mini-route-map-grid .grid-route-map-station.origin-station .route-line-wrapper,
@@ -2285,12 +2351,14 @@ ul.chip-list {
 .mini-route-map-grid .arrival-hour {
     color: var(--jotaele-black);
     font-weight: 500;
-    font-size: 1.1rem;
+    font-size: 1.15rem;
+    letter-spacing: -0.5px;
 }
 
 .mini-route-map-grid .station-label {
     color: var(--jotaele-text-subtle);
-    font-size: 1.1rem;
+    font-size: 0.9rem;
+    font-weight: 400;
 }
 
 /* - Trains detail route map - */
@@ -2310,7 +2378,7 @@ ul.chip-list {
 
 .grid-route-map .stop-times {
     display: flex;
-    gap: calc(var(--app-margin) / 1.5);
+    gap: calc(var(--app-margin) * 0.6);
 }
 
 .grid-route-map .stop-time {

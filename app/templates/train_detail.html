@@ -14,6 +14,32 @@
 		or (last_stop.eta_dep_hhmm if last_stop else None)
 		or (last_stop.sched_arr_hhmm if last_stop else None)
 		or (last_stop.sched_dep_hhmm if last_stop else None) %}
+	{% set base_status_text = train_service.status_text if train_service else None %}
+	{% set train_status_label = base_status_text or ('Programado' if kind == 'scheduled' else 'Estado desconocido') %}
+	{% set status_text_lower = (base_status_text or '')|lower %}
+	{% set stop_scope = namespace(current=None, upcoming=None) %}
+	{% for stop in trip_stops %}
+		{% set normalized_status = (stop.status or stop.flag or '')|upper %}
+		{% if stop_scope.current is none and normalized_status == 'CURRENT' %}
+			{% set stop_scope.current = stop %}
+		{% elif stop_scope.upcoming is none and normalized_status in ['NEXT', 'UPCOMING', 'FUTURE'] %}
+			{% set stop_scope.upcoming = stop %}
+		{% endif %}
+	{% endfor %}
+	{% if kind == 'live' %}
+		{% if stop_scope.current %}
+			{% set current_name = stop_scope.current.stop_name
+				or repo.get_stop_name(stop_scope.current.stop_id)
+				or stop_scope.current.stop_id %}
+			{% set train_status_label = 'Parado en ' ~ current_name %}
+		{% elif stop_scope.upcoming %}
+			{% set next_name = stop_scope.upcoming.stop_name
+				or repo.get_stop_name(stop_scope.upcoming.stop_id)
+				or stop_scope.upcoming.stop_id %}
+			{% set status_prefix = 'Llegando a' if ('llegando' in status_text_lower or 'incoming' in status_text_lower or 'arriving' in status_text_lower) else 'En camino a' %}
+			{% set train_status_label = status_prefix ~ ' ' ~ next_name %}
+		{% endif %}
+	{% endif %}
 	<section id="line-route" class="line-route app-main-content" aria-label="Tren {{ train_service.train_label }}" style="--train-color: {{ route.color_bg }}">
 		<div class="app-block-padding sticky-title">
 			<div class="line-chip-header">
@@ -45,8 +71,11 @@
 							{{ train_service.origin_name or '—' }}
 						</div>
 						<div class="train-header-terminal through" aria-hidden="true">
-							<span class="through-line"></span>
-							<span class="through-arrow"></span>
+							<span class="through-chevrons">
+								<span class="through-chevron"></span>
+								<span class="through-chevron"></span>
+								<span class="through-chevron"></span>
+							</span>
 						</div>
 						<div class="train-header-terminal destination">
 							{{ train_service.destination_name or '—' }}
@@ -85,7 +114,7 @@
 								
 								<div class="grid-route-station-info">
 									<div class="grid-route-station-name">
-										<span class="station-label" >T</span>
+										<span class="station-label">{{ train_status_label }}</span>
 									</div>
 								</div>
 							</div>
@@ -111,12 +140,6 @@
 						</div>
 					</div>
 				</div>
-{#				<li><strong>Estado:</strong> {{ train_service.status_text or '—' }}</li>
-				<li><strong>Parada actual:</strong>
-					{% if kind == 'live' and train %}
-						{{ repo.get_stop_name(train.stop_id) }} <i>({{ train_service.stop_id or "—" }})</i>
-					{% else %}—{% endif %}
-				</li>#}
 {#				<li><strong>Vía:</strong> {{ train_service.platform or '—' }}</li>
 				<li><strong>Posición:</strong>
 					{% if train_service.lat is not none and train_service.lon is not none %}
