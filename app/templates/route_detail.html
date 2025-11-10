@@ -20,7 +20,7 @@
 						</button>#}
 						{% set reverse_id = repo.get_opposite_route_id(route.route_id) %}
 						{% if reverse_id %}
-							<a class="line-chip-header-button line-toggle-reverse" href="/routes/{{ nucleus.slug }}/{{ reverse_id }}" title="Ver sentido inverso" aria-label="Ver sentido inverso" rel="alternate">
+							<a class="line-chip-header-button line-toggle-button line-toggle-reverse" href="/routes/{{ nucleus.slug }}/{{ reverse_id }}" title="Ver sentido inverso" aria-label="Ver sentido inverso" rel="alternate">
 								<i class="material-symbols-rounded" aria-hidden="true" style="font-size:1.2rem;line-height:1;">swap_vert</i>
 							</a>
 						{% endif %}

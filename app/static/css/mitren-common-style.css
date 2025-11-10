@@ -959,7 +959,7 @@ ul.chip-list {
 .line-card[data-state="b"] .line-name-swappable .front { transform: rotateX(-180deg); }
 .line-card[data-state="b"] .line-name-swappable .back  { transform: rotateX(0deg); }
 
-.line-toggle-reverse {
+.line-toggle-button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -974,8 +974,8 @@ ul.chip-list {
     transition: ease 0.3s;
 }
 
-.line-toggle-reverse:hover,
-.line-toggle-reverse:active {
+.line-toggle-button:hover,
+.line-toggle-button:active {
     background: var(--jotaele-teal);
     color: var(--jotaele-white);
 }
@@ -1221,7 +1221,7 @@ ul.chip-list {
 
 .connections-group[hidden] { opacity: 0 !important; }
 
-.line-chip-header-buttons .line-toggle-reverse {
+.line-chip-header-buttons .line-toggle-button {
     margin: 0 0;
     background: var(--jotaele-white);
     color: var(--jotaele-color-button-accent);
@@ -1456,14 +1456,23 @@ ul.chip-list {
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    overflow-x: clip;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    font-size: 0.9rem;
+    letter-spacing: -0.01em;
+}
+
+.route-train-chip-card .route-train-chip-stop-name .station-label-text {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
-    font-size: 0.9rem;
-    letter-spacing: -0.01em;
 }
+
 
 #route-trains-panel .drawer-body {
     flex: 1 1 auto;
@@ -1518,13 +1527,20 @@ ul.chip-list {
 
 .live-pill.is-semi-stale .dot,
 .live-pill.is-est .dot {
-    animation: live-blink 6s var(--vt-ease) infinite !important;
+    animation: live-blink 3s var(--vt-ease) infinite !important;
     box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--jotaele-warning) 10%, transparent) !important;
     background: var(--jotaele-warning) !important;
 }
 
+.live-pill.is-completed .dot {
+    animation: live-blink 3s var(--vt-ease) infinite !important;
+    box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--jotaele-success) 10%, transparent) !important;
+    background: var(--jotaele-success) !important;
+}
+
 .live-pill.is-semi-stale .dot:after,
-.live-pill.is-est .dot:after {
+.live-pill.is-est .dot:after,
+.live-pill.is-completed .dot:after {
     display: none !important;
 }
 
@@ -2139,8 +2155,7 @@ ul.chip-list {
 
 .train-details-panel {
     background: var(--jotaele-white);
-    padding: calc(var(--app-margin) * 1.08) calc(var(--app-margin) * 1.5);
-    padding-top: calc(var(--app-margin) * 1);
+    padding: calc(var(--app-margin)) calc(var(--app-margin) * 1.2);
     border-radius: 15px;
     box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
     font-size: 0.9rem;
@@ -2148,24 +2163,72 @@ ul.chip-list {
 
 .train-details-panel .train-details-header .train-details-preheader {
     display: flex;
+    color: var(--jotaele-black);
+    font-family: 'Sora', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    white-space: nowrap;
+    gap: 0.3rem;
     align-items: center;
-    color: var(--jotaele-text-muted);
-    font-size: 1rem;
+    justify-content: center;
+}
+
+.train-type-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: 999px;
+    font-family: 'Rubik', sans-serif;
+    font-size: 0.8rem;
     font-weight: 500;
-    gap: calc(var(--app-margin) * 0.5);
-    margin-bottom: calc(var(--app-margin) * 0.9);
-    border-bottom: 2px solid var(--jotaele-background);
-    padding-bottom: calc(var(--app-margin) * 0.65);
+    letter-spacing: 0.1px;
+    line-height: 1;
+    color: var(--jotaele-color-button);
+    box-sizing: border-box;
+}
+
+.train-type-badge .material-symbols-rounded {
+    font-size: 0.8rem;
+    line-height: 1;
+    font-variation-settings: "FILL" 0, "wght" 600, "GRAD" 0, "opsz" 24;
+}
+
+.train-type-badge__label {
+    display: inline-block;
+}
+
+.train-type-live-dot {
+    --size: 0.45rem;
+    margin-left: 0.1rem;
+    flex-shrink: 0;
+    line-height: 0;
+}
+
+.train-type-live-dot .dot {
+    display: block;
+}
+
+.train-type-badge.is-live {
+
+}
+
+.train-type-badge.is-scheduled {
+
 }
 
 .train-details-header {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid var(--jotaele-background);
+    padding-bottom: calc(var(--app-margin) * 0.7);
+    margin-bottom: calc(var(--app-margin) * 1);
 }
 
 .train-details-header .line-chip-icon.image-line-icon {
     flex: 0 0;
-    height: 1.26rem;
+    height: 1.15rem;
 }
 
 .train-details-header-content {
@@ -2174,7 +2237,7 @@ ul.chip-list {
     align-items: center;
     gap: calc(var(--app-margin) * 0.6);
     min-width: 0;
-    margin-bottom: calc(var(--app-margin) * 0.63);
+    margin-bottom: calc(var(--app-margin) * 0.5);
 }
 
 .train-header-terminal {
@@ -2202,8 +2265,9 @@ ul.chip-list {
 
 .train-header-terminal.through {
     display: flex;
-    align-items: center;
-    min-width: 2.5rem;
+    align-items: flex-end;
+    min-width: 4rem;
+    justify-content: center;
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevrons {
@@ -2219,19 +2283,32 @@ ul.chip-list {
     border-right: 0.2rem solid var(--jotaele-color-button);
     transform: rotate(45deg);
     opacity: 0.25;
-    animation: through-chevron-pulse 2s ease-in-out infinite;
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevron + .through-chevron {
     margin-left: -0.2rem;
 }
 
-.train-details-header-content .train-header-terminal.through .through-chevron:nth-child(2) {
+.train-details-header-content .train-header-terminal.through .through-chevrons.train-flow-state--in-transit .through-chevron {
+    animation: through-chevron-pulse 2s ease-in-out infinite;
+}
+
+.train-details-header-content .train-header-terminal.through .through-chevrons.train-flow-state--in-transit .through-chevron:nth-child(2) {
     animation-delay: 0.15s;
 }
 
-.train-details-header-content .train-header-terminal.through .through-chevron:nth-child(3) {
+.train-details-header-content .train-header-terminal.through .through-chevrons.train-flow-state--in-transit .through-chevron:nth-child(3) {
     animation-delay: 0.3s;
+}
+
+.train-details-header-content .train-header-terminal.through .through-chevrons.train-flow-state--origin .through-chevron {
+    opacity: 1;
+}
+
+.train-details-header-content .train-header-terminal.through .through-chevrons.train-flow-state--destination .through-chevron {
+    opacity: 1;
+    border-top: 0.2rem solid var(--jotaele-success);
+    border-right: 0.2rem solid var(--jotaele-success);
 }
 
 @keyframes through-chevron-pulse {
@@ -2254,12 +2331,12 @@ ul.chip-list {
 }
 
 .mini-route-map-grid {
-    --line-route-width: 4.5px;
+    --line-route-width: 5px;
     --number-of-stations: 3;
     --icon-dot-size: calc(var(--line-route-width) * 2.5);
 
     display: grid;
-    grid-template-rows: auto auto;
+    grid-template-rows: auto;
     grid-template-columns: repeat(var(--number-of-stations), 1fr);
     grid-row-gap: calc(var(--app-margin) * 0.3);
     grid-auto-flow: column dense;
@@ -2336,6 +2413,10 @@ ul.chip-list {
     gap: calc(var(--app-margin) * 0.6);
 }
 
+.mini-route-map-grid .grid-route-station-info {
+    display: none;
+}
+
 .mini-route-map-grid .grid-route-map-station.origin-station .route-line-wrapper,
 .mini-route-map-grid .grid-route-map-station.origin-station .grid-route-station-info {
     display: flex;
@@ -2351,14 +2432,141 @@ ul.chip-list {
 .mini-route-map-grid .arrival-hour {
     color: var(--jotaele-black);
     font-weight: 500;
-    font-size: 1.15rem;
-    letter-spacing: -0.5px;
+    font-size: 1.1rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.mini-route-map-grid .station-block.destination-station .arrival-hour {
+    text-align: right;
+}
+
+.arrival-hour .arrival-hour-sched {
+    color: var(--jotaele-black);
+    font-weight: 400;
+    font-size: 0.8em;
+}
+
+.arrival-hour .arrival-hour-sched.train-arrival-time--late {
+    color: var(--jotaele-error);
+    text-decoration: line-through;
+}
+
+.arrival-hour .arrival-hour-sched.train-arrival-time--early {
+    color: var(--jotaele-success);
+    text-decoration: line-through;
 }
 
 .mini-route-map-grid .station-label {
     color: var(--jotaele-text-subtle);
     font-size: 0.9rem;
     font-weight: 400;
+}
+
+.mini-route-map-labels .station-label {
+    color: var(--jotaele-text-subtle);
+    font-size: 1rem;
+    display: flex;
+    font-weight: 400;
+    gap: 0.4rem;
+}
+
+.mini-route-map-labels .mini-route-label.through-label .station-label {
+    width: 80%;
+}
+
+.station-status-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.station-status-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background: var(--jotaele-background-accent);
+    color: var(--jotaele-color-button);
+    flex-shrink: 0;
+}
+
+.station-status-icon .material-symbols-rounded {
+    font-size: 0.7rem;
+    line-height: normal;
+    font-variation-settings: "FILL" 0, "wght" 700, "GRAD" 0, "opsz" 24;
+}
+
+.station-status-label .station-label-text {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: normal;
+    text-align: inherit;
+    align-items: center;
+}
+
+.mini-route-label.through-label .station-status-label {
+    justify-content: center;
+    text-align: center;
+    margin: 0 auto;
+    max-width: 100%;
+}
+
+.mini-route-map-labels {
+    display: grid;
+    align-items: flex-start;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    gap: calc(var(--app-margin) * 0.6);
+    display: none !important;
+}
+
+.mini-route-label {
+    display: flex;
+    align-items: center;
+    min-height: 1.5rem;
+}
+
+.mini-route-label.origin-label {
+    grid-column: 1 / 2;
+    justify-content: flex-start;
+}
+
+.mini-route-label.through-label {
+    grid-column: 2 / 3;
+    justify-content: center;
+}
+
+.mini-route-label.destination-label {
+    grid-column: 3 / 4;
+    justify-content: flex-end;
+}
+
+.mini-route-label.through-label .station-label-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex: 0 1 auto;
+    line-height: 1.1em;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.mini-route-label.through-label .station-label-text .train-status-label {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;
+    font-size: 0.9rem;
+    text-align: left;
 }
 
 /* - Trains detail route map - */

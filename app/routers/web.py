@@ -717,6 +717,9 @@ def train_detail(
         for sid, rec in rt_info.items()
     }
 
+    train_obj = vm.get("train")
+    train_last_stop_id = getattr(train_obj, "stop_id", None) if train_obj else None
+
     return render(
         request,
         "train_detail.html",
@@ -734,6 +737,7 @@ def train_detail(
             "route": vm["route"],
             "trip": vm["trip"],
             "rt_arrival_times": rt_arrival_times,
+            "train_last_seen_stop_id": train_last_stop_id,
         },
     )
 

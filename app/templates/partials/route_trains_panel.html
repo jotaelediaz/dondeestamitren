@@ -44,10 +44,24 @@
 	</div>
 	
 	<div class="drawer-body">
-		{% if trains %}
+{% set live_status_labels = {
+	'STOPPED_AT': 'En estación',
+	'IN_TRANSIT_TO': 'En tránsito a',
+	'INCOMING_AT': 'Llegando a'
+} %}
+{% set live_status_icons = {
+	'STOPPED_AT': 'step_into',
+	'IN_TRANSIT_TO': 'arrow_right_alt',
+	'INCOMING_AT': 'step'
+} %}
+{% if trains %}
 			<ul class="train-list grouped-lists-scroll-horizontal" id="rtp-list" aria-live="polite" aria-busy="false">
 				{% for t in trains %}
 					{% set train_route = repo.get_by_route_and_dir(t.route_id, dir) %}
+					{% set stop_name = repo.get_stop_name(t.stop_id) or ('Parada ' ~ (t.stop_id or '—')) %}
+					{% set status_key = (t.current_status or '')|upper %}
+					{% set status_label = live_status_labels.get(status_key, 'Próxima parada') %}
+					{% set status_icon = live_status_icons.get(status_key, 'arrow_right_alt') %}
 					<li class="route-train-chip-card chip-card" style="--train-color: {{ train_route.color_bg }};" data-route-id="{{ train_route.route_id }}" data-train-id="{{ t.train_id }}">
 						<a href="/trains/{{ nucleus.slug }}/{{ t.train_id }}"
 						   hx-target="#content"
@@ -60,8 +74,11 @@
 								<h4 class="train-name chip-name">Tren {{ t.train_id }}</h4>
 							</div>
 							<div class="route-train-chip-body">
-                <span class="route-train-chip-stop-name">
-                  {{ repo.get_stop_name(t.stop_id) or ('Parada ' ~ (t.stop_id or '—')) }}
+                <span class="route-train-chip-stop-name station-label station-status-label" title="{{ stop_name }}" aria-label="{{ stop_name }}">
+									<span class="station-status-icon" title="{{ status_label }}" aria-label="{{ status_label }}">
+										<span class="material-symbols-rounded">{{ status_icon }}</span>
+									</span>
+									<span class="station-label-text">{{ stop_name }}</span>
                 </span>
 							</div>
 						</a>

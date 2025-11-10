@@ -321,20 +321,27 @@ def build_rt_arrival_times_from_vm(
         min_ahead_s=min_ahead_s,
     )
 
-    eta_stream = _constant_delay_eta_stream(
-        order_sids=order_sids,
-        start_idx=pivot_idx,
-        sched_arrival_by_stop=sched_arrival_by_stop,
-        base_delay_s=int(delay_pivot_s),
-        tu_map=tu_map,
-        now_ts=now_epoch,
-        min_ahead_s=min_ahead_s,
-        allow_downstream_tu_override=bool(downstream_tu_override),
-    )
+    last_idx = len(order_sids) - 1
+    st = _norm_status(_fld(vp, "current_status"))
+    getattr(vp, "stop_id", None) if vp else None
+    if isinstance(current_idx, int) and current_idx >= last_idx and st == "STOPPED_AT":
+        pivot_idx = len(order_sids)
+
+    eta_stream: dict[str, int] = {}
+    if pivot_idx < len(order_sids):
+        eta_stream = _constant_delay_eta_stream(
+            order_sids=order_sids,
+            start_idx=pivot_idx,
+            sched_arrival_by_stop=sched_arrival_by_stop,
+            base_delay_s=int(delay_pivot_s),
+            tu_map=tu_map,
+            now_ts=now_epoch,
+            min_ahead_s=min_ahead_s,
+            allow_downstream_tu_override=bool(downstream_tu_override),
+        )
 
     out_epochs: dict[str, int] = {}
 
-    st = _norm_status(_fld(vp, "current_status"))
     if isinstance(current_idx, int) and current_sid:
         cur_sid = str(current_sid)
         cur_ep_tu = (tu_map.get(cur_sid) or {}).get("epoch")
@@ -346,7 +353,7 @@ def build_rt_arrival_times_from_vm(
     for sid in order_sids[pivot_idx:]:
         sid_s = str(sid)
         ep = eta_stream.get(sid_s)
-        if isinstance(ep, int):
+        if isinstance(ep, int) and sid_s not in out_epochs:
             out_epochs[sid_s] = int(ep)
 
     out_info: dict[str, dict] = {}
