@@ -1,0 +1,17 @@
+{
+  "name": "dondeestamitren",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "copy:assets": "mkdir -p app/static/vendor && cp node_modules/maplibre-gl/dist/maplibre-gl.css app/static/vendor/ && cp node_modules/maplibre-gl/dist/maplibre-gl.js app/static/vendor/ && cp node_modules/htmx.org/dist/htmx.min.js app/static/vendor/"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "htmx.org": "^2.0.8",
+    "maplibre-gl": "^5.12.0"
+  }
+}

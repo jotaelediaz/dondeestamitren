@@ -7,6 +7,7 @@ build/
 /.idea/
 .idea/
 tmp/
+/node_modules/
 
 # Venv
 .venv/

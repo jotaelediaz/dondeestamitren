@@ -25,6 +25,9 @@
 			{{ '🔴' if train_seen_age > 900 else '🟡' if train_seen_age > 30 else '🟢'}}
 		</p>
 	{% endif %}
+	<p>
+		<a href="/alpha/trains/{{ nucleus.slug }}/{{ unified.train_label }}/map">→ Ver tren en un mapa</a>
+	</p>
 </header>
 
 <table border="1" cellpadding="6" cellspacing="0">

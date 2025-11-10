@@ -1473,6 +1473,78 @@ ul.chip-list {
     -webkit-box-orient: vertical;
 }
 
+/* - Train Map - */
+
+.train-map-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-margin);
+    padding: calc(var(--app-margin) * 1.2);
+}
+
+.train-map-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--app-margin) * 0.7);
+    font-size: 0.9rem;
+    color: var(--jotaele-text-muted);
+}
+
+.train-map-meta strong {
+    color: var(--jotaele-black);
+    font-weight: 600;
+    margin-right: 0.15rem;
+}
+
+.train-map-container {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 9rem);
+    min-height: 20rem;
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid var(--jotaele-background-accent);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+}
+
+#train-map {
+    width: 100%;
+    height: 100%;
+}
+
+.train-map-footer {
+    font-size: 0.82rem;
+    color: var(--jotaele-text-muted);
+}
+
+.train-map-marker {
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    background: #952585;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+    border: 3px solid #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.train-map-static {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.train-map-static img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: saturate(1.1);
+}
+
 
 #route-trains-panel .drawer-body {
     flex: 1 1 auto;
@@ -2430,7 +2502,7 @@ ul.chip-list {
 }
 
 .mini-route-map-grid .arrival-hour {
-    color: var(--jotaele-black);
+    color: var(--jotaele-text-muted);
     font-weight: 500;
     font-size: 1.1rem;
     display: flex;

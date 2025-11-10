@@ -756,3 +756,48 @@ def live_events(limit: int = 50):
 
     c = get_live_trains_cache()
     return c.debug_events(limit=limit)
+
+
+@router.get("/trains/{nucleus}/{identifier}/map", response_class=HTMLResponse)
+def train_map(
+    request: Request,
+    nucleus: str,
+    identifier: str,
+    tz: str = Query(default="Europe/Madrid"),
+):
+
+    if not re.fullmatch(r"\d{3,6}", (identifier or "").strip()):
+        raise HTTPException(400, "identifier must be a numeric train number (3–6 digits)")
+
+    cache = get_live_trains_cache()
+    get_routes_repo()
+    nucleus = (nucleus or "").lower()
+
+    vm = build_train_detail_vm(nucleus, identifier, tz_name=tz)
+    train_obj = vm.get("train")
+    if vm["kind"] != "live" or train_obj is None:
+        raise HTTPException(404, f"Train {identifier} not found or not live")
+
+    lat = getattr(train_obj, "lat", None)
+    lon = getattr(train_obj, "lon", None)
+    if lat in (None, "") or lon in (None, ""):
+        raise HTTPException(404, "Train position unavailable")
+
+    return render(
+        request,
+        "train_map.html",
+        {
+            "request": request,
+            "nucleus": mk_nucleus(nucleus),
+            "train": train_obj,
+            "train_service": vm.get("unified"),
+            "route": vm.get("route"),
+            "last_snapshot": cache.last_snapshot_iso(),
+            "position": {
+                "lat": float(lat),
+                "lon": float(lon),
+                "heading": getattr(train_obj, "bearing", None),
+                "timestamp": getattr(train_obj, "ts_unix", None),
+            },
+        },
+    )

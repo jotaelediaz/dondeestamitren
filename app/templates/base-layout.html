@@ -15,6 +15,7 @@
 	<link rel="preload" href="{{ request.url_for('static', path='fonts/MaterialSymbolsRoundedVF.woff2') }}" as="font" type="font/woff2" crossorigin>
 	
 	<link rel="stylesheet" href="{{ request.url_for('static', path='css/mitren-common-style.css') }}">
+	<link rel="stylesheet" href="{{ request.url_for('static', path='vendor/maplibre-gl.css') }}">
 	{% block extra_stylesheets %}{% endblock %}
 </head>
 <body
@@ -25,7 +26,7 @@
 	hx-select-oob="#bottom-nav-items, #topbar-items, #action-buttons-items"
 	hx-push-url="true">
 
-<script src="{{ request.url_for('static', path='js/htmx.min.js') }}"></script>
+<script src="{{ request.url_for('static', path='vendor/htmx.min.js') }}"></script>
 
 <main id="app" class="tft-screen-size container-main">
 	<header id="topbar" hx-preserve>
@@ -57,8 +58,13 @@
 
 {% block config_menu %}{% include "partials/config_menu.html" %}{% endblock %}
 
+<script defer src="{{ request.url_for('static', path='vendor/maplibre-gl.js') }}" onload="document.dispatchEvent(new Event('MapLibreReady'))"></script>
 <script defer src="{{ request.url_for('static', path='js/scripts.js') }}"></script>
 <script defer src="{{ request.url_for('static', path='js/nucleus.js') }}"></script>
+<script defer src="{{ request.url_for('static', path='js/train-map.js') }}"></script>
+
+<script defer src="{{ request.url_for('static', path='js/train-map.js') }}"></script>
+{% block extra_scripts %}{% endblock %}
 
 <script>
     htmx.config.globalViewTransitions = true;

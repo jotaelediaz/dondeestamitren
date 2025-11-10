@@ -1,0 +1,28 @@
+<header>
+    <p><a href="/alpha/trains/{{ nucleus.slug if nucleus else '' }}/{{ train.train_id }}">&larr; Volver al tren</a></p>
+    <h1>Mapa del tren {{ train.train_id }}</h1>
+    <p>Último snapshot: {{ last_snapshot or '—' }}</p>
+    <p>Lat/Lon: {{ '%.5f'|format(position.lat) }}, {{ '%.5f'|format(position.lon) }}</p>
+    {% if position.heading %}
+        <p>Rumbo: {{ position.heading }}°</p>
+    {% endif %}
+</header>
+
+{% if train_service.origin_name or train_service.destination_name %}
+    <p><strong>Ruta:</strong> {{ train_service.origin_name or '—' }} → {{ train_service.destination_name or '—' }}</p>
+	<p>Servido con MapLIbre GL · OpenStreetMap · CartoDB</p>
+{% endif %}
+
+<div id="alpha-train-map"
+     data-train-map="true"
+     style="width:100%;max-width:900px;height:500px;border:1px solid #ccc;"
+     data-map-lat="{{ position.lat }}"
+     data-map-lon="{{ position.lon }}"
+     data-map-heading="{{ position.heading or 0 }}"
+     data-map-train="{{ train.train_id }}"
+     data-map-route="{{ train_service.route_short_name or '' }}"></div>
+
+<link rel="stylesheet" href="{{ request.url_for('static', path='vendor/maplibre-gl.css') }}">
+<script defer src="{{ request.url_for('static', path='vendor/maplibre-gl.js') }}"
+        onload="document.dispatchEvent(new Event('MapLibreReady'))"></script>
+<script defer src="{{ request.url_for('static', path='js/train-map.js') }}"></script>

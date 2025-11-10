@@ -1,0 +1,58 @@
+{% extends "base-layout.html" %}
+
+{% block title %}Mapa del tren {{ train.train_id }}{% endblock %}
+
+{% block app_content %}
+<section class="line-route app-main-content" aria-label="Mapa del tren {{ train.train_id }}">
+    <div class="app-block-padding sticky-title">
+        <div class="line-chip-header">
+            <div class="line-chip-icon chip-icon-group train-detail-header">
+                <div class="line-chip-icon cercanias-logo-icon">
+                    <img alt="Cercanías" src="/static/img/icon-cercanias.svg">
+                </div>
+                <div class="route-train-chip-icon chip-icon">
+                    <i class="material-symbols-rounded" aria-hidden="true">map</i>
+                </div>
+            </div>
+            <h2 class="line-name">Mapa del tren {{ train.train_id }}</h2>
+            <div class="line-chip-header-buttons"></div>
+        </div>
+    </div>
+
+    <div class="app-block-padding app-block-vertical-padding">
+        <div class="train-details-panel" style="--line-color: {{ route.color_bg if route else '#7a99b4' }}">
+            <div class="train-details-header">
+                <div class="train-details-route-link train-details-preheader">
+                    <span class="train-details-label">{{ train_service.route_short_name or route.route_short_name if route else 'Servicio' }}</span>
+                </div>
+            </div>
+            <div class="train-map-panel">
+                <div class="train-map-meta">
+                    <span><strong>Último snapshot:</strong> {{ last_snapshot | default('—') }}</span>
+                    <span><strong>Lat/Lon:</strong> {{ '%.5f'|format(position.lat) }}, {{ '%.5f'|format(position.lon) }}</span>
+                    {% if position.heading %}
+                        <span><strong>Rumbo:</strong> {{ position.heading }}°</span>
+                    {% endif %}
+                </div>
+<div class="train-map-container">
+    <div id="train-map"
+         data-train-map="true"
+         role="region"
+         aria-label="Mapa con la posición actual del tren"
+         data-map-lat="{{ position.lat }}"
+         data-map-lon="{{ position.lon }}"
+         data-map-heading="{{ position.heading or 0 }}"
+         data-map-train="{{ train.train_id }}"
+         data-map-route="{{ train_service.route_short_name or route.route_short_name if route else '' }}">
+    </div>
+</div>
+                <p class="train-map-footer">Fuente de datos: {{ last_snapshot | default('—') }} — Posición estimada según el último snapshot disponible.</p>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block action_buttons %}
+    <div id="action-buttons-items" hx-swap-oob="true"></div>
+{% endblock %}
