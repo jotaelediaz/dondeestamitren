@@ -78,7 +78,8 @@
 			<th>#</th>
 			<th>Parada</th>
 			<th>Programado</th>
-			<th>Real (TU/RT)</th>
+			<th>Llegada real (TU/RT)</th>
+			<th>Salida real</th>
 			<th>Retraso</th>
 			<th>Relación</th>
 			<th>Estado</th>
@@ -89,24 +90,38 @@
 			{% set seq = r.get('seq') %}
 			{% set stop_id = r.get('stop_id') %}
 			{% set stop_name = r.get('stop_name') or repo.get_stop_name(stop_id) or stop_id %}
-			
+			{% set passed_hhmm = r.get('passed_at_hhmm') %}
+			{% set passed_epoch = r.get('passed_at_epoch') %}
+			{% set passed_delay_min = r.get('passed_delay_min') %}
+
 			{% set scheduled_hhmm =
 				r.get('scheduled_hhmm') or r.get('sched_arr_hhmm') or r.get('sched_dep_hhmm') %}
 			{% set scheduled_epoch =
 				r.get('scheduled_epoch') or r.get('sched_arr_epoch') or r.get('sched_dep_epoch') %}
-			
+			{% set departed_hhmm = r.get('departed_at_hhmm') %}
+			{% set departed_epoch = r.get('departed_at_epoch') %}
+			{% set departed_delay_min = r.get('departed_delay_min') %}
+
 			{% set real_hhmm =
-				r.get('tu_hhmm') or r.get('rt_hhmm')
-				or r.get('eta_arr_hhmm') or r.get('eta_dep_hhmm') %}
+				passed_hhmm
+				or r.get('tu_hhmm')
+				or r.get('rt_hhmm')
+				or r.get('eta_arr_hhmm')
+				or r.get('eta_dep_hhmm') %}
 			{% set real_epoch =
-				r.get('tu_dep_epoch') or r.get('tu_arr_epoch')
+				passed_epoch
+				or r.get('tu_dep_epoch')
+				or r.get('tu_arr_epoch')
 				or r.get('rt_epoch')
-				or r.get('eta_arr_epoch') or r.get('eta_dep_epoch') %}
+				or r.get('eta_arr_epoch')
+				or r.get('eta_dep_epoch') %}
 			
 			{% set tu_delay_s = r.get('tu_delay_s') %}
-			{% if tu_delay_s is not none %}
+			{% if passed_delay_min is not none %}
+				{% set delay_min = passed_delay_min %}
+			{% elif tu_delay_s is not none %}
 				{% set delay_min = (tu_delay_s // 60) %}
-				{% elif (real_epoch is not none) and (scheduled_epoch is not none) %}
+			{% elif (real_epoch is not none) and (scheduled_epoch is not none) %}
 				{% set delay_min = ((real_epoch - scheduled_epoch) // 60) %}
 			{% else %}
 				{% set delay_min = r.get('delay_min') %}
@@ -146,6 +161,15 @@
 						{% if real_epoch is not none %}<small>({{ real_epoch }})</small>{% endif %}
 						{% elif r.get('live_hhmm') %}
 						{{ r.get('live_hhmm') }}
+					{% else %}
+						—
+					{% endif %}
+				</td>
+				
+				<td>
+					{% if departed_hhmm %}
+						<b>{{ departed_hhmm }}</b>
+						{% if departed_epoch is not none %}<small>({{ departed_epoch }})</small>{% endif %}
 					{% else %}
 						—
 					{% endif %}

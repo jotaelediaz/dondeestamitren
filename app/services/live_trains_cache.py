@@ -18,6 +18,7 @@ from app.services.common_fetch import fetch_with_retry
 from app.services.platform_habits import get_service as get_platform_habits
 from app.services.renfe_client import get_client
 from app.services.routes_repo import get_repo as get_lines_repo
+from app.services.train_pass_recorder import cleanup_train_by_vehicle
 from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
 from app.utils.train_numbers import extract_train_number_int_from_train
@@ -500,6 +501,7 @@ class LiveTrainsCache:
             if (now_s - entry.last_seen_wall_s) >= MISSING_TTL_SECONDS:
                 to_del.append(tid)
         for tid in to_del:
+            cleanup_train_by_vehicle(tid)
             del self._entries[tid]
         if to_del:
             self._log("sweep_expired", removed=len(to_del), ttl=MISSING_TTL_SECONDS)

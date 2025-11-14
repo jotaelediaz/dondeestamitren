@@ -718,6 +718,21 @@ def train_detail(
         for sid, rec in rt_info.items()
     }
 
+    if vm["kind"] == "live":
+        for stop in (vm.get("trip") or {}).get("stops") or []:
+            epoch = stop.get("passed_at_epoch")
+            sid = stop.get("stop_id")
+            if epoch is None or not sid:
+                continue
+            delay_s = stop.get("passed_delay_s")
+            rt_arrival_times[sid] = {
+                "epoch": epoch,
+                "hhmm": hhmm_local(epoch, tz),
+                "delay_s": delay_s,
+                "delay_min": (int(delay_s / 60) if isinstance(delay_s, int) else None),
+                "is_passed": True,
+            }
+
     train_obj = vm.get("train")
     train_last_stop_id = getattr(train_obj, "stop_id", None) if train_obj else None
     detail_view = build_train_detail_view(

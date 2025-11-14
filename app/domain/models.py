@@ -424,6 +424,7 @@ class DerivedInfo:
     eta_by_stop: dict[str, int] = field(default_factory=dict)  # stop_id -> eta_secs
     delay_by_stop: dict[str, int] = field(default_factory=dict)  # stop_id -> delay_secs
     platform_pred: str | None = None
+    last_passed_stop_seq: int | None = None
 
 
 @dataclass

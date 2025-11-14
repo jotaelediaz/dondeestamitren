@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import math
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
@@ -23,6 +24,11 @@ from app.services.live_trains_cache import LiveTrainsCache, get_live_trains_cach
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
 from app.services.stops_repo import get_repo as get_stops_repo
+from app.services.train_pass_recorder import (
+    StopPassRecord,
+    get_stop_pass_records,
+    record_stop_passes_for_service,
+)
 from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
 from app.utils.train_numbers import extract_train_number_from_train
@@ -46,6 +52,127 @@ def _fmt_hhmm_local(epoch: int | None, tz_name: str = "Europe/Madrid") -> str | 
         return dt.strftime("%H:%M")
     except Exception:
         return None
+
+
+def _service_key_for_instance(inst: ServiceInstance | None, tz_name: str) -> str | None:
+    if inst is None:
+        return None
+    if inst.service_instance_id:
+        return inst.service_instance_id
+    if inst.scheduled_trip_id:
+        return f"{_service_date_str(tz_name)}:{inst.scheduled_trip_id}"
+    return None
+
+
+def _last_passed_stop_seq(rows: list[dict]) -> int | None:
+    seqs = []
+    for row in rows:
+        status = (row.get("status") or "").upper()
+        seq = row.get("seq")
+        if status == "PASSED" and isinstance(seq, int):
+            seqs.append(int(seq))
+    return max(seqs) if seqs else None
+
+
+def _current_stop_seq(rows: list[dict]) -> int | None:
+    for row in rows:
+        status = (row.get("status") or "").upper()
+        seq = row.get("seq")
+        if status == "CURRENT" and isinstance(seq, int):
+            return int(seq)
+    return None
+
+
+def _is_train_stopped(live_obj: Any) -> bool:
+    if not live_obj:
+        return False
+    status = getattr(live_obj, "current_status", None)
+    if isinstance(status, str):
+        return status.strip().upper() == "STOPPED_AT"
+    try:
+        return int(status) == 1
+    except Exception:
+        return False
+
+
+def _apply_pass_records_to_rows(
+    rows: list[dict], records: list[StopPassRecord], *, tz_name: str
+) -> None:
+    if not rows or not records:
+        return
+    rec_by_seq = {rec.stop_sequence: rec for rec in records}
+    for row in rows:
+        seq = row.get("seq")
+        if not isinstance(seq, int):
+            continue
+        rec = rec_by_seq.get(int(seq))
+        if not rec:
+            continue
+        orig_status = (row.get("status") or "").upper()
+        if orig_status != "CURRENT":
+            row["status"] = "PASSED"
+        if rec.arrival_epoch is not None:
+            row["passed_at_epoch"] = rec.arrival_epoch
+            row["passed_at_hhmm"] = _fmt_hhmm_local(rec.arrival_epoch, tz_name)
+        if rec.arrival_delay_sec is not None:
+            row["passed_delay_s"] = rec.arrival_delay_sec
+            row["passed_delay_min"] = int(rec.arrival_delay_sec / 60)
+        if rec.departure_epoch is not None:
+            row["departed_at_epoch"] = rec.departure_epoch
+            row["departed_at_hhmm"] = _fmt_hhmm_local(rec.departure_epoch, tz_name)
+        if rec.departure_delay_sec is not None:
+            row["departed_delay_s"] = rec.departure_delay_sec
+            row["departed_delay_min"] = int(rec.departure_delay_sec / 60)
+
+
+def _record_passes_for_instance(
+    inst: ServiceInstance | None,
+    *,
+    rows: list[dict],
+    live_obj: Any,
+    tz_name: str,
+) -> None:
+    if inst is None or not rows:
+        return
+    service_key = _service_key_for_instance(inst, tz_name)
+    if not service_key:
+        return
+    last_seq = _last_passed_stop_seq(rows)
+    ts_candidates = [
+        getattr(inst.realtime, "last_ts", None),
+        getattr(live_obj, "ts_unix", None) if live_obj else None,
+    ]
+    epoch = next((int(v) for v in ts_candidates if isinstance(v, int | float)), None)
+    if epoch is None:
+        epoch = int(time.time())
+
+    forced_arrivals: dict[int, int] = {}
+    forced_departures: dict[int, int] = {}
+    if live_obj and _is_train_stopped(live_obj):
+        cur_seq = _current_stop_seq(rows)
+        if isinstance(cur_seq, int):
+            forced_arrivals[cur_seq] = epoch
+            if last_seq is None or cur_seq > last_seq:
+                last_seq = cur_seq
+    else:
+        if isinstance(last_seq, int):
+            forced_departures[last_seq] = epoch
+
+    inst.derived.last_passed_stop_seq = last_seq
+    if last_seq is None:
+        return
+    record_stop_passes_for_service(
+        service_key,
+        stop_rows=rows,
+        last_passed_seq=int(last_seq),
+        timestamp=epoch,
+        train_id=getattr(live_obj, "train_id", None) if live_obj else None,
+        forced_arrivals=forced_arrivals or None,
+        forced_departures=forced_departures or None,
+    )
+    records = get_stop_pass_records(service_key)
+    if records:
+        _apply_pass_records_to_rows(rows, records, tz_name=tz_name)
 
 
 def _stu_epoch(stu) -> int | None:
@@ -1201,11 +1328,16 @@ def build_train_detail_vm(
 
         trip_id = None
         route_id = getattr(live_obj, "route_id", None)
+        inst: ServiceInstance | None = None
         try:
             inst, _ = link_vehicle_to_service(live_obj, tz_name=tz_name)
+        except Exception:
+            inst = None
+
+        if inst:
             trip_id = inst.scheduled_trip_id or getattr(live_obj, "trip_id", None)
             route_id = inst.route_id or route_id
-        except Exception:
+        else:
             trip_id = getattr(live_obj, "trip_id", None)
 
         vm["route"] = _resolve_route_obj(
@@ -1265,7 +1397,7 @@ def build_train_detail_vm(
             if dmin != 0:
                 status_text = f"{status_text} ({'+' if dmin > 0 else ''}{dmin} min)"
 
-        vm["trip"] = _build_trip_rows(
+        trip_rows = _build_trip_rows(
             trip_id=trip_id,
             route_id=route_id,
             direction_id=(
@@ -1277,6 +1409,15 @@ def build_train_detail_vm(
             live_obj=vm.get("train"),
             tz_name=tz_name,
         )
+        vm["trip"] = trip_rows
+
+        if inst:
+            _record_passes_for_instance(
+                inst,
+                rows=trip_rows.get("stops") or [],
+                live_obj=vm.get("train"),
+                tz_name=tz_name,
+            )
 
         vm["scheduled"] = {
             "trip_id": trip_id,
@@ -1659,6 +1800,13 @@ def list_predictions_for_stop(
             )
         except Exception:
             continue
+
+        _record_passes_for_instance(
+            inst,
+            rows=trip_rows.get("stops") or [],
+            live_obj=live,
+            tz_name=tz_name,
+        )
 
         rows = trip_rows.get("stops") or []
         target_row = next(

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     MADRID_STATIONS_CSV: str | None = "app/data/custom/listado-estaciones-cercanias-madrid.csv"
 
     # --- Live polling mode ---
-    LIVE_POLL_MODE: str = "adaptive"
+    LIVE_POLL_MODE: str = "cron"
     IDLE_SLEEP_SECONDS: int = 600  # 10 min without traffic -> sleep
     FRESHNESS_TOLERANCE_S: int = 35
 

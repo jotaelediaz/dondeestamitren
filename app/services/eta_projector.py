@@ -283,7 +283,7 @@ def build_rt_arrival_times_from_vm(
                 delay = _fld(s, "arrival_delay")
             delay_s = (
                 int(delay)
-                if isinstance(delay, (int | float))
+                if isinstance(delay, int | float)
                 else (
                     (int(ep) - int(sched_arrival_by_stop.get(sid, ep)))
                     if isinstance(ep, int) and isinstance(sched_arrival_by_stop.get(sid), int)
@@ -462,7 +462,7 @@ def _scheduled_arrival_epoch_for_stop(
             return int(dep_epoch)
 
         for raw_time in (_fld(call, "arrival_time"), _fld(call, "departure_time")):
-            if not isinstance(raw_time, (int | float)):
+            if not isinstance(raw_time, int | float):
                 continue
             if service_date:
                 year = service_date // 10000
@@ -680,6 +680,28 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
         tz_name=tz_name,
         downstream_tu_override=False,
     )
+
+    trip_rows = (vm.get("trip") or {}).get("stops") if vm.get("trip") else None
+    for stop in trip_rows or []:
+        sid = stop.get("stop_id")
+        epoch = stop.get("passed_at_epoch")
+        if not sid or epoch is None:
+            continue
+        sid_str = str(sid)
+        rec = dict(rt_info_by_sid.get(sid_str) or {})
+        rec["epoch"] = int(epoch)
+        delay_s = stop.get("passed_delay_s")
+        if isinstance(delay_s, int | float):
+            rec["delay_s"] = int(delay_s)
+            rec["delay_min"] = int(rec["delay_s"] / 60)
+        elif stop.get("passed_delay_min") is not None:
+            with suppress(Exception):
+                rec["delay_min"] = int(stop.get("passed_delay_min"))
+        elif rec.get("delay_s") is not None and rec.get("delay_min") is None:
+            with suppress(Exception):
+                rec["delay_min"] = int(int(rec["delay_s"]) / 60)
+        rec["is_passed"] = True
+        rt_info_by_sid[sid_str] = rec
 
     order_sids = [sid for (_i, sid, _c) in order]
 
