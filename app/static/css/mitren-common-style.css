@@ -877,8 +877,6 @@ ul.chip-list {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     touch-action: pan-y;
-    content-visibility: auto;
-    contain-intrinsic-size: 1px 500px;
 }
 
 .sticky-title {
@@ -1009,6 +1007,26 @@ ul.chip-list {
 .station-block,
 .grid-route-map-station {
     display: contents;
+}
+
+.grid-route-map-station.stop-anchor-highlight .station-block,
+.grid-route-map-station.stop-anchor-highlight .grid-route-line {
+    animation: stopAnchorPulse 1.6s ease;
+}
+
+@keyframes stopAnchorPulse {
+    0% {
+        box-shadow: 0 0 0 rgba(255, 180, 80, 0.4);
+        background-color: rgba(255, 213, 153, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 12px rgba(255, 180, 80, 0.7);
+        background-color: rgba(255, 213, 153, 0.45);
+    }
+    100% {
+        box-shadow: 0 0 0 rgba(255, 180, 80, 0);
+        background-color: transparent;
+    }
 }
 
 .grid-route-map .route-line-wrapper {
@@ -2373,7 +2391,7 @@ ul.chip-list {
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevrons.train-flow-state--in-transit .through-chevron {
-    animation: through-chevron-pulse 2s ease-in-out infinite;
+    animation: through-chevron-pulse 1.3s ease-in-out infinite;
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevrons.train-flow-state--in-transit .through-chevron:nth-child(2) {
@@ -2726,4 +2744,22 @@ ul.chip-list {
 
 .grid-route-map .grid-route-map-station.passed-station .platform-badge {
     opacity: 0.6;
+}
+
+/* - Scroll target highlight - */
+
+.grid-route-map-station.scroll-target {
+    background: color-mix(in srgb, var(--jotaele-background-accent) 60%, transparent);
+    border-radius: 8px;
+    box-shadow: inset 0 0 0 2px var(--jotaele-teal);
+    animation: scroll-target-pulse 0.6s var(--vt-ease) 1;
+}
+
+@keyframes scroll-target-pulse {
+    0% {
+        box-shadow: inset 0 0 0 2px var(--jotaele-teal), 0 0 0 0 color-mix(in srgb, var(--jotaele-teal) 50%, transparent);
+    }
+    100% {
+        box-shadow: inset 0 0 0 2px var(--jotaele-teal), 0 0 0 8px color-mix(in srgb, var(--jotaele-teal) 0%, transparent);
+    }
 }

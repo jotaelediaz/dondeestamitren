@@ -9,6 +9,7 @@
     let   trainsGlobalHandlersBound = false;
     let   stopGlobalHandlersBound   = false;
     let   drawerCloseDelegatedBound = false;
+    let   trainDetailScrollHandlersBound = false;
 
 // ------------------ Utilities ------------------
     function stripHxAttrs(html) {
@@ -20,6 +21,114 @@
             if (a.getAttribute('hx-boost') !== 'false') a.setAttribute('hx-boost', 'false');
         });
     }
+
+// ------------------ Train detail anchor scroll ------------------
+    function scrollTrainDetailToAnchor() {
+        const scrollContainer = document.querySelector('.grouped-lists-scroll');
+        const gridContainer = scrollContainer?.querySelector('.grid-route-map');
+
+        if (!scrollContainer || !gridContainer) {
+            return;
+        }
+
+        const hash = window.location.hash;
+        let targetElement = null;
+        let targetId = '';
+
+        if (hash) {
+            targetId = hash.substring(1);
+            console.log('Looking for element with ID:', targetId);
+            targetElement = document.getElementById(targetId);
+            if (!targetElement) {
+                console.warn(`Target element with ID "${targetId}" not found`);
+                return;
+            }
+        } else if (gridContainer.classList.contains('live-train')) {
+            targetElement = gridContainer.querySelector('.grid-route-map-station.next-stop');
+            if (!targetElement) {
+                console.log('Live train has no .next-stop element to focus');
+                return;
+            }
+            targetId = targetElement.id || '';
+            console.log('Auto-scrolling to next-stop element:', targetId || targetElement);
+        } else {
+            return;
+        }
+
+        const allStations = Array.from(gridContainer.querySelectorAll('.grid-route-map-station'));
+        console.log(`Total stations in grid: ${allStations.length}`);
+
+        const targetIndex = allStations.findIndex(el => el === targetElement);
+        console.log(`Target station index: ${targetIndex}`);
+
+        if (targetIndex === -1) {
+            console.warn('Could not locate target element within station list');
+            return;
+        }
+
+        const computedStyle = window.getComputedStyle(gridContainer);
+        const stationBlockHeightStr = computedStyle.getPropertyValue('--station-block-height').trim();
+        console.log(`Station block height from CSS: ${stationBlockHeightStr}`);
+
+        const stationBlockHeightNum = parseFloat(stationBlockHeightStr);
+        const remToPixels = parseFloat(computedStyle.fontSize);
+        const stationBlockHeightPx = stationBlockHeightNum * remToPixels;
+
+        console.log(`Calculated station block height in pixels: ${stationBlockHeightPx}`);
+
+        const scrollPosition = (targetIndex * stationBlockHeightPx) - 100;
+        const targetScrollTop = Math.max(0, scrollPosition);
+
+        console.log(`Final calculated scroll position: ${targetScrollTop}`);
+
+        scrollContainer.scrollTo({
+            top: targetScrollTop,
+            behavior: 'smooth'
+        });
+
+        console.log(`Scroll requested. Container scroll is now at: ${scrollContainer.scrollTop}`);
+
+        targetElement.classList.add('scroll-target');
+        console.log('Added scroll-target class');
+
+        setTimeout(function() {
+            targetElement.classList.remove('scroll-target');
+            console.log('Removed scroll-target class');
+        }, 2000);
+    }
+
+    function bindTrainDetailScrollHandlers() {
+        if (trainDetailScrollHandlersBound) return;
+        trainDetailScrollHandlersBound = true;
+
+        const scheduleScroll = (delay = 400) => {
+            setTimeout(scrollTrainDetailToAnchor, delay);
+        };
+
+        const handleHtmx = (evt) => {
+            const target = evt?.detail?.target;
+            if (!target) return;
+            if (target.id === 'content' || (typeof target.closest === 'function' && target.closest('#content'))) {
+                scheduleScroll(400);
+            }
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function handleDomContentLoaded() {
+                document.removeEventListener('DOMContentLoaded', handleDomContentLoaded);
+                scheduleScroll(500);
+            });
+        } else {
+            scheduleScroll(500);
+        }
+
+        document.addEventListener('htmx:afterSettle', handleHtmx);
+        document.addEventListener('htmx:afterSwap', handleHtmx);
+        window.addEventListener('popstate', () => scheduleScroll(400));
+        window.addEventListener('hashchange', () => scheduleScroll(400));
+    }
+
+    bindTrainDetailScrollHandlers();
 
     function getStaticDrawer() {
         const panel = document.getElementById('drawer');

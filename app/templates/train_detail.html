@@ -136,9 +136,9 @@
 				<div class="app-block-padding">
 					{% set stop_views = detail.stops %}
 					<ul class="grid-route-map train-status-route-map {{ 'scheduled-train' if kind == 'scheduled' else 'live-train' if kind == 'live'}}" data-number-of-stations="{{ detail.stop_count }}" style="--number-of-stations: {{ detail.stop_count }}; --line-color: {{ route.color_bg }};">
-						{% for stop_view in stop_views %}
-							{% set stop = stop_view.stop %}
-							<li class="grid-route-map-station {{ stop_view.status_class }} {{ stop_view.station_position }}{% if stop_view.is_next_stop %} next-stop{% endif %}" data-station-id="{{ stop.station_id or stop.stop_id }}">
+					{% for stop_view in stop_views %}
+						{% set stop = stop_view.stop %}
+						<li id="stop-{{ stop.stop_id }}" class="grid-route-map-station {{ stop_view.status_class }} {{ stop_view.station_position }}{% if stop_view.is_next_stop %} next-stop{% endif %}" data-station-id="{{ stop.station_id or stop.stop_id }}">
 								{{ print_station_train_status_route_map(stop, stop_view.station_position, stop_view.scheduled_time, stop_view.rt_arrival_time, stop_view.normalized_status) }}
 							</li>
 						{% endfor %}
