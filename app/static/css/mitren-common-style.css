@@ -28,7 +28,7 @@
 
     --app-margin: 14px;
     --topbar-height: 33px;
-    --bottom-nav-height: 56px;
+    --bottom-nav-height: 60px;
 
     --vt-ease: cubic-bezier(.2,0,.2,1);
     --vt-in: 220ms;
@@ -210,12 +210,12 @@ main {
 
 #bottom-nav {
     position: fixed;
-    margin: 0 var(--app-margin) calc(var(--app-margin) / 1.5);
+    margin: 0 calc(var(--app-margin) * 2) calc(var(--app-margin) / 1.5);
     left: 0;
     bottom: 0;
     z-index: 999999;
     display: block;
-    width: calc(100% - (var(--app-margin) * 2));
+    width: calc(100% - (var(--app-margin) * 4));
     box-sizing: border-box;
     overflow: hidden;
     backdrop-filter: blur(3px);
@@ -254,8 +254,6 @@ main:after {
     background: var(--jotaele-white);
     border-radius: 99px;
     background: rgba(255,255,255,0.8);
-    -webkit-backdrop-filter: blur(7px);
-    backdrop-filter: blur(7px);
 }
 
 #bottom-nav .navbar-inner-wrapper {
@@ -276,12 +274,13 @@ main:after {
     flex: 1 1 0;
     min-width: 0;
     border-radius: 999px;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     transition: ease 0.3s;
+    gap: 0.1rem;
 }
 
 #bottom-nav .navbar-item i {
-    font-size: 21px;
+    font-size: 23px;
     line-height: 1em;
 }
 
@@ -732,7 +731,7 @@ ul.chip-list {
 
 .chip-card {
     background: var(--jotaele-white);
-    border-radius: 14px;
+    border-radius: 24px;
     display: flex;
     align-items: center;
     box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
@@ -987,8 +986,8 @@ ul.chip-list {
 
 .grid-route-map {
     --number-of-stations: 10;
-    --line-route-width: 9px;
-    --icon-dot-size: 18px;
+    --line-route-width: 8px;
+    --icon-dot-size: 17px;
     --icon-border-dot-size: 4px;
     --line-color: var(--jotaele-blue);
     --station-block-height: 4.5rem;
@@ -1773,7 +1772,7 @@ ul.chip-list {
 }
 
 #stop-modal-title {
-    font-size: 1.1rem;
+    font-size: 1rem;
     margin: 0 0;
     text-overflow: ellipsis;
     overflow: hidden;
@@ -1793,8 +1792,8 @@ ul.chip-list {
 
 .stop-detail {
     background: var(--jotaele-white);
-    padding: var(--app-margin) calc(var(--app-margin) * 1.2);
-    border-radius: 15px;
+    padding: calc(var(--app-margin) * 1) calc(var(--app-margin) * 1.3) calc(var(--app-margin) * 1.3) calc(var(--app-margin) * 1.3);
+    border-radius: 24px;
     box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
 }
 
@@ -1899,7 +1898,7 @@ ul.chip-list {
 }
 
 .second-train-approaching {
-    padding-top: 0.2rem;
+    padding-top: 0;
 }
 
 .second-train-approaching .second-train-label {
@@ -1918,7 +1917,7 @@ ul.chip-list {
 }
 
 .stop-modal-footer {
-    margin-top: calc(var(--app-margin) * 1);
+    margin-top: calc(var(--app-margin) * 1.3);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2220,27 +2219,40 @@ ul.chip-list {
 /* - Trains detail card - */
 
 .route-train-chip-icon {
-    height: 1.4rem;
-    width: 1.4rem;
-    font-size: 1.05rem;
+    height: 1.2rem;
+    width: 1.2rem;
+    font-size: 1rem;
+}
+
+.train-details-content-area {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--app-margin) * 1);
+    min-height: 0;
+    height: 100%;
+}
+
+.train-details-panel-wrapper {
+    width: 100%;
 }
 
 .train-details-panel {
     background: var(--jotaele-white);
-    padding: calc(var(--app-margin)) calc(var(--app-margin) * 1.2);
-    border-radius: 15px;
-    box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
-    font-size: 0.9rem;
+    padding: calc(var(--app-margin) * 1.3) calc(var(--app-margin) * 1.3);
+    border-radius: 24px;
+    font-size: 1rem;
 }
 
 .train-details-panel .train-details-header .train-details-preheader {
     display: flex;
     color: var(--jotaele-black);
     font-family: 'Sora', sans-serif;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     font-weight: 700;
     white-space: nowrap;
-    gap: 0.3rem;
+    letter-spacing: -0.4px;
+    gap: 0.35rem;
     align-items: center;
     justify-content: center;
 }
@@ -2248,7 +2260,7 @@ ul.chip-list {
 .train-type-badge {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.35rem;
     border-radius: 999px;
     font-family: 'Rubik', sans-serif;
     font-size: 0.8rem;
@@ -2260,7 +2272,7 @@ ul.chip-list {
 }
 
 .train-type-badge .material-symbols-rounded {
-    font-size: 0.8rem;
+    font-size: 0.9rem;
     line-height: 1;
     font-variation-settings: "FILL" 0, "wght" 600, "GRAD" 0, "opsz" 24;
 }
@@ -2270,8 +2282,8 @@ ul.chip-list {
 }
 
 .train-type-live-dot {
-    --size: 0.45rem;
-    margin-left: 0.1rem;
+    --size: 0.5rem;
+    margin-left: 0.15rem;
     flex-shrink: 0;
     line-height: 0;
 }
@@ -2280,27 +2292,19 @@ ul.chip-list {
     display: block;
 }
 
-.train-type-badge.is-live {
-
-}
-
-.train-type-badge.is-scheduled {
-
-}
-
 .train-details-header {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
     border-bottom: 2px solid var(--jotaele-background);
-    padding-bottom: calc(var(--app-margin) * 0.7);
+    padding-bottom: calc(var(--app-margin) * 1);
     margin-bottom: calc(var(--app-margin) * 1);
 }
 
 .train-details-header .line-chip-icon.image-line-icon {
     flex: 0 0;
-    height: 1.15rem;
+    height: 1.2rem;
 }
 
 .train-details-header-content {
@@ -2309,7 +2313,7 @@ ul.chip-list {
     align-items: center;
     gap: calc(var(--app-margin) * 0.6);
     min-width: 0;
-    margin-bottom: calc(var(--app-margin) * 0.5);
+    margin-bottom: calc(var(--app-margin) * 0.7);
 }
 
 .train-header-terminal {
@@ -2323,7 +2327,7 @@ ul.chip-list {
     color: var(--jotaele-black);
     background: transparent;
     font-size: 0.9rem;
-    line-height: 1.1em;
+    line-height: 1.2em;
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
@@ -2340,6 +2344,7 @@ ul.chip-list {
     align-items: flex-end;
     min-width: 4rem;
     justify-content: center;
+    margin-left: -7px;
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevrons {
@@ -2349,8 +2354,8 @@ ul.chip-list {
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevron {
-    width: 0.6rem;
-    height: 0.6rem;
+    width: 0.75rem;
+    height: 0.75rem;
     border-top: 0.2rem solid var(--jotaele-color-button);
     border-right: 0.2rem solid var(--jotaele-color-button);
     transform: rotate(45deg);
@@ -2358,7 +2363,7 @@ ul.chip-list {
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevron + .through-chevron {
-    margin-left: -0.2rem;
+    margin-left: -0.3rem;
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevrons.train-flow-state--in-transit .through-chevron {
@@ -2405,7 +2410,7 @@ ul.chip-list {
 .mini-route-map-grid {
     --line-route-width: 5px;
     --number-of-stations: 3;
-    --icon-dot-size: calc(var(--line-route-width) * 2.5);
+    --icon-dot-size: calc(var(--line-route-width) * 2.1);
 
     display: grid;
     grid-template-rows: auto;
@@ -2419,7 +2424,7 @@ ul.chip-list {
     width: 100%;
     height: var(--icon-dot-size);
     position: relative;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
 }
 
@@ -2429,7 +2434,7 @@ ul.chip-list {
     height: var(--line-route-width);
     width: calc(100% + 1px);
     background: var(--line-color);
-    top: calc(var(--icon-dot-size) / 3);
+    top: calc(50% - (var(--line-route-width) / 2));
 }
 
 .mini-route-map-grid .route-dot {
@@ -2443,12 +2448,13 @@ ul.chip-list {
     background: var(--line-color);
     box-sizing: border-box;
     transition: box-shadow 0.3s var(--vt-ease);
+    top: calc(50% - (var(--icon-dot-size) / 2));
 }
 
 .mini-route-map-grid .grid-route-map-station.through-station {
     --through-ellipsis-dot-size: calc(var(--line-route-width) * 1);
     --through-ellipsis-inner-gap: calc(var(--through-ellipsis-dot-size) * 2);
-    --through-ellipsis-outer-gap: calc(var(--through-ellipsis-dot-size) * 4);
+    --through-ellipsis-outer-gap: calc(var(--through-ellipsis-dot-size) * 5);
     --through-ellipsis-break: calc(var(--through-ellipsis-outer-gap));
 }
 
@@ -2462,9 +2468,7 @@ ul.chip-list {
 }
 
 .mini-route-map-grid .grid-route-map-station.through-station .route-dot {
-    top: calc(
-        (var(--icon-dot-size) / 3) + (var(--line-route-width) / 2) - (var(--through-ellipsis-dot-size) / 2)
-    );
+    top: calc(50% - (var(--through-ellipsis-dot-size) / 2));
     left: 50%;
     width: var(--through-ellipsis-dot-size);
     height: var(--through-ellipsis-dot-size);
@@ -2504,9 +2508,10 @@ ul.chip-list {
 .mini-route-map-grid .arrival-hour {
     color: var(--jotaele-text-muted);
     font-weight: 500;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     display: flex;
     flex-direction: column;
+    white-space: nowrap;
 }
 
 .mini-route-map-grid .station-block.destination-station .arrival-hour {
@@ -2592,7 +2597,6 @@ ul.chip-list {
     align-items: flex-start;
     grid-template-columns: max-content minmax(0, 1fr) max-content;
     gap: calc(var(--app-margin) * 0.6);
-    display: none !important;
 }
 
 .mini-route-label {
@@ -2643,6 +2647,15 @@ ul.chip-list {
 
 /* - Trains detail route map - */
 
+.train-details-padding {
+    mask-image: linear-gradient(to bottom, transparent 0%, black var(--app-margin), black 100%);
+    padding-bottom: calc((var(--bottom-nav-height) * 3.3));
+}
+
+.train-status-route-map {
+    padding: 0 calc(var(--app-margin) / 2);
+}
+
 .grid-route-map .grid-route-map-station.passed-station .grid-route-line .route-line-fragment {
     background: var(--jotaele-text-subtle) !important;
 }
@@ -2677,7 +2690,7 @@ ul.chip-list {
     font-weight: 300;
 }
 
-.grid-route-map.live-train .grid-route-map-station:not(.destination-station) .stop-time.scheduled-time.scheduled-time-is-not-current {
+.grid-route-map .grid-route-map-station.passed-station .stop-time.scheduled-time:not(.scheduled-time-is-not-current) {
     display: none;
 }
 
@@ -2695,6 +2708,3 @@ ul.chip-list {
     color: var(--jotaele-success);
 }
 
-.grid-route-map .grid-route-map-station.passed-station .stop-time {
-    display: none;
-}
