@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import threading
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
@@ -44,6 +45,13 @@ class StopsRepo:
 
         route2nucleus: dict[str, str] = {}
 
+        habits_service = get_platform_habits()
+        habitual_for = getattr(habits_service, "habitual_for", None)
+        habitual_params: set[str] = set()
+        if habitual_for:
+            with contextlib.suppress(Exception):
+                habitual_params = set(inspect.signature(habitual_for).parameters.keys())
+
         for (rid, did), lv in lrepo._by_route_dir.items():  # noqa: SLF001
             nucleus = (lv.nucleus_id or "").strip().lower()
             did_norm = (did or "").strip()
@@ -83,6 +91,30 @@ class StopsRepo:
                     nucleus_id=nucleus,
                     slug=slug,
                 )
+
+                if habitual_for and nucleus:
+                    cand = {
+                        "nucleus": nucleus,
+                        "route_id": rid,
+                        "direction_id": did_norm,
+                        "line_id": getattr(lv, "line_id", "") or "",
+                        "stop_id": stop_id,
+                        "station_id": station_id,
+                    }
+                    kwargs = {k: v for k, v in cand.items() if k in habitual_params}
+                    pred = None
+                    with contextlib.suppress(Exception):
+                        pred = habitual_for(**kwargs)
+                    if pred:
+                        display_label = (getattr(pred, "primary", "") or "").strip()
+                        stop.habitual_platform = (
+                            display_label
+                            if (getattr(pred, "publishable", False) and display_label)
+                            else None
+                        )
+                        stop.habitual_confidence = float(getattr(pred, "confidence", 0.0) or 0.0)
+                        stop.habitual_publishable = bool(getattr(pred, "publishable", False))
+                        stop.habitual_last_seen_epoch = getattr(pred, "last_seen_epoch", None)
 
                 self._by_key[(rid, did_norm, stop_id)] = stop
                 self._by_slug[(rid, did_norm, slug)] = stop
@@ -126,19 +158,18 @@ class StopsRepo:
             station_id=str(getattr(stop, "station_id", "") or ""),
         )
 
-        predicted_label = None
+        predicted_label = ((pred.primary or "").strip() or None) if pred else None
         predicted_alt = None
-        if pred.primary:
+        if pred and pred.primary and pred.secondary:
             try:
                 f1 = float(pred.all_freqs.get(pred.primary, 0.0))
                 f2 = float(pred.all_freqs.get(pred.secondary, 0.0)) if pred.secondary else 0.0
             except Exception:
-                f1, f2 = pred.confidence, 0.0
+                f1 = float(getattr(pred, "confidence", 0.0) or 0.0)
+                f2 = 0.0
 
-            if (pred.confidence < 0.6) and pred.secondary and (f1 - f2) < 0.15:
+            if (float(getattr(pred, "confidence", 0.0) or 0.0) < 0.6) and (f1 - f2) < 0.15:
                 predicted_alt = f"{pred.primary} ó {pred.secondary}"
-            else:
-                predicted_label = pred.primary
 
         source = "predicted"
         changed = False

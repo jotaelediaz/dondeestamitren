@@ -583,18 +583,16 @@ def route_page_by_id(
         kwargs = {k: v for k, v in cand.items() if k in hf_params}
         pred = hf(**kwargs)
 
-        predicted_label = None
+        predicted_label = (getattr(pred, "primary", "") or "").strip() or None
         predicted_alt = None
-        if getattr(pred, "primary", None):
+        if getattr(pred, "primary", None) and getattr(pred, "secondary", None):
             try:
                 f1 = float(pred.all_freqs.get(pred.primary, 0.0))
                 f2 = float(pred.all_freqs.get(pred.secondary, 0.0)) if pred.secondary else 0.0
             except Exception:
-                f1, f2 = float(pred.confidence or 0.0), 0.0
-            if (float(pred.confidence or 0.0) < 0.6) and pred.secondary and (f1 - f2) < 0.15:
+                f1, f2 = float(getattr(pred, "confidence", 0.0) or 0.0), 0.0
+            if (float(getattr(pred, "confidence", 0.0) or 0.0) < 0.6) and (f1 - f2) < 0.15:
                 predicted_alt = f"{pred.primary} ó {pred.secondary}"
-            else:
-                predicted_label = pred.primary
 
         info = {
             "observed": None,
@@ -609,7 +607,7 @@ def route_page_by_id(
         }
         platform_info_by_stop[s.stop_id] = info
 
-        label = info["observed"] or info["predicted"] or info["predicted_alt"]
+        label = info["observed"] or info["predicted"]
         s.habitual_platform = label if (info["publishable"] and label) else None
         s.habitual_confidence = info["confidence"]
         s.habitual_publishable = info["publishable"]

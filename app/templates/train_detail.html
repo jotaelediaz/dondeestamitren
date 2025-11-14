@@ -1,161 +1,11 @@
 {%- extends "base-layout.html" %}
 {%- from "partials/helper_macros.html" import get_cercanias_line_icon, print_station_train_status_route_map with context %}
 
-{%- macro stop_display_name(stop) -%}
-	{{- stop.stop_name
-		or repo.get_stop_name(stop.stop_id)
-		or stop.stop_id -}}
-{%- endmacro %}
-
 {%- block app_content %}
-	{% set trip_stops = trip.stops if trip and trip.stops else [] %}
-	{% set first_stop = trip_stops|first if trip_stops else None %}
-	{% set last_stop = trip_stops|last if trip_stops else None %}
-	{% set first_stop_id = first_stop.stop_id if first_stop else None %}
-	{% set last_stop_id = last_stop.stop_id if last_stop else None %}
-	{% set service_origin_stop_id = train_service.origin_stop_id if train_service else None %}
-	{% set service_destination_stop_id = train_service.destination_stop_id if train_service else None %}
-	{% set origin_stop_id = first_stop_id if first_stop_id else service_origin_stop_id %}
-	{% set destination_stop_id = last_stop_id if last_stop_id else service_destination_stop_id %}
-	{% set last_seen_stop_id = train_last_seen_stop_id|default(None) %}
-		{% set schedule = namespace(
-			origin_time = None,
-			destination_time = None,
-			destination_sched_time = None,
-			destination_sched_epoch = None,
-			destination_eta_epoch = None,
-			destination_delay_seconds = None
-		) %}
-		{% set destination_rt = (rt_arrival_times or {}).get(destination_stop_id) if destination_stop_id else None %}
-	{% if first_stop %}
-		{% set schedule.origin_time =
-			first_stop.eta_dep_hhmm
-			or first_stop.eta_arr_hhmm
-			or first_stop.sched_dep_hhmm
-			or first_stop.sched_arr_hhmm %}
-	{% endif %}
-	{% if schedule.origin_time is none %}
-		{% set schedule.origin_time = train_service.scheduled_departure_hhmm %}
-	{% endif %}
-		{% if destination_rt %}
-			{% if destination_rt.hhmm %}
-				{% set schedule.destination_time = destination_rt.hhmm %}
-			{% endif %}
-			{% if destination_rt.delay_s is not none %}
-				{% set schedule.destination_delay_seconds = destination_rt.delay_s %}
-			{% endif %}
-			{% if destination_rt.epoch is not none %}
-				{% set schedule.destination_eta_epoch = destination_rt.epoch %}
-			{% endif %}
-		{% endif %}
-
-		{% if last_stop %}
-			{% if schedule.destination_time is none %}
-				{% set schedule.destination_time =
-					last_stop.eta_arr_hhmm
-					or last_stop.eta_dep_hhmm
-					or last_stop.sched_arr_hhmm
-					or last_stop.sched_dep_hhmm %}
-			{% endif %}
-			{% set schedule.destination_sched_time = last_stop.sched_arr_hhmm or last_stop.sched_dep_hhmm or schedule.destination_sched_time %}
-			{% set schedule.destination_sched_epoch = last_stop.sched_arr_epoch or last_stop.sched_dep_epoch or schedule.destination_sched_epoch %}
-			{% set schedule.destination_eta_epoch = schedule.destination_eta_epoch or last_stop.eta_arr_epoch or last_stop.eta_dep_epoch %}
-			{% if schedule.destination_delay_seconds is none %}
-				{% if last_stop.tu_delay_s is not none %}
-					{% set schedule.destination_delay_seconds = last_stop.tu_delay_s %}
-				{% elif schedule.destination_sched_epoch is not none and schedule.destination_eta_epoch is not none %}
-					{% set schedule.destination_delay_seconds = schedule.destination_eta_epoch - schedule.destination_sched_epoch %}
-				{% endif %}
-			{% endif %}
-		{% endif %}
-	{% if schedule.destination_sched_time is none and train_service %}
-		{% set schedule.destination_sched_time = train_service.scheduled_arrival_hhmm %}
-	{% endif %}
-	{% set origin_time = schedule.origin_time %}
-	{% set destination_time = schedule.destination_time %}
-	{% set scheduled_destination_time = schedule.destination_sched_time %}
-	{% set destination_delay_seconds = schedule.destination_delay_seconds %}
-	{% set show_destination_schedule_time = scheduled_destination_time
-		and (
-			(destination_time and destination_time != scheduled_destination_time)
-			or (destination_delay_seconds is not none and destination_delay_seconds != 0)
-		)
-	%}
-	{% set destination_time_state = (
-		'late' if (destination_delay_seconds is not none and destination_delay_seconds > 0)
-		else 'early' if (destination_delay_seconds is not none and destination_delay_seconds < 0)
-		else 'on-time'
-	) %}
-	{% set destination_delay_minutes = (destination_delay_seconds // 60) if destination_delay_seconds is not none else None %}
-	{% set status_descriptors = {
-		'scheduled': 'Programado',
-		'unknown': 'Estado desconocido',
-		'stationary': 'En estación:',
-		'enroute': 'En tránsito a:',
-		'arriving': 'Llegando a:'
-	} %}
-	{% set base_status_text = train_service.status_text if train_service else None %}
-	{% set station_name = None %}
-	{% set train_status_variant = 'scheduled' if kind == 'scheduled' else 'unknown' %}
-	{% set status_text_lower = (base_status_text or '')|lower %}
-	{% set stop_scope = namespace(current=None, upcoming=None) %}
-	{% for stop in trip_stops %}
-		{% set normalized_status = (stop.status or stop.flag or '')|upper %}
-		{% if stop_scope.current is none and normalized_status == 'CURRENT' %}
-			{% set stop_scope.current = stop %}
-		{% elif stop_scope.upcoming is none and normalized_status in ['NEXT', 'UPCOMING', 'FUTURE'] %}
-			{% set stop_scope.upcoming = stop %}
-		{% endif %}
-	{% endfor %}
-	{% if kind == 'live' %}
-		{% if stop_scope.current %}
-			{% set station_name = stop_display_name(stop_scope.current)|trim %}
-			{% set train_status_variant = 'stationary' %}
-		{% elif stop_scope.upcoming %}
-			{% set is_arriving = 'llegando' in status_text_lower or 'incoming' in status_text_lower or 'arriving' in status_text_lower %}
-			{% set station_name = stop_display_name(stop_scope.upcoming)|trim %}
-			{% set train_status_variant = 'arriving' if is_arriving else 'enroute' %}
-		{% endif %}
-	{% endif %}
-	{% set status_descriptor = status_descriptors.get(train_status_variant, status_descriptors['unknown']) %}
-	{% set train_status_icon_map = {
-		'stationary': 'step_into',
-		'arriving': 'step',
-		'enroute': 'arrow_right_alt',
-		'scheduled': 'schedule',
-		'unknown': 'help'
-	} %}
-	{% set train_status_icon = train_status_icon_map.get(train_status_variant, 'info') %}
-	{% set is_live_train = kind == 'live' %}
-	{% set seen_age_seconds = train_seen_age if train_seen_age is not none else None %}
-	{% set is_seen_stale = seen_age_seconds is not none and seen_age_seconds > 60 %}
-	{% set seen_at_destination = is_live_train and destination_stop_id and last_seen_stop_id and (last_seen_stop_id|string) == (destination_stop_id|string) %}
-	{% set seen_at_origin = is_live_train and origin_stop_id and last_seen_stop_id and (last_seen_stop_id|string) == (origin_stop_id|string) %}
-	{% set train_type_label = 'Programado' %}
-	{% set train_flow_state = 'scheduled' %}
-	{% if is_live_train %}
-		{% if is_seen_stale %}
-			{% if seen_at_destination %}
-				{% set train_type_label = 'En destino' %}
-				{% set train_flow_state = 'destination' %}
-			{% else %}
-				{% set train_type_label = 'Visto hace ' ~ (seen_age_seconds|int) ~ ' s' %}
-				{% set train_flow_state = 'in-transit' %}
-			{% endif %}
-		{% elif seen_at_origin %}
-			{% set train_type_label = 'En origen' %}
-			{% set train_flow_state = 'origin' %}
-		{% elif seen_at_destination %}
-			{% set train_type_label = 'En destino' %}
-			{% set train_flow_state = 'destination' %}
-		{% else %}
-			{% set train_type_label = 'En circulación' %}
-			{% set train_flow_state = 'in-transit' %}
-		{% endif %}
-	{% endif %}
-	{% set is_stationary_at_terminal = is_live_train and train_status_variant == 'stationary' and (seen_at_origin or seen_at_destination) %}
-		{% set enable_through_label = false %}
-		{% set show_through_label = enable_through_label and not(kind == 'scheduled' or is_stationary_at_terminal) %}
+	{% set detail = train_detail_view %}
+	{% set schedule = detail.schedule %}
+	{% set status = detail.status %}
+	{% set is_live_train = status.is_live_train %}
 	<section id="line-route" class="line-route app-main-content" aria-label="Tren {{ train_service.train_label }}" style="--train-color: {{ route.color_bg }}">
 		<div class="app-block-padding sticky-title">
 			<div class="line-chip-header">
@@ -186,9 +36,9 @@
 							{{ get_cercanias_line_icon(train_service.route_short_name, nucleus.slug, red) }}
 							<span class="train-details-label">Cercanías {{ nucleus.name }}</span>
 						</a>
-							<div class="train-type-badge {{ 'is-live' if is_live_train else 'is-scheduled' }} train-flow-state--{{ train_flow_state }}" title="{{ train_type_label }}" aria-label="Servicio {{ train_type_label }}">
-								<span class="train-type-badge__label">{{ train_type_label }}</span>
-								<span class="live-pill train-type-live-dot{% if not is_live_train %} is-stale{% elif is_seen_stale and seen_at_destination %} is-completed{% elif is_seen_stale %} is-semi-stale{% endif %}" aria-hidden="true">
+							<div class="train-type-badge {{ 'is-live' if status.is_live_train else 'is-scheduled' }} train-flow-state--{{ status.train_flow_state }}" title="{{ status.train_type_label }}" aria-label="Servicio {{ status.train_type_label }}">
+								<span class="train-type-badge__label">{{ status.train_type_label }}</span>
+								<span class="live-pill train-type-live-dot{% if status.live_badge_class %} {{ status.live_badge_class }}{% endif %}" aria-hidden="true">
 									<i class="dot"></i>
 								</span>
 							</div>
@@ -197,8 +47,8 @@
 						<div class="train-header-terminal origin">
 							{{ train_service.origin_name or '—' }}
 						</div>
-							<div class="train-header-terminal through train-flow-state--{{ train_flow_state }}" aria-hidden="true">
-								<span class="through-chevrons train-flow-state--{{ train_flow_state }}">
+							<div class="train-header-terminal through train-flow-state--{{ status.train_flow_state }}" aria-hidden="true">
+								<span class="through-chevrons train-flow-state--{{ status.train_flow_state }}">
 									<span class="through-chevron"></span>
 									<span class="through-chevron"></span>
 									<span class="through-chevron"></span>
@@ -215,7 +65,7 @@
 								<div class="station-block origin-station">
 									<div class="grid-route-line">
 										<div class="route-line-time">
-											<span class="arrival-hour">{{ origin_time or '--:--' }}</span>
+											<span class="arrival-hour">{{ schedule.origin_time or '--:--' }}</span>
 										</div>
 										<div class="route-line-wrapper" aria-hidden="true" role="presentation" tabindex="-1">
 											<i class="route-line-fragment" aria-hidden="true"></i>
@@ -236,38 +86,38 @@
 							</div>
 							<div class="grid-route-map-station destination-station">
 								<div class="station-block destination-station">
-									<div class="grid-route-line">
-										<div class="route-line-wrapper" aria-hidden="true" role="presentation" tabindex="-1">
-											<i class="route-line-fragment" aria-hidden="true"></i>
-											<i class="route-dot" aria-hidden="true"></i>
-										</div>
-											<div class="route-line-time">
-												<span class="arrival-hour">
-													{{ destination_time or '--:--' }}
-													{% if show_destination_schedule_time %}
-														<span class="arrival-hour-sched train-arrival-time--{{ destination_time_state }}">
-															{{ scheduled_destination_time }}
-															{% if destination_time_state == 'late' %}
-																<span class="sr-only">Tren Demorado</span>
-															{% elif destination_time_state == 'early' %}
-																<span class="sr-only">Tren adelantado</span>
-															{% endif %}
-														</span>
+								<div class="grid-route-line">
+									<div class="route-line-wrapper" aria-hidden="true" role="presentation" tabindex="-1">
+										<i class="route-line-fragment" aria-hidden="true"></i>
+										<i class="route-dot" aria-hidden="true"></i>
+									</div>
+									<div class="route-line-time">
+										<span class="arrival-hour">
+											{{ schedule.destination_time or '--:--' }}
+											{% if schedule.show_destination_schedule_time %}
+												<span class="arrival-hour-sched train-arrival-time--{{ schedule.destination_time_state }}">
+													{{ schedule.scheduled_destination_time }}
+													{% if schedule.destination_time_state == 'late' %}
+														<span class="sr-only">Tren Demorado</span>
+													{% elif schedule.destination_time_state == 'early' %}
+														<span class="sr-only">Tren adelantado</span>
 													{% endif %}
 												</span>
-											</div>
-										</div>
+											{% endif %}
+										</span>
+									</div>
+								</div>
 									</div>
 								</div>
 						</div>
 						<div class="mini-route-map-labels" role="presentation">
-							{% if show_through_label %}
+							{% if status.show_through_label %}
 								<div class="mini-route-label through-label">
-									<span class="station-label station-status-label" title="{{ status_descriptor }}" aria-label="{{ status_descriptor }}">
+									<span class="station-label station-status-label" title="{{ status.status_descriptor }}" aria-label="{{ status.status_descriptor }}">
 										<span class="station-status-icon" aria-hidden="true">
-											<span class="material-symbols-rounded">{{ train_status_icon }}</span>
+											<span class="material-symbols-rounded">{{ status.train_status_icon }}</span>
 										</span>
-										<span class="station-label-text">{{ station_name or status_descriptor }}</span>
+										<span class="station-label-text">{{ status.station_name or status.status_descriptor }}</span>
 									</span>
 								</div>
 							{% endif %}
@@ -284,45 +134,12 @@
 	
 			<div class="grouped-lists-scroll train-details-padding">
 				<div class="app-block-padding">
-					{% set arrival_info_map = rt_arrival_times or {} %}
-					<ul class="grid-route-map train-status-route-map {{ 'scheduled-train' if kind == 'scheduled' else 'live-train' if kind == 'live'}}" data-number-of-stations="{{ trip.stops|length }}" style="--number-of-stations: {{ trip.stations|length }}; --line-color: {{ route.color_bg }};">
-						{% for stop in trip.stops %}
-							{% set scheduled_time = stop.scheduled_hhmm or stop.sched_arr_hhmm or stop.sched_dep_hhmm %}
-							{% set stop_status = stop.status or stop.flag or 'upcoming' %}
-							{% set normalized_stop_status = stop_status|upper %}
-							{% set stop_id_key = stop.stop_id|string %}
-							{% set rt_arrival_time = arrival_info_map.get(stop_id_key) or arrival_info_map.get(stop.stop_id) %}
-							{% set passed_epoch = stop.passed_at_epoch if stop.passed_at_epoch is defined else None %}
-							{% set passed_hhmm = stop.passed_at_hhmm if stop.passed_at_hhmm is defined else None %}
-							{% set passed_delay_s = stop.passed_delay_s if stop.passed_delay_s is defined else None %}
-							{% set passed_delay_min = stop.passed_delay_min if stop.passed_delay_min is defined else None %}
-							{% if passed_epoch is not none or passed_hhmm %}
-								{% set base_rt = rt_arrival_time if rt_arrival_time is not none else {} %}
-								{% set computed_delay_min =
-									passed_delay_min if passed_delay_min is not none
-									else ((passed_delay_s // 60) if passed_delay_s is not none else base_rt.get('delay_min'))
-								%}
-								{% set rt_arrival_time = {
-									'hhmm': passed_hhmm or base_rt.get('hhmm'),
-									'epoch': passed_epoch if passed_epoch is not none else base_rt.get('epoch'),
-									'delay_s': passed_delay_s if passed_delay_s is not none else base_rt.get('delay_s'),
-									'delay_min': computed_delay_min,
-									'is_passed': True,
-									'ts': passed_epoch if passed_epoch is not none else base_rt.get('ts') or base_rt.get('epoch'),
-								} %}
-							{% endif %}
-							{% set stop_status_class =
-								'current-station' if normalized_stop_status == 'CURRENT' else
-								'passed-station'  if normalized_stop_status == 'PASSED' else
-								'future-station'
-							%}
-							{% set station_position =
-								'origin-station' if first_stop_id and first_stop_id == stop.stop_id else
-								'destination-station' if last_stop_id and last_stop_id == stop.stop_id else
-								'mid-station'
-							%}
-							<li class="grid-route-map-station {{ stop_status_class }} {{ station_position }}" data-station-id="{{ stop.station_id or stop.stop_id }}">
-								{{ print_station_train_status_route_map(stop, station_position, scheduled_time, rt_arrival_time, normalized_stop_status) }}
+					{% set stop_views = detail.stops %}
+					<ul class="grid-route-map train-status-route-map {{ 'scheduled-train' if kind == 'scheduled' else 'live-train' if kind == 'live'}}" data-number-of-stations="{{ detail.stop_count }}" style="--number-of-stations: {{ detail.stop_count }}; --line-color: {{ route.color_bg }};">
+						{% for stop_view in stop_views %}
+							{% set stop = stop_view.stop %}
+							<li class="grid-route-map-station {{ stop_view.status_class }} {{ stop_view.station_position }}{% if stop_view.is_next_stop %} next-stop{% endif %}" data-station-id="{{ stop.station_id or stop.stop_id }}">
+								{{ print_station_train_status_route_map(stop, stop_view.station_position, stop_view.scheduled_time, stop_view.rt_arrival_time, stop_view.normalized_status) }}
 							</li>
 						{% endfor %}
 					</ul>

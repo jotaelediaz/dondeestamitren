@@ -17,6 +17,7 @@ from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.train_services_index import build_train_detail_vm
 from app.viewkit import hhmm_local, mk_nucleus, render
+from app.viewmodels.train_detail import build_train_detail_view
 
 router = APIRouter(tags=["web"])
 
@@ -719,6 +720,12 @@ def train_detail(
 
     train_obj = vm.get("train")
     train_last_stop_id = getattr(train_obj, "stop_id", None) if train_obj else None
+    detail_view = build_train_detail_view(
+        vm,
+        rt_arrival_times,
+        repo,
+        last_seen_stop_id=train_last_stop_id,
+    )
 
     return render(
         request,
@@ -738,6 +745,7 @@ def train_detail(
             "trip": vm["trip"],
             "rt_arrival_times": rt_arrival_times,
             "train_last_seen_stop_id": train_last_stop_id,
+            "train_detail_view": detail_view,
         },
     )
 

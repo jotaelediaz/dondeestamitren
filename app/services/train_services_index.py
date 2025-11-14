@@ -296,6 +296,7 @@ def _build_trip_rows(
     rrepo = get_routes_repo()
     trepo = get_trips_repo()
     tuc = get_trip_updates_cache()
+    stoprepo = get_stops_repo()
 
     def hhmm(ts):
         return _fmt_hhmm_local(ts, tz_name)
@@ -325,6 +326,36 @@ def _build_trip_rows(
         line_id=getattr(live_obj, "line_id", None) if live_obj else None,
         nucleus=nucleus,
     )
+    route_ref_id = (getattr(route_obj, "route_id", None) if route_obj else None) or (
+        route_id or None
+    )
+    if route_ref_id is not None:
+        route_ref_id = str(route_ref_id)
+
+    def _lookup_stop_obj(route_value: str | None, stop_value: str | None):
+        if not stoprepo or not route_value or not stop_value:
+            return None
+        dir_candidates: list[str] = []
+        if route_obj and getattr(route_obj, "direction_id", None) is not None:
+            dir_candidates.append(str(route_obj.direction_id))
+        if direction_id not in (None, ""):
+            dir_candidates.append(str(direction_id))
+        if live_obj and getattr(live_obj, "direction_id", None) not in (None, ""):
+            dir_candidates.append(str(live_obj.direction_id))
+        dir_candidates.extend(["", "0", "1"])
+
+        seen: set[str] = set()
+        stop_key = str(stop_value)
+        for cand in dir_candidates:
+            cand_norm = str(cand or "")
+            if cand_norm in seen:
+                continue
+            seen.add(cand_norm)
+            with suppress(Exception):
+                st = stoprepo.get_by_id(route_value, cand_norm, stop_key)
+                if st:
+                    return st
+        return None
 
     calls: list[dict] = []
     if trip_id:
@@ -494,20 +525,46 @@ def _build_trip_rows(
                 if pivot_val is not None and seq_val is not None and seq_val < pivot_val:
                     status = "PASSED"
 
-        platform = None
+        stop_record = _lookup_stop_obj(route_ref_id, sid) if route_ref_id else None
+        habitual_platform = getattr(stop_record, "habitual_platform", None)
+        habitual_publishable = bool(getattr(stop_record, "habitual_publishable", False))
+        habitual_confidence = getattr(stop_record, "habitual_confidence", None)
+        station_id = getattr(stop_record, "station_id", None)
+
+        live_platform = None
         with suppress(Exception):
-            platform = getattr(live_obj, "platform_by_stop", {}).get(sid) if live_obj else None
-        if not platform and route_obj:
+            live_platform = getattr(live_obj, "platform_by_stop", {}).get(sid) if live_obj else None
+        if not live_platform and live_obj and sid == live_sid:
+            with suppress(Exception):
+                live_platform = getattr(live_obj, "platform", None)
+
+        if not habitual_platform and route_obj:
             with suppress(Exception):
                 st = next((s for s in route_obj.stations if s.stop_id == sid), None)
-                platform = getattr(st, "habitual_platform", None)
+                habitual_platform = getattr(st, "habitual_platform", None)
+
+        platform = live_platform or habitual_platform
+        if platform and isinstance(platform, str) and " ó " in platform:
+            with suppress(Exception):
+                platform = platform.split(" ó ", 1)[0].strip()
+        if live_platform:
+            platform_src = "live"
+        elif habitual_platform:
+            platform_src = "habitual"
+        else:
+            platform_src = "unknown"
 
         rows.append(
             {
                 "seq": c["seq"],
                 "stop_id": sid,
                 "stop_name": name,
+                "station_id": station_id,
                 "platform": platform,
+                "platform_src": platform_src,
+                "habitual_platform": habitual_platform,
+                "habitual_publishable": habitual_publishable,
+                "habitual_confidence": habitual_confidence,
                 "status": status,
                 # SCHEDULED
                 "sched_arr_epoch": sched_arr,

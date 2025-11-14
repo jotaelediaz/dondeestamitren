@@ -81,6 +81,28 @@
 	{%- endif -%}
 	{%- set delay_value = (rt_arrival_time.delay_min | default(0)) if show_rt else 0 -%}
 	{%- set show_scheduled_time = scheduled_time is not none and (not show_rt or rt_hhmm != scheduled_time or is_passed_station) -%}
+	{%- set stop_habitual = (stop.habitual_platform if stop.habitual_publishable else None) -%}
+	{%- set split_marker = ' ó ' -%}
+	{%- if stop_habitual and split_marker in stop_habitual -%}
+		{%- set split_idx = stop_habitual.find(split_marker) -%}
+		{%- set stop_habitual = stop_habitual[:split_idx].strip() -%}
+	{%- endif -%}
+	{%- if habitual_platform is not defined or not habitual_platform -%}
+		{%- set habitual_platform = stop_habitual -%}
+	{%- endif -%}
+	{%- if habitual_platform and split_marker in habitual_platform -%}
+		{%- set split_idx2 = habitual_platform.find(split_marker) -%}
+		{%- set habitual_platform = habitual_platform[:split_idx2].strip() -%}
+	{%- endif -%}
+	{%- if platform_src is not defined or not platform_src -%}
+		{%- set platform_src = stop.platform_src if stop.platform_src else ('habitual' if stop_habitual else 'unknown') -%}
+	{%- endif -%}
+	{%- if show_plat is not defined or not show_plat -%}
+		{%- set show_plat = stop.platform or habitual_platform or '?' -%}
+	{%- endif -%}
+	{%- if live_plat is not defined -%}
+		{%- set live_plat = stop.platform if platform_src == 'live' else None -%}
+	{%- endif -%}
 
 <div class="station-block {{ station_position }}" role="group" data-station-index="{{ stop.seq + 1 }}" data-stop-id="{{ 'st-' ~ stop.stop_id }}" aria-labelledby="{{ _id }}-name" aria-describedby="{{ _id }}-times" {%- if is_current %} aria-current="location"{% endif %}>
 	<div class="grid-route-line">
@@ -135,7 +157,7 @@
 			{% set habit_norm = (habitual_platform or '')|string|trim|upper %}
 			{% set has_habitual = habit_norm and habit_norm != '?' %}
 			<div class="train-platform-badge" aria-labelledby="platform-label-{{ stop.stop_id }}">
-				<div class="platform-badge {{ base_cls }}{% if platform_src=='live' and has_habitual and live_norm and live_norm != habit_norm %} exceptional-platform{% endif %}" data-platform="{{ show_plat }}" data-src="{{ platform_src }}">
+				<div class="platform-badge {{ base_cls }}{% if platform_src=='live' and has_habitual and live_norm and live_norm != habit_norm %} exceptional-platform{% endif %}" data-platform="{{ show_plat }}" data-src="{{ platform_src }}"{% if has_habitual %} data-habitual="{{ habitual_platform }}"{% endif %}>
 					<data value="{{ show_plat }}"><span class="platform-unit">{{ show_plat }}</span></data>
 				</div>
 			</div>

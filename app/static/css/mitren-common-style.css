@@ -2218,6 +2218,12 @@ ul.chip-list {
 
 /* - Trains detail card - */
 
+.train-detail-header .route-train-chip-icon {
+    height: 1.4rem;
+    width: 1.4rem;
+    font-size: 1.05rem;
+}
+
 .route-train-chip-icon {
     height: 1.2rem;
     width: 1.2rem;
@@ -2708,3 +2714,16 @@ ul.chip-list {
     color: var(--jotaele-success);
 }
 
+.grid-route-train-platform .platform-badge {
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 4px;
+}
+
+.grid-route-train-platform .platform-unit {
+    font-size: 1rem;
+}
+
+.grid-route-map .grid-route-map-station.passed-station .platform-badge {
+    opacity: 0.6;
+}

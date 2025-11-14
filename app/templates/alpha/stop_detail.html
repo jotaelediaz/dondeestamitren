@@ -61,7 +61,7 @@
 				{% set status_label = 'Tiempo real' if status == 'realtime' else 'Programado' %}
 				{% set platform_info = card.get('platform_info') or {} %}
 				{% set observed_platform = platform_info.get('observed') %}
-				{% set predicted_platform = platform_info.get('predicted_alt') or platform_info.get('predicted') %}
+				{% set predicted_platform = platform_info.get('predicted') or platform_info.get('predicted_alt') %}
 				{% set row_platform = row.get('platform') %}
 				{% set habitual_plat = habitual_platform if habitual_platform else None %}
 				{% set display_platform = observed_platform or row_platform or predicted_platform or habitual_plat or '?' %}
