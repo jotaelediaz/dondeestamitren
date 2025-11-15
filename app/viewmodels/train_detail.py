@@ -8,6 +8,10 @@ from typing import Any
 @dataclass
 class TrainScheduleView:
     origin_time: str | None = None
+    scheduled_origin_time: str | None = None
+    origin_delay_minutes: int | None = None
+    origin_time_state: str = "on-time"
+    show_origin_schedule_time: bool = False
     destination_time: str | None = None
     scheduled_destination_time: str | None = None
     destination_delay_minutes: int | None = None
@@ -78,6 +82,7 @@ def build_train_detail_view(
         train_service=train_service,
         first_stop=first_stop,
         last_stop=last_stop,
+        origin_stop_id=origin_stop_id,
         destination_stop_id=destination_stop_id,
         rt_arrival_times=rt_map,
     )
@@ -132,6 +137,7 @@ def _build_schedule_view(
     train_service: dict[str, Any],
     first_stop: dict[str, Any] | None,
     last_stop: dict[str, Any] | None,
+    origin_stop_id: str | None,
     destination_stop_id: str | None,
     rt_arrival_times: dict[str, Any],
 ) -> TrainScheduleView:
@@ -142,6 +148,48 @@ def _build_schedule_view(
     )
     if schedule.origin_time is None:
         schedule.origin_time = train_service.get("scheduled_departure_hhmm")
+
+    origin_lookup_id = origin_stop_id or (first_stop.get("stop_id") if first_stop else None)
+    origin_rt = _lookup_rt(rt_arrival_times, origin_lookup_id)
+    if origin_rt:
+        schedule.origin_time = origin_rt.get("hhmm") or schedule.origin_time
+        origin_delay_s = origin_rt.get("delay_s")
+        if origin_delay_s is not None:
+            schedule.origin_delay_minutes = int(origin_delay_s // 60)
+            schedule.origin_time_state = _delay_state(origin_delay_s)
+
+    origin_sched_time = None
+    origin_sched_epoch = None
+    origin_eta_epoch = None
+    origin_delay_seconds = None
+    if first_stop:
+        origin_sched_time = first_stop.get("sched_dep_hhmm") or first_stop.get("sched_arr_hhmm")
+        origin_sched_epoch = first_stop.get("sched_dep_epoch") or first_stop.get("sched_arr_epoch")
+        origin_eta_epoch = first_stop.get("eta_dep_epoch") or first_stop.get("eta_arr_epoch")
+        origin_delay_seconds = first_stop.get("tu_delay_s")
+    if origin_sched_time is None:
+        origin_sched_time = train_service.get("scheduled_departure_hhmm")
+
+    if schedule.origin_delay_minutes is None and origin_delay_seconds is not None:
+        schedule.origin_delay_minutes = int(origin_delay_seconds // 60)
+        schedule.origin_time_state = _delay_state(origin_delay_seconds)
+    elif (
+        schedule.origin_delay_minutes is None
+        and origin_sched_epoch is not None
+        and origin_eta_epoch is not None
+    ):
+        origin_epoch_delay = origin_eta_epoch - origin_sched_epoch
+        schedule.origin_delay_minutes = int(origin_epoch_delay // 60)
+        schedule.origin_time_state = _delay_state(origin_epoch_delay)
+
+    schedule.scheduled_origin_time = origin_sched_time
+    schedule.show_origin_schedule_time = bool(
+        origin_sched_time
+        and (
+            (schedule.origin_time and schedule.origin_time != origin_sched_time)
+            or (schedule.origin_delay_minutes not in (None, 0))
+        )
+    )
 
     destination_rt = _lookup_rt(rt_arrival_times, destination_stop_id)
     if destination_rt:
@@ -239,15 +287,6 @@ def _build_status_view(
             is_arriving = any(token in status_text_lower for token in arriving_keywords)
             train_status_variant = "arriving" if is_arriving else "enroute"
 
-    status_descriptors = {
-        "scheduled": "Programado",
-        "unknown": "Estado desconocido",
-        "stationary": "En estación:",
-        "enroute": "En tránsito a:",
-        "arriving": "Llegando a:",
-    }
-    status_descriptor = status_descriptors.get(train_status_variant, status_descriptors["unknown"])
-
     icon_map = {
         "stationary": "step_into",
         "arriving": "step",
@@ -256,6 +295,7 @@ def _build_status_view(
         "unknown": "help",
     }
     train_status_icon = icon_map.get(train_status_variant, "info")
+    status_descriptor = train_status_variant
 
     seen_age_seconds = vm.get("train_seen_age")
     seen_age_seconds = (
@@ -271,24 +311,24 @@ def _build_status_view(
     seen_at_destination = _match_stop(destination_stop_id)
     seen_at_origin = _match_stop(origin_stop_id)
 
-    train_type_label = "Programado"
+    train_type_label = "scheduled"
     train_flow_state = "scheduled"
     if is_live_train:
         if is_seen_stale:
             if seen_at_destination:
-                train_type_label = "En destino"
+                train_type_label = "destination"
                 train_flow_state = "destination"
             else:
-                train_type_label = f"Visto hace {seen_age_seconds or 0} s"
+                train_type_label = "seen_age"
                 train_flow_state = "in-transit"
         elif seen_at_origin:
-            train_type_label = "En origen"
+            train_type_label = "origin"
             train_flow_state = "origin"
         elif seen_at_destination:
-            train_type_label = "En destino"
+            train_type_label = "destination"
             train_flow_state = "destination"
         else:
-            train_type_label = "En circulación"
+            train_type_label = "in_transit"
             train_flow_state = "in-transit"
 
     if not station_name and next_stop_id:

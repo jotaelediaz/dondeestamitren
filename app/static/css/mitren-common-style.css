@@ -2262,10 +2262,10 @@ ul.chip-list {
 }
 
 .train-details-panel {
-    background: var(--jotaele-white);
-    padding: calc(var(--app-margin) * 1.3) calc(var(--app-margin) * 1.3);
+    background: color-mix(in srgb, var(--jotaele-white) 70%, var(--jotaele-background) 30%);
     border-radius: 24px;
-    font-size: 1rem;
+    box-shadow: 0 0 0 1px var(--jotaele-background-accent);
+    padding: calc(var(--app-margin) * 1) calc(var(--app-margin) * 1);
 }
 
 .train-details-panel .train-details-header .train-details-preheader {
@@ -2321,12 +2321,10 @@ ul.chip-list {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 2px solid var(--jotaele-background);
-    padding-bottom: calc(var(--app-margin) * 1);
     margin-bottom: calc(var(--app-margin) * 1);
 }
 
-.train-details-header .line-chip-icon.image-line-icon {
+.train-details-header .line-chip-icon {
     flex: 0 0;
     height: 1.2rem;
 }
@@ -2542,18 +2540,18 @@ ul.chip-list {
     text-align: right;
 }
 
-.arrival-hour .arrival-hour-sched {
+.arrival-hour-sched {
     color: var(--jotaele-black);
     font-weight: 400;
-    font-size: 0.8em;
+    font-size: 1rem;
 }
 
-.arrival-hour .arrival-hour-sched.train-arrival-time--late {
+.arrival-hour-sched.train-arrival-time--late {
     color: var(--jotaele-error);
     text-decoration: line-through;
 }
 
-.arrival-hour .arrival-hour-sched.train-arrival-time--early {
+.arrival-hour-sched.train-arrival-time--early {
     color: var(--jotaele-success);
     text-decoration: line-through;
 }
@@ -2570,10 +2568,6 @@ ul.chip-list {
     display: flex;
     font-weight: 400;
     gap: 0.4rem;
-}
-
-.mini-route-map-labels .mini-route-label.through-label .station-label {
-    width: 80%;
 }
 
 .station-status-label {
@@ -2620,7 +2614,6 @@ ul.chip-list {
     display: grid;
     align-items: flex-start;
     grid-template-columns: max-content minmax(0, 1fr) max-content;
-    gap: calc(var(--app-margin) * 0.6);
 }
 
 .mini-route-label {
@@ -2636,7 +2629,7 @@ ul.chip-list {
 
 .mini-route-label.through-label {
     grid-column: 2 / 3;
-    justify-content: center;
+    justify-content: space-between;
 }
 
 .mini-route-label.destination-label {
