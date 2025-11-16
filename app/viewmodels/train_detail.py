@@ -89,8 +89,10 @@ def build_train_detail_view(
 
     stop_scope = _compute_stop_scope(stops)
     rt_prediction = train_service.get("rt_prediction") or {}
-    next_stop_id = rt_prediction.get("next_stop_id") or (
-        stop_scope["upcoming"].get("stop_id") if stop_scope["upcoming"] else None
+    next_stop_id = (
+        train_service.get("next_stop_id")
+        or rt_prediction.get("next_stop_id")
+        or (stop_scope["upcoming"].get("stop_id") if stop_scope["upcoming"] else None)
     )
 
     status_view = _build_status_view(

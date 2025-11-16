@@ -45,6 +45,11 @@ def _train_as_dict(train) -> dict[str, Any] | None:
         "platform": getattr(train, "platform", None),
         "platform_source": getattr(train, "platform_source", None),
         "label": getattr(train, "label", None),
+        "current_stop_id": getattr(train, "current_stop_id", None),
+        "current_stop_name": getattr(train, "current_stop_name", None),
+        "next_stop_id": getattr(train, "next_stop_id", None),
+        "next_stop_name": getattr(train, "next_stop_name", None),
+        "next_stop_progress_pct": getattr(train, "next_stop_progress_pct", None),
     }
     platform_map = getattr(train, "platform_by_stop", None)
     if isinstance(platform_map, dict) and platform_map:
@@ -113,6 +118,34 @@ def upcoming_services_for_stop(
             train = cache.get_by_id(str(pred.train_id))
         elif pred.vehicle_id:
             train = cache.get_by_id(str(pred.vehicle_id))
+        # Enrich with current/next/progress if available via train_services_index
+        from app.services.train_services_index import build_train_detail_vm
+
+        train_info = _train_as_dict(train)
+        if train:
+            try:
+                nucleus_slug = (getattr(stop, "nucleus_id", None) or "").lower()
+                identifier = str(
+                    getattr(train, "train_id", None)
+                    or getattr(train, "vehicle_id", None)
+                    or getattr(train, "label", "")
+                )
+                detail_vm = build_train_detail_vm(nucleus_slug, identifier, tz_name=tz)
+                enriched = detail_vm.get("unified") or {}
+                if isinstance(enriched, dict):
+                    if train_info is None:
+                        train_info = {}
+                    train_info.update(
+                        {
+                            "current_stop_id": enriched.get("current_stop_id"),
+                            "current_stop_name": enriched.get("current_stop_name"),
+                            "next_stop_id": enriched.get("next_stop_id"),
+                            "next_stop_name": enriched.get("next_stop_name"),
+                            "next_stop_progress_pct": enriched.get("next_stop_progress_pct"),
+                        }
+                    )
+            except Exception:
+                pass
         platform_info = None
         nucleus_slug = getattr(stop, "nucleus_id", "") or ""
         raw_stop_dir = getattr(stop, "direction_id", None)
@@ -200,8 +233,32 @@ def upcoming_services_for_stop(
                 "train_id": pred.train_id,
                 "row": pred.row,
                 "platform_info": platform_info,
-                "train": _train_as_dict(train),
+                "train": train_info,
                 "train_seen": seen,
+                # extra progress/current/next info if available
+                "current_stop_id": (
+                    (train_info or {}).get("current_stop_id")
+                    if isinstance(train_info, dict)
+                    else None
+                ),
+                "current_stop_name": (
+                    (train_info or {}).get("current_stop_name")
+                    if isinstance(train_info, dict)
+                    else None
+                ),
+                "next_stop_id": (
+                    (train_info or {}).get("next_stop_id") if isinstance(train_info, dict) else None
+                ),
+                "next_stop_name": (
+                    (train_info or {}).get("next_stop_name")
+                    if isinstance(train_info, dict)
+                    else None
+                ),
+                "next_stop_progress_pct": (
+                    (train_info or {}).get("next_stop_progress_pct")
+                    if isinstance(train_info, dict)
+                    else None
+                ),
             }
         )
 

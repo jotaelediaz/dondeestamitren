@@ -28,10 +28,12 @@ from app.services.train_services_index import (
 )
 from app.services.trip_updates_cache import get_trip_updates_cache
 from app.services.trips_repo import get_repo as get_trips_repo
-from app.viewkit import mk_nucleus
+from app.viewkit import fmt_dt, hhmm_local, mk_nucleus
 
 router = APIRouter(tags=["web-alpha"])
 templates = Jinja2Templates(directory="app/templates/alpha")
+templates.env.filters["hhmm_local"] = hhmm_local
+templates.env.filters["fmt_dt"] = fmt_dt
 
 _NUM_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
 

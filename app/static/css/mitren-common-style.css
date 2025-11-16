@@ -2021,6 +2021,10 @@ ul.chip-list {
     display: inline-block;
 }
 
+#eta-clock .rolling-number__column {
+    width: 0.6ch;
+}
+
 .rolling-number__digits {
     display: block;
     will-change: transform;
@@ -2228,7 +2232,7 @@ ul.chip-list {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 0.6ch;
+    width: 0.3ch;
     margin: 0 0.05ch;
     height: var(--rn-digit-height);
     line-height: var(--rn-digit-height);

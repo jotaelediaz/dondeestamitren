@@ -231,25 +231,26 @@
 			<th>Hora prevista</th>
 			<th>Retraso</th>
 			<th>Estado TU</th>
-			<th>Progreso</th>
-			<th>next_stop_progress_pct</th>
+			<th>Progreso de avance</th>
 			<th>Actualizado</th>
 		</tr>
 		</thead>
 		<tbody>
-		<tr>
-			<td>{{ unified.rt_prediction.next_stop_name or unified.rt_prediction.next_stop_id or '—' }}</td>
-			<td>
-				{% set eta = unified.rt_prediction.next_departure_epoch or unified.rt_prediction.next_arrival_epoch %}
-				{% set eta_hhmm = eta | hhmm_local %}
-				{% set eta_display = unified.rt_prediction.next_departure_hhmm
-					or unified.rt_prediction.next_arrival_hhmm
-					or eta_hhmm %}
-				{% if eta_display %}
-					{{ eta_display }}
-					{% if eta %}<span class="muted">({{ eta }})</span>{% endif %}
-				{% else %}—{% endif %}
-			</td>
+			<tr>
+				{% set next_stop_label = unified.next_stop_name or unified.rt_prediction.next_stop_name or unified.next_stop_id or unified.rt_prediction.next_stop_id %}
+				<td>{{ next_stop_label or '—' }}</td>
+				<td>
+					{% set eta = unified.rt_prediction.next_departure_epoch or unified.rt_prediction.next_arrival_epoch %}
+					{% set eta_hhmm = eta | hhmm_local %}
+					{% set eta_hhmmss = eta | fmt_dt('time_sec', 'Europe/Madrid') %}
+					{% set eta_display = unified.rt_prediction.next_departure_hhmm
+						or unified.rt_prediction.next_arrival_hhmm
+						or eta_hhmm %}
+					{% if eta_display %}
+						{{ eta_display }}
+						{% if eta %}<span class="muted">({{ eta }} · {{ eta_hhmmss }})</span>{% endif %}
+					{% else %}—{% endif %}
+				</td>
 			<td>
 				{% if unified.rt_prediction.next_delay_s is not none %}
 					{% set dmin = (unified.rt_prediction.next_delay_s // 60) %}
@@ -257,11 +258,6 @@
 				{% else %}—{% endif %}
 			</td>
 			<td>{{ unified.rt_prediction.schedule_relationship or '—' }}</td>
-			<td>
-				{% if unified.rt_prediction.progress and unified.rt_prediction.progress.next_stop_index is not none and unified.rt_prediction.progress.total_stops is not none %}
-					{{ unified.rt_prediction.progress.next_stop_index }}/{{ unified.rt_prediction.progress.total_stops }}
-				{% else %}—{% endif %}
-			</td>
 			<td>
 				{% if unified.rt_prediction.next_stop_progress_pct is not none %}
 					{{ unified.rt_prediction.next_stop_progress_pct }}%

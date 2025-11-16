@@ -628,35 +628,61 @@ def _build_trip_rows(
             return None
 
         seq_pairs = []
+        seq_to_stop: dict[int, str] = {}
         for stop_id, meta in stop_meta.items():
             seq_val = _to_int(meta.get("seq"))
-            if seq_val is not None:
-                seq_pairs.append((seq_val, stop_id))
+            if seq_val is None:
+                continue
+            seq_pairs.append((seq_val, stop_id))
+            seq_to_stop[seq_val] = stop_id
         seq_pairs.sort(key=lambda item: item[0])
 
         live_seq = _to_int(stop_meta.get(sid, {}).get("seq"))
-        if live_seq is None:
-            return None
-        try:
-            idx = next(i for i, (_seq, stop_id) in enumerate(seq_pairs) if stop_id == sid)
-        except StopIteration:
-            idx = None
 
         from_sid = None
         to_sid = None
-        if status == "STOPPED_AT":
+        if status == "STOPPED_AT" or status in {"IN_TRANSIT_TO"}:
             from_sid = sid
-            if idx is not None and idx + 1 < len(seq_pairs):
-                to_sid = seq_pairs[idx + 1][1]
-        elif status in {"IN_TRANSIT_TO", "INCOMING_AT"}:
+            if live_seq is not None:
+                to_sid = seq_to_stop.get(live_seq + 1)
+            if to_sid is None and effective_next_seq is not None:
+                to_sid = seq_to_stop.get(int(effective_next_seq))
+        elif status == "INCOMING_AT":
             to_sid = sid
-            if idx is not None and idx - 1 >= 0:
-                from_sid = seq_pairs[idx - 1][1]
+            if live_seq is not None:
+                from_sid = seq_to_stop.get(live_seq - 1)
+            if from_sid is None and live_seq is not None:
+                # fallback: nearest lower
+                lower = [s for s in seq_pairs if s[0] < live_seq]
+                if lower:
+                    from_sid = lower[-1][1]
 
-        if to_sid is None:
+        if to_sid is None and status in {"IN_TRANSIT_TO", "INCOMING_AT"} and effective_next_stop_id:
+            to_sid = str(effective_next_stop_id)
+        if from_sid is None and status == "INCOMING_AT" and to_sid is not None:
+            # attempt previous by seq
+            try:
+                to_seq = next(seq for seq, stop_id in seq_pairs if stop_id == to_sid)
+                from_sid = seq_to_stop.get(to_seq - 1)
+            except Exception:
+                pass
+
+        if from_sid is None and sid in stop_meta:
+            from_sid = sid
+        if to_sid is None and from_sid:
+            from_seq = seq_by_sid.get(str(from_sid))
+            if from_seq is not None:
+                higher = [s for s in seq_pairs if s[0] > from_seq]
+                if higher:
+                    to_sid = higher[0][1]
+        if to_sid is None and effective_next_stop_id:
+            to_sid = str(effective_next_stop_id)
+
+        if to_sid is None and status == "STOPPED_AT" and from_sid:
+            # end of route
             return 100
-        if from_sid is None:
-            return 0
+        if to_sid is None or from_sid is None:
+            return None
 
         meta_from = stop_meta.get(str(from_sid), {})
         meta_to = stop_meta.get(str(to_sid), {})
@@ -907,6 +933,46 @@ def _build_trip_rows(
             "km": km_val,
         }
 
+    seq_by_sid = {
+        sid: _to_int(meta.get("seq"))
+        for sid, meta in stop_meta.items()
+        if _to_int(meta.get("seq")) is not None
+    }
+    sid_by_seq = {seq: sid for sid, seq in seq_by_sid.items()}
+
+    def _stop_name(sid_val: str | None) -> str | None:
+        if not sid_val:
+            return None
+        return rrepo.get_stop_name(str(sid_val)) or str(sid_val)
+
+    current_stop_id: str | None = None
+    next_stop_id: str | None = effective_next_stop_id
+    live_seq_val = seq_by_sid.get(str(live_sid)) if live_sid else None
+
+    if live_status in {"STOPPED_AT", "INCOMING_AT"} and live_sid:
+        current_stop_id = live_sid
+        if next_stop_id is None and live_seq_val is not None:
+            next_stop_id = sid_by_seq.get(live_seq_val + 1)
+    elif live_status == "IN_TRANSIT_TO" and live_sid:
+        current_stop_id = live_sid
+        if next_stop_id is None and live_seq_val is not None:
+            next_stop_id = sid_by_seq.get(live_seq_val + 1)
+        if next_stop_id is None and live_seq_val is None and effective_next_seq is not None:
+            next_stop_id = sid_by_seq.get(int(effective_next_seq))
+
+    if current_stop_id is None:
+        cur_row = next((r for r in rows if (r.get("status") or "").upper() == "CURRENT"), None)
+        if cur_row:
+            current_stop_id = cur_row.get("stop_id")
+    if next_stop_id is None:
+        next_row = next((r for r in rows if (r.get("status") or "").upper() == "NEXT"), None)
+        if next_row:
+            next_stop_id = next_row.get("stop_id")
+        else:
+            fut = next((r for r in rows if (r.get("status") or "").upper() == "FUTURE"), None)
+            if fut:
+                next_stop_id = fut.get("stop_id")
+
     return {
         "has_tu": bool(tu),
         "tu_updated_iso": (
@@ -914,6 +980,10 @@ def _build_trip_rows(
         ),
         "stops": rows,
         "next_stop_progress_pct": _progress_for_segment(stop_meta),
+        "current_stop_id": current_stop_id,
+        "current_stop_name": _stop_name(current_stop_id),
+        "next_stop_id": next_stop_id,
+        "next_stop_name": _stop_name(next_stop_id),
     }
 
 
@@ -1608,6 +1678,10 @@ def build_train_detail_vm(
         )
         vm["trip"] = trip_rows
         progress_pct = trip_rows.get("next_stop_progress_pct")
+        current_stop_id = trip_rows.get("current_stop_id")
+        current_stop_name = trip_rows.get("current_stop_name")
+        next_stop_id_val = trip_rows.get("next_stop_id")
+        next_stop_name_val = trip_rows.get("next_stop_name")
         if progress_pct is not None and isinstance(rt, dict):
             rt = {**rt, "next_stop_progress_pct": progress_pct}
 
@@ -1652,6 +1726,10 @@ def build_train_detail_vm(
             or (extract_train_number_from_train(live_obj) or ""),
             "rt_prediction": rt,
             "next_stop_progress_pct": progress_pct,
+            "current_stop_id": current_stop_id,
+            "current_stop_name": current_stop_name,
+            "next_stop_id": next_stop_id_val,
+            "next_stop_name": next_stop_name_val,
         }
         return vm
 
@@ -1717,6 +1795,10 @@ def build_train_detail_vm(
         tz_name=tz_name,
     )
     progress_pct = vm["trip"].get("next_stop_progress_pct")
+    current_stop_id = vm["trip"].get("current_stop_id")
+    current_stop_name = vm["trip"].get("current_stop_name")
+    next_stop_id_val = vm["trip"].get("next_stop_id")
+    next_stop_name_val = vm["trip"].get("next_stop_name")
     if progress_pct is not None and isinstance(rt, dict):
         rt = {**rt, "next_stop_progress_pct": progress_pct}
 
@@ -1740,6 +1822,10 @@ def build_train_detail_vm(
         "train_label": (sched.get("train_number") if sched else None) or key,
         "rt_prediction": rt,
         "next_stop_progress_pct": progress_pct,
+        "current_stop_id": current_stop_id,
+        "current_stop_name": current_stop_name,
+        "next_stop_id": next_stop_id_val,
+        "next_stop_name": next_stop_name_val,
     }
     return vm
 

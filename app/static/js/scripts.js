@@ -37,7 +37,6 @@
 
         if (hash) {
             targetId = hash.substring(1);
-            console.log('Looking for element with ID:', targetId);
             targetElement = document.getElementById(targetId);
             if (!targetElement) {
                 console.warn(`Target element with ID "${targetId}" not found`);
@@ -46,20 +45,16 @@
         } else if (gridContainer.classList.contains('live-train')) {
             targetElement = gridContainer.querySelector('.grid-route-map-station.next-stop');
             if (!targetElement) {
-                console.log('Live train has no .next-stop element to focus');
                 return;
             }
             targetId = targetElement.id || '';
-            console.log('Auto-scrolling to next-stop element:', targetId || targetElement);
         } else {
             return;
         }
 
         const allStations = Array.from(gridContainer.querySelectorAll('.grid-route-map-station'));
-        console.log(`Total stations in grid: ${allStations.length}`);
 
         const targetIndex = allStations.findIndex(el => el === targetElement);
-        console.log(`Target station index: ${targetIndex}`);
 
         if (targetIndex === -1) {
             console.warn('Could not locate target element within station list');
@@ -68,32 +63,23 @@
 
         const computedStyle = window.getComputedStyle(gridContainer);
         const stationBlockHeightStr = computedStyle.getPropertyValue('--station-block-height').trim();
-        console.log(`Station block height from CSS: ${stationBlockHeightStr}`);
 
         const stationBlockHeightNum = parseFloat(stationBlockHeightStr);
         const remToPixels = parseFloat(computedStyle.fontSize);
         const stationBlockHeightPx = stationBlockHeightNum * remToPixels;
 
-        console.log(`Calculated station block height in pixels: ${stationBlockHeightPx}`);
-
         const scrollPosition = (targetIndex * stationBlockHeightPx) - 100;
         const targetScrollTop = Math.max(0, scrollPosition);
-
-        console.log(`Final calculated scroll position: ${targetScrollTop}`);
 
         scrollContainer.scrollTo({
             top: targetScrollTop,
             behavior: 'smooth'
         });
 
-        console.log(`Scroll requested. Container scroll is now at: ${scrollContainer.scrollTop}`);
-
         targetElement.classList.add('scroll-target');
-        console.log('Added scroll-target class');
 
         setTimeout(function() {
             targetElement.classList.remove('scroll-target');
-            console.log('Removed scroll-target class');
         }, 2000);
     }
 
@@ -914,6 +900,7 @@
     function resolvePreferredEtaView(card, minutes) {
         const stopId = normalizeStopPanelStopId(card);
         const stored = loadEtaViewPreference(stopId);
+        if (Number.isFinite(minutes) && minutes < 60) return 'min';
         if (stored === 'clock' || stored === 'min') return stored;
         return inferEtaViewFromMinutes(minutes);
     }
@@ -1874,9 +1861,20 @@
             }
             const isRealtime = (service.status || '').toLowerCase() === 'realtime';
             const stopMatches = stopIdsMatch(stopId, actualStopCandidates);
+            const nextStopId = service.next_stop_id
+                || (service.train && service.train.next_stop_id)
+                || (row && row.next_stop_id)
+                || null;
+            const stopMatchesNext = stopIdsMatch(stopId, [nextStopId]);
+            const progressPct = Number(service.next_stop_progress_pct
+                ?? (service.train && service.train.next_stop_progress_pct));
             const isStoppedAtStation = isRealtime
                 && trainState === 'STOPPED_AT'
                 && stopMatches;
+            const inferredStationByProgress = isRealtime
+                && stopMatchesNext
+                && Number.isFinite(progressPct)
+                && progressPct >= 99;
 
             const pill = card.querySelector('[data-field="primary-pill"]');
             if (pill) {
@@ -1890,6 +1888,9 @@
                 minEl.setAttribute('data-eta-min', value);
                 minEl.setAttribute('data-loading', 'false');
                 minEl.dataset.ltMinute = isLessThanOneMinute ? 'true' : 'false';
+                // Mark station state before building to avoid flicker when stopped at platform
+                const stationState = isStoppedAtStation || inferredStationByProgress;
+                minEl.dataset.stationActive = stationState ? 'true' : 'false';
                 const timeNode = minEl.querySelector('time');
                 if (timeNode) {
                     if (Number.isFinite(minutes)) {
