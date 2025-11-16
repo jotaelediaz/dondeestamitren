@@ -233,6 +233,31 @@ def _speed_mps(live: Any) -> float | None:
     return None
 
 
+def _project_fraction_on_segment(
+    lat_a: float, lon_a: float, lat_b: float, lon_b: float, lat_p: float, lon_p: float
+) -> float | None:
+    """Return parametric position of P over segment AB using an equirectangular projection."""
+    try:
+        mean_lat_rad = math.radians((lat_a + lat_b) / 2.0)
+        ax = math.radians(lon_a) * math.cos(mean_lat_rad) * 6371000.0
+        ay = math.radians(lat_a) * 6371000.0
+        bx = math.radians(lon_b) * math.cos(mean_lat_rad) * 6371000.0
+        by = math.radians(lat_b) * 6371000.0
+        px = math.radians(lon_p) * math.cos(mean_lat_rad) * 6371000.0
+        py = math.radians(lat_p) * 6371000.0
+    except Exception:
+        return None
+
+    dx = bx - ax
+    dy = by - ay
+    denom = dx * dx + dy * dy
+    if denom <= 0:
+        return None
+
+    t = ((px - ax) * dx + (py - ay) * dy) / denom
+    return float(t)
+
+
 @lru_cache(maxsize=4096)
 def _trip_route_id(trip_id: str | None) -> str | None:
     if not trip_id:
@@ -336,6 +361,8 @@ def enrich_with_trip_update(trip_id: str, *, tz_name: str = "Europe/Madrid") -> 
     dep = _gd(next_s, "departure_time") if next_s else None
     delay = _gd(next_s, "arrival_delay", "departure_delay") if next_s else None
     seq = _gd(next_s, "stop_sequence") if next_s else None
+    arr_hhmm = _fmt_hhmm_local(arr, tz_name) if arr is not None else None
+    dep_hhmm = _fmt_hhmm_local(dep, tz_name) if dep is not None else None
     rel = getattr(it, "schedule_relationship", None) or "SCHEDULED"
 
     rrepo = get_routes_repo()
@@ -358,6 +385,8 @@ def enrich_with_trip_update(trip_id: str, *, tz_name: str = "Europe/Madrid") -> 
         "next_stop_name": stop_name,
         "next_arrival_epoch": arr,
         "next_departure_epoch": dep,
+        "next_arrival_hhmm": arr_hhmm,
+        "next_departure_hhmm": dep_hhmm,
         "next_delay_s": delay,
         "progress": {"next_stop_index": seq, "total_stops": total_seq},
     }
@@ -590,7 +619,148 @@ def _build_trip_rows(
     if effective_next_stop_id is None and is_in_transit:
         effective_next_stop_id = next_stop_after_live
 
+    def _progress_for_segment(stop_meta: dict[str, dict]) -> int | None:
+        if not live_obj:
+            return None
+        status = live_status or ""
+        sid = str(live_sid or "").strip()
+        if not sid or status not in {"STOPPED_AT", "IN_TRANSIT_TO", "INCOMING_AT"}:
+            return None
+
+        seq_pairs = []
+        for stop_id, meta in stop_meta.items():
+            seq_val = _to_int(meta.get("seq"))
+            if seq_val is not None:
+                seq_pairs.append((seq_val, stop_id))
+        seq_pairs.sort(key=lambda item: item[0])
+
+        live_seq = _to_int(stop_meta.get(sid, {}).get("seq"))
+        if live_seq is None:
+            return None
+        try:
+            idx = next(i for i, (_seq, stop_id) in enumerate(seq_pairs) if stop_id == sid)
+        except StopIteration:
+            idx = None
+
+        from_sid = None
+        to_sid = None
+        if status == "STOPPED_AT":
+            from_sid = sid
+            if idx is not None and idx + 1 < len(seq_pairs):
+                to_sid = seq_pairs[idx + 1][1]
+        elif status in {"IN_TRANSIT_TO", "INCOMING_AT"}:
+            to_sid = sid
+            if idx is not None and idx - 1 >= 0:
+                from_sid = seq_pairs[idx - 1][1]
+
+        if to_sid is None:
+            return 100
+        if from_sid is None:
+            return 0
+
+        meta_from = stop_meta.get(str(from_sid), {})
+        meta_to = stop_meta.get(str(to_sid), {})
+
+        def _pick_time(meta: dict, fields: tuple[str, ...]) -> int | None:
+            for name in fields:
+                val = meta.get(name)
+                if isinstance(val, int | float):
+                    return int(val)
+            return None
+
+        t_departure = _pick_time(
+            meta_from,
+            (
+                "eta_dep_epoch",
+                "tu_dep_epoch",
+                "sched_dep_epoch",
+                "eta_arr_epoch",
+                "tu_arr_epoch",
+                "sched_arr_epoch",
+            ),
+        )
+        t_arrival = _pick_time(
+            meta_to,
+            (
+                "eta_arr_epoch",
+                "tu_arr_epoch",
+                "sched_arr_epoch",
+                "eta_dep_epoch",
+                "tu_dep_epoch",
+                "sched_dep_epoch",
+            ),
+        )
+
+        now_ts = _get_live_ts(live_obj) or _now_ts(tz_name)
+        temporal_progress = None
+        if isinstance(t_departure, int | float) and isinstance(t_arrival, int | float):
+            denom = float(t_arrival) - float(t_departure)
+            if denom > 0:
+                if status == "STOPPED_AT" and now_ts <= float(t_departure) + 15:
+                    temporal_progress = 0.0
+                else:
+                    temporal_progress = max(
+                        0.0, min(1.0, (float(now_ts) - float(t_departure)) / denom)
+                    )
+
+        lat_cur, lon_cur = _latlon(live_obj)
+        lat_from = meta_from.get("lat")
+        lon_from = meta_from.get("lon")
+        lat_to = meta_to.get("lat")
+        lon_to = meta_to.get("lon")
+        spatial_progress = None
+        if None not in (lat_cur, lon_cur, lat_from, lon_from, lat_to, lon_to):
+            seg_dist = _haversine_m(float(lat_from), float(lon_from), float(lat_to), float(lon_to))
+            frac = _project_fraction_on_segment(
+                float(lat_from),
+                float(lon_from),
+                float(lat_to),
+                float(lon_to),
+                float(lat_cur),
+                float(lon_cur),
+            )
+            if seg_dist > 5 and frac is not None:
+                dist_from_cur = _haversine_m(
+                    float(lat_from), float(lon_from), float(lat_cur), float(lon_cur)
+                )
+                dist_cur_to = _haversine_m(
+                    float(lat_cur), float(lon_cur), float(lat_to), float(lon_to)
+                )
+                if dist_from_cur + dist_cur_to <= seg_dist * 4.0 and frac > -0.25 and frac < 1.25:
+                    spatial_progress = max(0.0, min(1.0, frac))
+
+        progress_val: float | None
+        if spatial_progress is None and temporal_progress is None:
+            progress_val = None
+        elif spatial_progress is None:
+            progress_val = temporal_progress
+        elif temporal_progress is None:
+            progress_val = spatial_progress
+        else:
+            if abs(spatial_progress - temporal_progress) <= 0.3:
+                progress_val = 0.7 * spatial_progress + 0.3 * temporal_progress
+            else:
+                age = None
+                ts_live = _get_live_ts(live_obj)
+                if isinstance(ts_live, int | float):
+                    age = max(0.0, float(now_ts) - float(ts_live))
+                progress_val = (
+                    spatial_progress if (age is None or age <= 120) else temporal_progress
+                )
+
+        if progress_val is None:
+            return None
+
+        if status == "STOPPED_AT":
+            progress_val = 0.0
+        elif status == "INCOMING_AT":
+            progress_val = max(progress_val, 0.8)
+
+        progress_val = max(0.0, min(1.0, progress_val))
+        return int(round(progress_val * 100))
+
     rows = []
+    stop_meta: dict[str, dict] = {}
     carry_delay = None
     for c in calls:
         sid = str(c["stop_id"])
@@ -653,6 +823,11 @@ def _build_trip_rows(
                     status = "PASSED"
 
         stop_record = _lookup_stop_obj(route_ref_id, sid) if route_ref_id else None
+        route_station = None
+        if route_obj:
+            with suppress(Exception):
+                route_station = next((s for s in route_obj.stations if s.stop_id == sid), None)
+
         habitual_platform = getattr(stop_record, "habitual_platform", None)
         habitual_publishable = bool(getattr(stop_record, "habitual_publishable", False))
         habitual_confidence = getattr(stop_record, "habitual_confidence", None)
@@ -665,10 +840,8 @@ def _build_trip_rows(
             with suppress(Exception):
                 live_platform = getattr(live_obj, "platform", None)
 
-        if not habitual_platform and route_obj:
-            with suppress(Exception):
-                st = next((s for s in route_obj.stations if s.stop_id == sid), None)
-                habitual_platform = getattr(st, "habitual_platform", None)
+        if not habitual_platform and route_station:
+            habitual_platform = getattr(route_station, "habitual_platform", None)
 
         platform = live_platform or habitual_platform
         if platform and isinstance(platform, str) and " ó " in platform:
@@ -680,6 +853,16 @@ def _build_trip_rows(
             platform_src = "habitual"
         else:
             platform_src = "unknown"
+
+        lat_val = getattr(stop_record, "lat", None)
+        lon_val = getattr(stop_record, "lon", None)
+        if lat_val is None and route_station is not None:
+            lat_val = getattr(route_station, "lat", None)
+        if lon_val is None and route_station is not None:
+            lon_val = getattr(route_station, "lon", None)
+        km_val = getattr(stop_record, "km", None)
+        if km_val is None and route_station is not None:
+            km_val = getattr(route_station, "km", None)
 
         rows.append(
             {
@@ -711,12 +894,26 @@ def _build_trip_rows(
             }
         )
 
+        stop_meta[sid] = {
+            "seq": c["seq"],
+            "sched_arr_epoch": sched_arr,
+            "sched_dep_epoch": sched_dep,
+            "eta_arr_epoch": eta_arr,
+            "eta_dep_epoch": eta_dep,
+            "tu_arr_epoch": tu_arr,
+            "tu_dep_epoch": tu_dep,
+            "lat": lat_val,
+            "lon": lon_val,
+            "km": km_val,
+        }
+
     return {
         "has_tu": bool(tu),
         "tu_updated_iso": (
             datetime.fromtimestamp(tu_ts, ZoneInfo(tz_name)).isoformat() if tu_ts else None
         ),
         "stops": rows,
+        "next_stop_progress_pct": _progress_for_segment(stop_meta),
     }
 
 
@@ -1410,6 +1607,9 @@ def build_train_detail_vm(
             tz_name=tz_name,
         )
         vm["trip"] = trip_rows
+        progress_pct = trip_rows.get("next_stop_progress_pct")
+        if progress_pct is not None and isinstance(rt, dict):
+            rt = {**rt, "next_stop_progress_pct": progress_pct}
 
         if inst:
             _record_passes_for_instance(
@@ -1451,6 +1651,7 @@ def build_train_detail_vm(
             "train_label": getattr(live_obj, "train_id", None)
             or (extract_train_number_from_train(live_obj) or ""),
             "rt_prediction": rt,
+            "next_stop_progress_pct": progress_pct,
         }
         return vm
 
@@ -1515,6 +1716,9 @@ def build_train_detail_vm(
         live_obj=vm.get("train"),
         tz_name=tz_name,
     )
+    progress_pct = vm["trip"].get("next_stop_progress_pct")
+    if progress_pct is not None and isinstance(rt, dict):
+        rt = {**rt, "next_stop_progress_pct": progress_pct}
 
     vm["unified"] = {
         "kind": "scheduled",
@@ -1535,6 +1739,7 @@ def build_train_detail_vm(
         "scheduled_departure_hhmm": sd_hhmm,
         "train_label": (sched.get("train_number") if sched else None) or key,
         "rt_prediction": rt,
+        "next_stop_progress_pct": progress_pct,
     }
     return vm
 

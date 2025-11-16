@@ -232,6 +232,7 @@
 			<th>Retraso</th>
 			<th>Estado TU</th>
 			<th>Progreso</th>
+			<th>next_stop_progress_pct</th>
 			<th>Actualizado</th>
 		</tr>
 		</thead>
@@ -239,16 +240,15 @@
 		<tr>
 			<td>{{ unified.rt_prediction.next_stop_name or unified.rt_prediction.next_stop_id or '—' }}</td>
 			<td>
-				{% if unified.rt_prediction.next_departure_hhmm %}
-					{{ unified.rt_prediction.next_departure_hhmm }}
-					{% if unified.rt_prediction.next_departure_epoch %} ({{ unified.rt_prediction.next_departure_epoch }}){% endif %}
-					{% elif unified.rt_prediction.next_arrival_hhmm %}
-					{{ unified.rt_prediction.next_arrival_hhmm }}
-					{% if unified.rt_prediction.next_arrival_epoch %} ({{ unified.rt_prediction.next_arrival_epoch }}){% endif %}
-				{% else %}
-					{% set eta = unified.rt_prediction.next_departure_epoch or unified.rt_prediction.next_arrival_epoch %}
-					{% if eta %}{{ eta }}{% else %}—{% endif %}
-				{% endif %}
+				{% set eta = unified.rt_prediction.next_departure_epoch or unified.rt_prediction.next_arrival_epoch %}
+				{% set eta_hhmm = eta | hhmm_local %}
+				{% set eta_display = unified.rt_prediction.next_departure_hhmm
+					or unified.rt_prediction.next_arrival_hhmm
+					or eta_hhmm %}
+				{% if eta_display %}
+					{{ eta_display }}
+					{% if eta %}<span class="muted">({{ eta }})</span>{% endif %}
+				{% else %}—{% endif %}
 			</td>
 			<td>
 				{% if unified.rt_prediction.next_delay_s is not none %}
@@ -260,6 +260,11 @@
 			<td>
 				{% if unified.rt_prediction.progress and unified.rt_prediction.progress.next_stop_index is not none and unified.rt_prediction.progress.total_stops is not none %}
 					{{ unified.rt_prediction.progress.next_stop_index }}/{{ unified.rt_prediction.progress.total_stops }}
+				{% else %}—{% endif %}
+			</td>
+			<td>
+				{% if unified.rt_prediction.next_stop_progress_pct is not none %}
+					{{ unified.rt_prediction.next_stop_progress_pct }}%
 				{% else %}—{% endif %}
 			</td>
 			<td>

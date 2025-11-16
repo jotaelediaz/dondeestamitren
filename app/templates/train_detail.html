@@ -129,47 +129,51 @@
 								</div>
 							</div>
 						</div>
-		{% set show_origin_label = schedule.show_origin_schedule_time %}
-		{% set show_destination_label = schedule.show_destination_schedule_time %}
-		{% set show_status_label = status.show_through_label %}
-		{% set origin_label_visible = show_origin_label and (schedule.scheduled_origin_time or '') != (origin_display_time or '') %}
-		{% if origin_label_visible or show_destination_label or show_status_label %}
-			<div class="mini-route-map-labels" role="presentation">
-				<div class="mini-route-label through-label">
-					{% if origin_label_visible %}
-						<div class="station-label">
-							<span class="arrival-hour-sched train-arrival-time--{{ schedule.origin_time_state }}">
-								{{ schedule.scheduled_origin_time }}
-												{% if schedule.origin_time_state == 'late' %}
-													<span class="sr-only">Tren Demorado</span>
-												{% elif schedule.origin_time_state == 'early' %}
-													<span class="sr-only">Tren adelantado</span>
-												{% endif %}
-											</span>
-										</div>
-									{% endif %}
-									{% if show_status_label %}
-										<span class="station-label station-status-label" title="{{ status_descriptor_text }}" aria-label="{{ status_descriptor_text }}">
-											<span class="station-status-icon" aria-hidden="true">
-												<span class="material-symbols-rounded">{{ status.train_status_icon }}</span>
-											</span>
-											<span class="station-label-text">{{ status.station_name or status_descriptor_text }}</span>
+						{% set show_origin_label = schedule.show_origin_schedule_time %}
+						{% set show_destination_label = schedule.show_destination_schedule_time %}
+						{% set show_status_label = status.show_through_label %}
+						{% set origin_label_visible = show_origin_label and (schedule.scheduled_origin_time or '') != (origin_display_time or '') %}
+						{% if origin_label_visible or show_destination_label or show_status_label %}
+							<div class="mini-route-map-labels" role="presentation">
+							<div class="mini-route-label origin-label">
+								{% if origin_label_visible %}
+									<div class="station-label">
+										<span class="arrival-hour-sched train-arrival-time--{{ schedule.origin_time_state }}">
+											{{ schedule.scheduled_origin_time }}
+											{% if schedule.origin_time_state == 'late' %}
+												<span class="sr-only">Tren Demorado</span>
+											{% elif schedule.origin_time_state == 'early' %}
+												<span class="sr-only">Tren adelantado</span>
+											{% endif %}
 										</span>
-									{% endif %}
-					{% if show_destination_label %}
-										<div class="station-label">
-											<span class="arrival-hour-sched train-arrival-time--{{ schedule.destination_time_state }}">
-												{{ schedule.scheduled_destination_time }}
-												{% if schedule.destination_time_state == 'late' %}
-													<span class="sr-only">Tren Demorado</span>
-												{% elif schedule.destination_time_state == 'early' %}
-													<span class="sr-only">Tren adelantado</span>
-												{% endif %}
-											</span>
-										</div>
-									{% endif %}
-								</div>
+									</div>
+								{% endif %}
 							</div>
+							<div class="mini-route-label through-label">
+								{% if show_status_label %}
+									<span class="station-label station-status-label" title="{{ status_descriptor_text }}" aria-label="{{ status_descriptor_text }}">
+										<span class="station-status-icon" aria-hidden="true">
+											<span class="material-symbols-rounded">{{ status.train_status_icon }}</span>
+										</span>
+										<span class="station-label-text">{{ status.station_name or status_descriptor_text }}</span>
+									</span>
+								{% endif %}
+							</div>
+							<div class="mini-route-label destination-label">
+								{% if show_destination_label %}
+									<div class="station-label">
+										<span class="arrival-hour-sched train-arrival-time--{{ schedule.destination_time_state }}">
+											{{ schedule.scheduled_destination_time }}
+											{% if schedule.destination_time_state == 'late' %}
+												<span class="sr-only">Tren Demorado</span>
+											{% elif schedule.destination_time_state == 'early' %}
+												<span class="sr-only">Tren adelantado</span>
+											{% endif %}
+										</span>
+									</div>
+								{% endif %}
+							</div>
+						</div>
 						{% endif %}
 					</div>
 				{#		<li><strong>Vía:</strong> {{ train_service.platform or '—' }}</li>
