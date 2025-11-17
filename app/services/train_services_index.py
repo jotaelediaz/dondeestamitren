@@ -1717,6 +1717,7 @@ def build_train_detail_vm(
             "destination_name": dest_name,
             "status_text": status_text,
             "platform": vm["platform"],
+            "current_status": getattr(live_obj, "current_status", None),
             "lat": getattr(live_obj, "lat", None),
             "lon": getattr(live_obj, "lon", None),
             "trip_id": trip_id,

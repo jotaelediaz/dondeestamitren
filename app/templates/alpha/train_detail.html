@@ -25,47 +25,40 @@
 			{{ '🔴' if train_seen_age > 900 else '🟡' if train_seen_age > 30 else '🟢'}}
 		</p>
 	{% endif %}
-	<p>
-		<a href="/alpha/trains/{{ nucleus.slug }}/{{ unified.train_label }}/map">→ Ver tren en un mapa</a>
-	</p>
 </header>
 
-<table border="1" cellpadding="6" cellspacing="0">
-	<thead>
-	<tr>
-		<th>Ruta</th>
-		<th>Código de línea</th>
-		<th>Destino</th>
-		<th>Estado</th>
-		<th>Parada actual</th>
-		<th>Vía</th>
-		<th>Posición</th>
-	</tr>
-	</thead>
-	<tbody>
-	<tr>
-		<td>
-			{% if unified.route_id %}
-				<a href="/alpha/routes/{{ nucleus.slug }}/{{ unified.route_id }}">{{ unified.route_id }}</a>
-			{% else %}—{% endif %}
-		</td>
-		<td>{{ unified.route_short_name or '—' }}</td>
-		<td>{{ unified.destination_name or '—' }}</td>
-		<td>{{ unified.status_text or '—' }}</td>
-		<td>
-			{% if kind == 'live' and train %}
-				{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i>
-			{% else %}—{% endif %}
-		</td>
-		<td>{{ unified.platform or '—' }}</td>
-		<td>
-			{% if unified.lat is not none and unified.lon is not none %}
-				{{ '%.5f'|format(unified.lat) }}, {{ '%.5f'|format(unified.lon) }}
-			{% else %}—{% endif %}
-		</td>
-	</tr>
-	</tbody>
-</table>
+<ul>
+	<li><strong>Ruta:</strong>
+		{% if unified.route_id %}
+			<a href="/alpha/routes/{{ nucleus.slug }}/{{ unified.route_id }}">{{ unified.route_id }}</a>
+		{% else %}—{% endif %}
+	</li>
+	<li><strong>Código de línea:</strong> {{ unified.route_short_name or '—' }}</li>
+	<li><strong>Destino:</strong> {{ unified.destination_name or '—' }}</li>
+	<li><strong>Estado:</strong> {{ unified.status_text or '—' }}</li>
+	<li><strong>Parada actual:</strong>
+		{% if kind == 'live' and train %}
+			{{ repo.get_stop_name(train.stop_id) }} <i>({{ train.stop_id or "—" }})</i>
+		{% else %}—{% endif %}
+	</li>
+	<li><strong>Siguiente parada:</strong>
+		{% set next_stop_id = unified.next_stop_id %}
+		{% set next_stop_name = unified.next_stop_name or (repo.get_stop_name(next_stop_id) if next_stop_id else None) %}
+		{% if next_stop_name or next_stop_id %}
+			{{ next_stop_name or '—' }}{% if next_stop_id %} <i>({{ next_stop_id }})</i>{% endif %}
+		{% else %}—{% endif %}
+	</li>
+	<li><strong>Vía en directo:</strong> {{ unified.platform or '—' }}</li>
+	<li><strong>Posición:</strong>
+		{% if unified.lat is not none and unified.lon is not none %}
+			{{ '%.5f'|format(unified.lat) }}, {{ '%.5f'|format(unified.lon) }}
+		{% else %}—{% endif %}
+	</li>
+</ul>
+
+<p>
+	<a href="/alpha/trains/{{ nucleus.slug }}/{{ unified.train_label }}/map">→ Ver tren en un mapa</a>
+</p>
 
 <hr/>
 

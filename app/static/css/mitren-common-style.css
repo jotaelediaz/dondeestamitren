@@ -2279,7 +2279,7 @@ ul.chip-list {
     font-size: 0.95rem;
     font-weight: 700;
     white-space: nowrap;
-    letter-spacing: -0.4px;
+    letter-spacing: 0;
     gap: 0.35rem;
     align-items: center;
     justify-content: center;
@@ -2735,12 +2735,30 @@ ul.chip-list {
     border-radius: 4px;
 }
 
+.grid-route-train-platform .platform-chip {
+    margin-right: 0.25rem;
+    margin-top: 0.45rem;
+}
+
 .grid-route-train-platform .platform-unit {
     font-size: 1rem;
 }
 
 .grid-route-map .grid-route-map-station.passed-station .platform-badge {
     opacity: 0.6;
+}
+
+.grid-route-map .grid-route-map-station.next-stop .station-name {
+    font-weight: 900;
+}
+
+.grid-route-map.train-status--enroute .grid-route-map-station.current-stop .route-line-fragment,
+.grid-route-map.train-status--arriving .grid-route-map-station.current-stop .route-line-fragment {
+    background: linear-gradient(to bottom,
+        var(--jotaele-text-subtle) 0%,
+        var(--jotaele-text-subtle) var(--next_stop_progress),
+        var(--line-color) var(--next_stop_progress)
+    ) !important;
 }
 
 /* - Scroll target highlight - */

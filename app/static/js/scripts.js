@@ -1657,7 +1657,22 @@
         function applyStopServicesPayload(payload) {
         const root = body.querySelector('[data-stop-panel]');
         if (!root) return;
-        const services = Array.isArray((payload && payload.services)) ? payload.services : [];
+        let services = Array.isArray((payload && payload.services)) ? payload.services : [];
+        // Hide services very close (<5 min) with no evidence of real approaching
+        services = services.filter((svc) => {
+            const minutes = Number(svc?.eta_seconds) / 60;
+            const etaIsSoon = Number.isFinite(minutes) && minutes < 5;
+            const isRealtime = (svc?.status || '').toLowerCase() === 'realtime';
+            const hasTu = Boolean(svc?.source && String(svc.source).toLowerCase().includes('tu'));
+            const train = svc?.train || {};
+            const hasLivePos = train.lat != null || train.lon != null;
+            const status = (train.current_status || '').toUpperCase();
+            const stopMatches = stopIdsMatch(normalizeStopId(stopId), [svc?.train?.current_stop_id, svc?.train?.stop_id]);
+            const likelyApproaching = status === 'IN_TRANSIT_TO' || status === 'INCOMING_AT' || stopMatches;
+            if (etaIsSoon && !isRealtime && !hasLivePos && !hasTu) return false;
+            if (etaIsSoon && isRealtime && !likelyApproaching && !hasTu && !hasLivePos) return false;
+            return true;
+        });
         const primary = services[0] || null;
         const secondary = services[1] || null;
 
