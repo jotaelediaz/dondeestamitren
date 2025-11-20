@@ -10,6 +10,7 @@
     let   stopGlobalHandlersBound   = false;
     let   drawerCloseDelegatedBound = false;
     let   trainDetailScrollHandlersBound = false;
+    let   trainDetailRefreshHandlersBound = false;
 
 // ------------------ Utilities ------------------
     function stripHxAttrs(html) {
@@ -115,6 +116,262 @@
     }
 
     bindTrainDetailScrollHandlers();
+
+// ------------------ Train detail auto refresh ------------------
+    const TRAIN_DETAIL_INTERVALS = {
+        base: 30_000,
+        approaching: 12_000,
+        stopped: 15_000,
+        scheduled: 30_000,
+        stale: 30_000,
+        maxBackoff: 120_000,
+    };
+    const TRAIN_PROGRESS_MAX_DROP = 15;
+    const TRAIN_PROGRESS_TICK = 1_000;
+
+    function stopTrainDetailAuto(panel) {
+        const st = panel?.__trainAuto;
+        if (!st) return;
+        if (st.timerId) { clearTimeout(st.timerId); st.timerId = null; }
+        if (st.abort) { try { st.abort.abort(); } catch (_) {} st.abort = null; }
+        st.running = false;
+        st.inFlight = false;
+        if (st.progressTimer) { clearInterval(st.progressTimer); st.progressTimer = null; }
+    }
+
+    function scheduleTrainDetailTick(panel, ms) {
+        const st = panel?.__trainAuto;
+        if (!st || !st.running) return;
+        if (st.timerId) clearTimeout(st.timerId);
+        st.timerId = setTimeout(() => refreshTrainDetail(panel), ms);
+    }
+
+    function applyTrainDetailPayload(panel, payload) {
+        if (!panel || !payload) return;
+        const st = panel.__trainAuto || {};
+        const service = payload.train_service || payload.trainService || {};
+        const nextStopId = service.next_stop_id || service.nextStopId || null;
+        const rawProgress = Number(service.next_stop_progress_pct ?? service.nextStopProgressPct);
+        const now = Date.now();
+        const currentAnimated = progressFromState(now, st);
+        let progress = Number.isFinite(rawProgress) ? rawProgress : null;
+
+        const prevStopId = st.lastStopId || null;
+        const prevProgress = Number.isFinite(st.lastProgress) ? st.lastProgress : null;
+        const sameStop = prevStopId && nextStopId && String(prevStopId) === String(nextStopId);
+
+        if (sameStop && prevProgress !== null && progress !== null) {
+            const drop = prevProgress - progress;
+            if (drop > 0 && drop < TRAIN_PROGRESS_MAX_DROP) {
+                progress = prevProgress;
+            }
+        }
+
+        if (progress !== null) {
+            st.progressStart = Number.isFinite(currentAnimated) ? currentAnimated : progress;
+            st.progressTarget = progress;
+            st.progressStartTs = now;
+            st.progressDuration = st.baseInterval || TRAIN_DETAIL_INTERVALS.base;
+            st.lastProgress = progress;
+        } else if (prevProgress !== null && sameStop) {
+            st.progressStart = Number.isFinite(currentAnimated) ? currentAnimated : prevProgress;
+            st.progressTarget = prevProgress;
+            st.progressStartTs = now;
+            st.progressDuration = st.baseInterval || TRAIN_DETAIL_INTERVALS.base;
+            st.lastProgress = prevProgress;
+        }
+        if (nextStopId) st.lastStopId = String(nextStopId);
+
+        const html = payload.html;
+        if (typeof html === 'string' && html.trim()) {
+            panel.innerHTML = html;
+            disableBoostForStopLinks(panel);
+            const animVal = progressFromState(Date.now(), st);
+            if (animVal !== null) updateTrainProgressUI(panel, animVal);
+        }
+
+        if (payload.kind) panel.dataset.trainKind = payload.kind;
+        if (service.current_status) panel.dataset.trainStatus = service.current_status;
+
+        ensureProgressTimer(panel);
+    }
+
+    function nextTrainDetailInterval(payload, panel) {
+        const kind = (payload && payload.kind) || (panel?.dataset?.trainKind) || 'live';
+        if (kind !== 'live') return TRAIN_DETAIL_INTERVALS.scheduled;
+
+        const service = payload?.train_service || payload?.trainService || {};
+        const status = String(service.current_status || '').toUpperCase();
+        if (status === 'INCOMING_AT') return TRAIN_DETAIL_INTERVALS.approaching;
+        if (status === 'STOPPED_AT') return TRAIN_DETAIL_INTERVALS.stopped;
+
+        const progress = Number(service.next_stop_progress_pct);
+        if (Number.isFinite(progress) && progress >= 70) return TRAIN_DETAIL_INTERVALS.approaching;
+
+        const seenAge = (typeof payload?.train_seen_age === 'number')
+            ? payload.train_seen_age
+            : (typeof payload?.train_seen_age_seconds === 'number' ? payload.train_seen_age_seconds : null);
+        if (typeof seenAge === 'number' && seenAge > 180) return TRAIN_DETAIL_INTERVALS.stale;
+
+        return TRAIN_DETAIL_INTERVALS.base;
+    }
+
+    async function refreshTrainDetail(panel) {
+        const st = panel?.__trainAuto;
+        if (!st || !st.running) return;
+
+        if (!panel || !panel.isConnected) {
+            stopTrainDetailAuto(panel);
+            return;
+        }
+
+        if (document.hidden) {
+            scheduleTrainDetailTick(panel, st.baseInterval || TRAIN_DETAIL_INTERVALS.base);
+            return;
+        }
+
+        const apiUrl = panel.dataset.trainApi;
+        if (!apiUrl) {
+            scheduleTrainDetailTick(panel, TRAIN_DETAIL_INTERVALS.scheduled);
+            return;
+        }
+
+        if (st.abort) { try { st.abort.abort(); } catch (_) {} }
+        st.abort = new AbortController();
+        st.inFlight = true;
+
+        let url = apiUrl;
+        try {
+            const u = new URL(apiUrl, location.origin);
+            u.searchParams.set('_ts', Date.now().toString());
+            url = u.toString();
+        } catch (_) {
+            const sep = apiUrl.includes('?') ? '&' : '?';
+            url = `${apiUrl}${sep}_ts=${Date.now()}`;
+        }
+
+        try {
+            const resp = await fetch(url, {
+                signal: st.abort.signal,
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store',
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const payload = await resp.json();
+            applyTrainDetailPayload(panel, payload);
+            st.errors = 0;
+            const base = nextTrainDetailInterval(payload, panel);
+            const jitter = Math.floor(Math.random() * 500);
+            scheduleTrainDetailTick(panel, base + jitter);
+        } catch (err) {
+            console.debug('[train-detail] refresh error', err);
+            st.errors = Math.min(st.errors + 1, 6);
+            const backoffBase = (panel?.dataset?.trainKind === 'scheduled')
+                ? TRAIN_DETAIL_INTERVALS.scheduled
+                : TRAIN_DETAIL_INTERVALS.base;
+            const penalty = Math.min(
+                backoffBase * (2 ** (st.errors - 1)),
+                TRAIN_DETAIL_INTERVALS.maxBackoff,
+            );
+            scheduleTrainDetailTick(panel, penalty);
+        } finally {
+            st.inFlight = false;
+            st.abort = null;
+        }
+    }
+
+    function startTrainDetailAuto(panel) {
+        if (!panel) return;
+        if (!panel.__trainAuto) {
+            panel.__trainAuto = {
+                timerId: null,
+                abort: null,
+                running: false,
+                inFlight: false,
+                errors: 0,
+                baseInterval: TRAIN_DETAIL_INTERVALS.base,
+                progressStart: null,
+                progressTarget: null,
+                progressStartTs: null,
+                progressDuration: TRAIN_DETAIL_INTERVALS.base,
+                progressTimer: null,
+            };
+        }
+
+        const st = panel.__trainAuto;
+        st.baseInterval = (panel.dataset.trainKind === 'scheduled')
+            ? TRAIN_DETAIL_INTERVALS.scheduled
+            : TRAIN_DETAIL_INTERVALS.base;
+
+        if (st.running) return;
+        st.running = true;
+        st.errors = 0;
+
+        if (document.hidden) scheduleTrainDetailTick(panel, st.baseInterval);
+        else refreshTrainDetail(panel);
+        ensureProgressTimer(panel);
+    }
+
+    function updateTrainProgressUI(panel, progress) {
+        if (!panel || progress === null || !Number.isFinite(progress)) return;
+        const pct = Math.max(0, Math.min(100, Math.round(progress)));
+        const map = panel.querySelector('[data-train-progress-map]');
+        if (map && map.style) {
+            map.style.setProperty('--next_stop_progress', `${pct}%`);
+        }
+        const li = panel.querySelector('[data-train-progress]');
+        if (li) {
+            li.textContent = `Porcentaje de avance: ${pct}%`;
+        }
+    }
+
+    function progressFromState(now, st) {
+        if (!st) return null;
+        const start = Number.isFinite(st.progressStart) ? st.progressStart : null;
+        const target = Number.isFinite(st.progressTarget) ? st.progressTarget : null;
+        const startTs = Number.isFinite(st.progressStartTs) ? st.progressStartTs : null;
+        const duration = Number.isFinite(st.progressDuration) ? st.progressDuration : null;
+        if (start === null || target === null || startTs === null || duration === null || duration <= 0) {
+            return target ?? start ?? null;
+        }
+        const t = Math.min(1, Math.max(0, (now - startTs) / duration));
+        return start + (target - start) * t;
+    }
+
+    function ensureProgressTimer(panel) {
+        const st = panel?.__trainAuto;
+        if (!st) return;
+        if (st.progressTimer) return;
+        st.progressTimer = setInterval(() => {
+            const val = progressFromState(Date.now(), st);
+            if (val !== null) updateTrainProgressUI(panel, val);
+        }, TRAIN_PROGRESS_TICK);
+    }
+
+    function bindTrainDetailVisibilityHandler() {
+        if (trainDetailRefreshHandlersBound) return;
+        trainDetailRefreshHandlersBound = true;
+        document.addEventListener('visibilitychange', () => {
+            const panels = document.querySelectorAll('[data-train-detail]');
+            panels.forEach((panel) => {
+                if (!panel.__trainAuto) return;
+                if (document.hidden) stopTrainDetailAuto(panel);
+                else startTrainDetailAuto(panel);
+            });
+        }, { passive: true });
+    }
+
+    function bindTrainDetailAutoRefresh(root = document) {
+        if (!root) return;
+        bindTrainDetailVisibilityHandler();
+        const panels = (root.matches && root.matches('[data-train-detail]'))
+            ? [root]
+            : Array.from(root.querySelectorAll ? root.querySelectorAll('[data-train-detail]') : []);
+        panels.forEach((panel) => {
+            if (!panel.dataset.trainApi) return;
+            startTrainDetailAuto(panel);
+        });
+    }
 
     function getStaticDrawer() {
         const panel = document.getElementById('drawer');
@@ -1657,6 +1914,11 @@
         function applyStopServicesPayload(payload) {
         const root = body.querySelector('[data-stop-panel]');
         if (!root) return;
+        const stopIdRaw =
+            (root.dataset && root.dataset.stopId)
+            || (root.getAttribute && root.getAttribute('data-stop-id'))
+            || '';
+        const normalizedStopId = normalizeStopId(stopIdRaw);
         let services = Array.isArray((payload && payload.services)) ? payload.services : [];
         // Hide services very close (<5 min) with no evidence of real approaching
         services = services.filter((svc) => {
@@ -1667,7 +1929,9 @@
             const train = svc?.train || {};
             const hasLivePos = train.lat != null || train.lon != null;
             const status = (train.current_status || '').toUpperCase();
-            const stopMatches = stopIdsMatch(normalizeStopId(stopId), [svc?.train?.current_stop_id, svc?.train?.stop_id]);
+            const stopMatches = normalizedStopId
+                ? stopIdsMatch(normalizedStopId, [svc?.train?.current_stop_id, svc?.train?.stop_id])
+                : false;
             const likelyApproaching = status === 'IN_TRANSIT_TO' || status === 'INCOMING_AT' || stopMatches;
             if (etaIsSoon && !isRealtime && !hasLivePos && !hasTu) return false;
             if (etaIsSoon && isRealtime && !likelyApproaching && !hasTu && !hasLivePos) return false;
@@ -2569,6 +2833,7 @@
         bindGlobalTrainsRefreshDelegation();
         bindGlobalDrawerCloseDelegation();
         bindGlobalEtaToggleDelegation();
+        bindTrainDetailAutoRefresh(root);
 
         wireETA(root);
     }

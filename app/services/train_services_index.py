@@ -619,115 +619,56 @@ def _build_trip_rows(
     if effective_next_stop_id is None and is_in_transit:
         effective_next_stop_id = next_stop_after_live
 
-    def _progress_for_segment(stop_meta: dict[str, dict]) -> int | None:
+    def _progress_for_segment(
+        stop_meta: dict[str, dict], *, segment_from: str | None, segment_to: str | None
+    ) -> int | None:
         if not live_obj:
             return None
         status = live_status or ""
-        sid = str(live_sid or "").strip()
-        if not sid or status not in {"STOPPED_AT", "IN_TRANSIT_TO", "INCOMING_AT"}:
+        if status not in {"STOPPED_AT", "IN_TRANSIT_TO", "INCOMING_AT"}:
             return None
 
-        seq_pairs = []
-        seq_to_stop: dict[int, str] = {}
-        for stop_id, meta in stop_meta.items():
-            seq_val = _to_int(meta.get("seq"))
-            if seq_val is None:
-                continue
-            seq_pairs.append((seq_val, stop_id))
-            seq_to_stop[seq_val] = stop_id
-        seq_pairs.sort(key=lambda item: item[0])
-
-        live_seq = _to_int(stop_meta.get(sid, {}).get("seq"))
-
-        from_sid = None
-        to_sid = None
-        if status == "STOPPED_AT" or status in {"IN_TRANSIT_TO"}:
-            from_sid = sid
-            if live_seq is not None:
-                to_sid = seq_to_stop.get(live_seq + 1)
-            if to_sid is None and effective_next_seq is not None:
-                to_sid = seq_to_stop.get(int(effective_next_seq))
-        elif status == "INCOMING_AT":
-            to_sid = sid
-            if live_seq is not None:
-                from_sid = seq_to_stop.get(live_seq - 1)
-            if from_sid is None and live_seq is not None:
-                # fallback: nearest lower
-                lower = [s for s in seq_pairs if s[0] < live_seq]
-                if lower:
-                    from_sid = lower[-1][1]
-
-        if to_sid is None and status in {"IN_TRANSIT_TO", "INCOMING_AT"} and effective_next_stop_id:
-            to_sid = str(effective_next_stop_id)
-        if from_sid is None and status == "INCOMING_AT" and to_sid is not None:
-            # attempt previous by seq
-            try:
-                to_seq = next(seq for seq, stop_id in seq_pairs if stop_id == to_sid)
-                from_sid = seq_to_stop.get(to_seq - 1)
-            except Exception:
-                pass
-
-        if from_sid is None and sid in stop_meta:
-            from_sid = sid
-        if to_sid is None and from_sid:
-            from_seq = seq_by_sid.get(str(from_sid))
-            if from_seq is not None:
-                higher = [s for s in seq_pairs if s[0] > from_seq]
-                if higher:
-                    to_sid = higher[0][1]
-        if to_sid is None and effective_next_stop_id:
-            to_sid = str(effective_next_stop_id)
-
-        if to_sid is None and status == "STOPPED_AT" and from_sid:
-            # end of route
-            return 100
-        if to_sid is None or from_sid is None:
+        from_sid = str(segment_from or "").strip() or str(live_sid or "").strip() or None
+        to_sid = str(segment_to or "").strip() or str(effective_next_stop_id or "").strip() or None
+        if not from_sid or not to_sid:
             return None
 
         meta_from = stop_meta.get(str(from_sid), {})
         meta_to = stop_meta.get(str(to_sid), {})
 
-        def _pick_time(meta: dict, fields: tuple[str, ...]) -> int | None:
-            for name in fields:
+        # Normalizar sentido según secuencia conocida
+        try:
+            seq_from = _to_int(meta_from.get("seq"))
+            seq_to = _to_int(meta_to.get("seq"))
+            if seq_from is not None and seq_to is not None and seq_to < seq_from:
+                meta_from, meta_to = meta_to, meta_from
+                from_sid, to_sid = to_sid, from_sid
+        except Exception:
+            pass
+
+        def _pick_time(meta: dict) -> int | None:
+            for name in (
+                "eta_dep_epoch",
+                "eta_arr_epoch",
+                "tu_dep_epoch",
+                "tu_arr_epoch",
+                "sched_dep_epoch",
+                "sched_arr_epoch",
+            ):
                 val = meta.get(name)
                 if isinstance(val, int | float):
                     return int(val)
             return None
 
-        t_departure = _pick_time(
-            meta_from,
-            (
-                "eta_dep_epoch",
-                "tu_dep_epoch",
-                "sched_dep_epoch",
-                "eta_arr_epoch",
-                "tu_arr_epoch",
-                "sched_arr_epoch",
-            ),
-        )
-        t_arrival = _pick_time(
-            meta_to,
-            (
-                "eta_arr_epoch",
-                "tu_arr_epoch",
-                "sched_arr_epoch",
-                "eta_dep_epoch",
-                "tu_dep_epoch",
-                "sched_dep_epoch",
-            ),
-        )
+        t_departure = _pick_time(meta_from)
+        t_arrival = _pick_time(meta_to)
 
         now_ts = _get_live_ts(live_obj) or _now_ts(tz_name)
         temporal_progress = None
         if isinstance(t_departure, int | float) and isinstance(t_arrival, int | float):
             denom = float(t_arrival) - float(t_departure)
             if denom > 0:
-                if status == "STOPPED_AT" and now_ts <= float(t_departure) + 15:
-                    temporal_progress = 0.0
-                else:
-                    temporal_progress = max(
-                        0.0, min(1.0, (float(now_ts) - float(t_departure)) / denom)
-                    )
+                temporal_progress = max(0.0, min(1.0, (float(now_ts) - float(t_departure)) / denom))
 
         lat_cur, lon_cur = _latlon(live_obj)
         lat_from = meta_from.get("lat")
@@ -745,34 +686,14 @@ def _build_trip_rows(
                 float(lat_cur),
                 float(lon_cur),
             )
-            if seg_dist > 5 and frac is not None:
-                dist_from_cur = _haversine_m(
-                    float(lat_from), float(lon_from), float(lat_cur), float(lon_cur)
-                )
-                dist_cur_to = _haversine_m(
-                    float(lat_cur), float(lon_cur), float(lat_to), float(lon_to)
-                )
-                if dist_from_cur + dist_cur_to <= seg_dist * 4.0 and frac > -0.25 and frac < 1.25:
-                    spatial_progress = max(0.0, min(1.0, frac))
+            if seg_dist > 5 and frac is not None and frac > -0.25 and frac < 1.25:
+                spatial_progress = max(0.0, min(1.0, frac))
 
-        progress_val: float | None
-        if spatial_progress is None and temporal_progress is None:
-            progress_val = None
-        elif spatial_progress is None:
+        progress_val: float | None = None
+        if temporal_progress is not None:
             progress_val = temporal_progress
-        elif temporal_progress is None:
+        elif spatial_progress is not None:
             progress_val = spatial_progress
-        else:
-            if abs(spatial_progress - temporal_progress) <= 0.3:
-                progress_val = 0.7 * spatial_progress + 0.3 * temporal_progress
-            else:
-                age = None
-                ts_live = _get_live_ts(live_obj)
-                if isinstance(ts_live, int | float):
-                    age = max(0.0, float(now_ts) - float(ts_live))
-                progress_val = (
-                    spatial_progress if (age is None or age <= 120) else temporal_progress
-                )
 
         if progress_val is None:
             return None
@@ -973,13 +894,61 @@ def _build_trip_rows(
             if fut:
                 next_stop_id = fut.get("stop_id")
 
+    progress_val = _progress_for_segment(
+        stop_meta,
+        segment_from=current_stop_id,
+        segment_to=next_stop_id,
+    )
+
+    def _fallback_progress_from_times(
+        cur_id: str | None,
+        nxt_id: str | None,
+    ) -> int | None:
+        if not cur_id or not nxt_id:
+            return None
+        cur_meta = stop_meta.get(str(cur_id)) or {}
+        nxt_meta = stop_meta.get(str(nxt_id)) or {}
+
+        def _pick(meta: dict) -> tuple[int | None, int | None]:
+            dep = (
+                meta.get("eta_dep_epoch")
+                or meta.get("eta_arr_epoch")
+                or meta.get("sched_dep_epoch")
+                or meta.get("sched_arr_epoch")
+            )
+            if isinstance(dep, int | float):
+                dep = int(dep)
+            arr = (
+                nxt_meta.get("eta_arr_epoch")
+                or nxt_meta.get("eta_dep_epoch")
+                or nxt_meta.get("sched_arr_epoch")
+                or nxt_meta.get("sched_dep_epoch")
+            )
+            if isinstance(arr, int | float):
+                arr = int(arr)
+            return dep if isinstance(dep, int) else None, arr if isinstance(arr, int) else None
+
+        dep_epoch, arr_epoch = _pick(cur_meta)
+        if dep_epoch is None or arr_epoch is None or arr_epoch <= dep_epoch:
+            return None
+        now_ts = _get_live_ts(live_obj) or _now_ts(tz_name)
+        frac = max(0.0, min(1.0, (float(now_ts) - float(dep_epoch)) / float(arr_epoch - dep_epoch)))
+        if live_status == "STOPPED_AT":
+            frac = 0.0
+        elif live_status == "INCOMING_AT":
+            frac = max(frac, 0.8)
+        return int(round(frac * 100))
+
+    if progress_val is None:
+        progress_val = _fallback_progress_from_times(current_stop_id, next_stop_id)
+
     return {
         "has_tu": bool(tu),
         "tu_updated_iso": (
             datetime.fromtimestamp(tu_ts, ZoneInfo(tz_name)).isoformat() if tu_ts else None
         ),
         "stops": rows,
-        "next_stop_progress_pct": _progress_for_segment(stop_meta),
+        "next_stop_progress_pct": progress_val,
         "current_stop_id": current_stop_id,
         "current_stop_name": _stop_name(current_stop_id),
         "next_stop_id": next_stop_id,

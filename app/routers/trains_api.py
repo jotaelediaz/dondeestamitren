@@ -1,15 +1,28 @@
 # app/routers/trains_api.py
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from app.services.live_trains_cache import get_live_trains_cache
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.stops_repo import get_repo as get_stops_repo
+from app.services.train_services_index import build_train_detail_vm
 
 router = APIRouter(prefix="/api", tags=["trains"])
+
+
+def _pick_time(row: dict | None, fields: tuple[str, ...]) -> int | None:
+    if not row:
+        return None
+    for name in fields:
+        val = row.get(name) if isinstance(row, dict) else None
+        if isinstance(val, int | float):
+            return int(val)
+    return None
 
 
 def _stop_as_dict(stop) -> dict[str, Any]:
@@ -55,6 +68,105 @@ def _train_as_dict(train) -> dict[str, Any] | None:
     if isinstance(platform_map, dict) and platform_map:
         info["platform_by_stop"] = platform_map
     return info
+
+
+@router.get(
+    "/trains/{nucleus}/{identifier}/position",
+    summary="Posición en vivo de un tren por núcleo e identificador",
+)
+def live_train_position(
+    nucleus: str,
+    identifier: str,
+    tz: str = Query(default="Europe/Madrid"),
+    train_id: str | None = Query(default=None, description="Opcional: ID del tren en vivo"),
+):
+    nucleus = (nucleus or "").strip().lower()
+    if not nucleus:
+        raise HTTPException(400, detail="Missing nucleus")
+
+    if not re.fullmatch(r"\d{3,6}", (identifier or "").strip()):
+        raise HTTPException(400, detail="identifier must be a numeric train number (3–6 digits)")
+
+    cache = get_live_trains_cache()
+    train_obj = cache.get_by_id(str(train_id)) if train_id else None
+
+    vm = build_train_detail_vm(nucleus, identifier, tz_name=tz)
+    if train_obj is None:
+        train_obj = vm.get("train")
+
+    if vm.get("kind") != "live" or train_obj is None:
+        raise HTTPException(404, detail="Train not found or not live")
+
+    lat = getattr(train_obj, "lat", None)
+    lon = getattr(train_obj, "lon", None)
+    if lat in (None, "") or lon in (None, ""):
+        raise HTTPException(404, detail="Train position unavailable")
+
+    unified = vm.get("unified") or {}
+    trip_info = vm.get("trip") or {}
+    progress_val = None
+    try:
+        if isinstance(unified, dict):
+            progress_val = unified.get("next_stop_progress_pct") or unified.get(
+                "next_stop_progress"
+            )
+    except Exception:
+        progress_val = None
+    if progress_val is None:
+        progress_val = getattr(train_obj, "next_stop_progress_pct", None)
+
+    stop_rows = trip_info.get("stops") or []
+
+    def _row_for_stop(stop_id: str | None):
+        if not stop_id:
+            return None
+        sid = str(stop_id)
+        for row in stop_rows:
+            try:
+                if str(row.get("stop_id")) == sid:
+                    return row
+            except Exception:
+                continue
+        return None
+
+    segment_from_id = (
+        getattr(train_obj, "current_stop_id", None)
+        or unified.get("current_stop_id")
+        or getattr(train_obj, "stop_id", None)
+    )
+    segment_to_id = getattr(train_obj, "next_stop_id", None) or unified.get("next_stop_id")
+    from_row = _row_for_stop(segment_from_id)
+    to_row = _row_for_stop(segment_to_id)
+    seg_dep_epoch = _pick_time(
+        from_row,
+        ("eta_dep_epoch", "eta_arr_epoch", "sched_dep_epoch", "sched_arr_epoch"),
+    )
+    seg_arr_epoch = _pick_time(
+        to_row,
+        ("eta_arr_epoch", "eta_dep_epoch", "sched_arr_epoch", "sched_dep_epoch"),
+    )
+
+    payload = {
+        "train_id": getattr(train_obj, "train_id", None),
+        "vehicle_id": getattr(train_obj, "vehicle_id", None),
+        "route_id": getattr(train_obj, "route_id", None),
+        "direction_id": getattr(train_obj, "direction_id", None),
+        "lat": float(lat),
+        "lon": float(lon),
+        "heading": getattr(train_obj, "bearing", None),
+        "ts_unix": getattr(train_obj, "ts_unix", None) or getattr(train_obj, "timestamp", None),
+        "status": getattr(train_obj, "current_status", None),
+        "current_stop_id": getattr(train_obj, "current_stop_id", None)
+        or unified.get("current_stop_id")
+        or getattr(train_obj, "stop_id", None),
+        "next_stop_id": getattr(train_obj, "next_stop_id", None) or unified.get("next_stop_id"),
+        "segment_from_stop_id": segment_from_id,
+        "segment_to_stop_id": segment_to_id,
+        "segment_dep_epoch": seg_dep_epoch,
+        "segment_arr_epoch": seg_arr_epoch,
+        "next_stop_progress_pct": progress_val,
+    }
+    return JSONResponse(payload)
 
 
 @router.get(

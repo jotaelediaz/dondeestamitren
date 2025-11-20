@@ -62,6 +62,11 @@ class TripsRepo:
         self._trips_by_route_dir_number: dict[tuple[str, str, str], list[str]] = {}
         self._directions_release_token: str | None = None
         self._directions_cache_loaded: bool = False
+        self._stop_times_cache_loaded: bool = False
+        self._stop_times_cached_rows: list[tuple[str, str, int, int | None, int | None]] | None = (
+            None
+        )
+        self._stop_times_cache_load_ts: float | None = None
 
     # --------------------------- util csv trips ---------------------------
 
@@ -128,6 +133,12 @@ class TripsRepo:
         if custom:
             return Path(custom)
         return Path("app/data/derived/trip_directions.json")
+
+    def _stop_times_cache_path(self) -> Path:
+        custom = getattr(settings, "STOP_TIMES_CACHE_PATH", None)
+        if custom:
+            return Path(custom)
+        return Path("app/data/derived/stop_times_cache.json")
 
     def _current_release_token(self) -> str | None:
         try:
@@ -219,6 +230,137 @@ class TripsRepo:
         self._directions_cache_loaded = True
         log.info("trips_repo: persisted %s trip directions to cache %s", len(directions), path)
 
+    # ---------------------- stop_times cache helpers ----------------------
+
+    def _load_cached_stop_times_rows(
+        self,
+    ) -> list[tuple[str, str, int, int | None, int | None]] | None:
+        if self._stop_times_cache_loaded:
+            return self._stop_times_cached_rows
+        path = self._stop_times_cache_path()
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log.warning("trips_repo: could not read stop_times cache %s: %r", path, exc)
+            return None
+        if not isinstance(data, dict) or data.get("version") != 1:
+            return None
+
+        current_token = self._current_release_token()
+        cached_token = data.get("active_release")
+        if current_token and cached_token and cached_token != current_token:
+            return None
+
+        rows = data.get("rows")
+        if not isinstance(rows, list):
+            return None
+        parsed: list[tuple[str, str, int, int | None, int | None]] = []
+        for item in rows:
+            if not isinstance(item, list) or len(item) < 3:
+                continue
+            tid = (item[0] or "").strip()
+            sid = (item[1] or "").strip()
+            try:
+                seq = int(item[2])
+            except Exception:
+                continue
+            arr = item[3] if len(item) >= 4 else None
+            dep = item[4] if len(item) >= 5 else None
+            arr_val = int(arr) if isinstance(arr, int | float) else None
+            dep_val = int(dep) if isinstance(dep, int | float) else None
+            if tid and sid:
+                parsed.append((tid, sid, seq, arr_val, dep_val))
+
+        if not parsed:
+            return None
+
+        self._stop_times_cache_loaded = True
+        self._stop_times_cached_rows = parsed
+        self._stop_times_cache_load_ts = time.time()
+        log.info("trips_repo: loaded %s cached stop_times rows from %s", len(parsed), path)
+        return parsed
+
+    def _persist_stop_times_cache(
+        self, rows: list[tuple[str, str, int, int | None, int | None]]
+    ) -> None:
+        if not rows:
+            return
+        path = self._stop_times_cache_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return
+        token = self._current_release_token()
+        payload = {
+            "version": 1,
+            "generated_at": int(time.time()),
+            "active_release": token,
+            "rows": [[t, s, seq, arr, dep] for (t, s, seq, arr, dep) in rows],
+        }
+        tmp_path = path.parent / (path.name + ".tmp")
+        try:
+            tmp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(path)
+            log.info("trips_repo: persisted %s stop_times rows to cache %s", len(rows), path)
+        except Exception as exc:
+            log.warning("trips_repo: could not persist stop_times cache %s: %r", path, exc)
+
+    def _load_stop_times_rows(self) -> list[tuple[str, str, int, int | None, int | None]]:
+        cached = self._load_cached_stop_times_rows()
+        if cached is not None:
+            return cached
+
+        path = self.stop_times_csv_path
+        if not path or not os.path.exists(path):
+            return []
+
+        enc = getattr(settings, "GTFS_ENCODING", "utf-8") or "utf-8"
+        preferred = getattr(settings, "GTFS_DELIMITER", ",") or ","
+        tried = set()
+        delims = [preferred, ",", ";", "\t", "|"]
+        out: list[tuple[str, str, int, int | None, int | None]] = []
+
+        def _process(reader):
+            for r in reader:
+                tid = (r.get("trip_id") or "").strip()
+                sid = (r.get("stop_id") or "").strip()
+                raw_seq = (r.get("stop_sequence") or r.get("stop_seq") or "").strip()
+                if not (tid and sid and raw_seq):
+                    continue
+                try:
+                    seq = int(float(raw_seq))
+                except Exception:
+                    continue
+                arr_s = self._parse_gtfs_time(r.get("arrival_time"))
+                dep_s = self._parse_gtfs_time(r.get("departure_time"))
+                out.append((tid, sid, seq, arr_s, dep_s))
+
+        for delim in delims:
+            if delim in tried:
+                continue
+            tried.add(delim)
+            out.clear()
+            try:
+                with open(path, encoding=enc, newline="") as f:
+                    r = csv.DictReader(f, delimiter=delim)
+                    if r.fieldnames:
+                        r.fieldnames = [h.strip().lstrip("\ufeff") for h in r.fieldnames]
+                    if not {"trip_id", "stop_id", "stop_sequence"} <= set(r.fieldnames or []):
+                        continue
+                    _process(r)
+            except Exception:
+                continue
+            if out:
+                break
+
+        if out:
+            self._stop_times_cached_rows = out
+            self._stop_times_cache_load_ts = time.time()
+            self._persist_stop_times_cache(out)
+        return out
+
     # ---------------------- util csv stop_times ----------------------
 
     def _read_stop_times_with(self, delimiter: str) -> list[dict]:
@@ -282,6 +424,8 @@ class TripsRepo:
         self._numbers_by_route.clear()
         self._numbers_by_route_dir.clear()
         self._trips_by_route_dir_number.clear()
+        self._stop_times_cache_loaded = False
+        self._stop_times_cached_rows = None
 
         if not os.path.exists(self.trips_csv_path):
             raise FileNotFoundError(f"trips.txt not found: {self.trips_csv_path}")
@@ -306,29 +450,25 @@ class TripsRepo:
         self._directions_release_token = self._current_release_token()
         self._load_cached_directions()
 
-        self._index_stop_times()
+        stop_rows = self._load_stop_times_rows()
+        self._precompute_directions_from_stop_times(stop_rows)
+        self._index_stop_times(stop_rows)
         self._load_calendar()
         self._build_train_number_indexes(rows)
 
     # ----------------- Infer direction from stop_times -----------------
 
-    def _precompute_directions_from_stop_times(self) -> None:
-        rows = self._autodetect_stop_times_rows()
+    def _precompute_directions_from_stop_times(
+        self, rows: list[tuple[str, str, int, int | None, int | None]] | None = None
+    ) -> None:
+        if rows is None:
+            rows = self._load_stop_times_rows()
         if not rows:
             self._directions_ready = True
             return
 
         tmp: dict[str, list[tuple[int, str]]] = {}
-        for r in rows:
-            tid = (r.get("trip_id") or "").strip()
-            sid = (r.get("stop_id") or "").strip()
-            if not (tid and sid):
-                continue
-            raw_seq = (r.get("stop_sequence") or r.get("stop_seq") or "").strip()
-            try:
-                seq = int(float(raw_seq))
-            except Exception:
-                continue
+        for tid, sid, seq, _arr, _dep in rows:
             tmp.setdefault(tid, []).append((seq, sid))
 
         if not tmp:
@@ -513,20 +653,13 @@ class TripsRepo:
         source = "trips_repo" if (rid or did) else "unknown"
         return rid, did, source
 
-    def _index_stop_times(self) -> None:
-        rows = self._autodetect_stop_times_rows()
-        for r in rows:
-            tid = (r.get("trip_id") or "").strip()
-            sid = (r.get("stop_id") or "").strip()
-            raw_seq = (r.get("stop_sequence") or r.get("stop_seq") or "").strip()
-            if not (tid and sid and raw_seq):
-                continue
-            try:
-                seq = int(float(raw_seq))
-            except Exception:
-                continue
-            arr_s = self._parse_gtfs_time(r.get("arrival_time"))
-            dep_s = self._parse_gtfs_time(r.get("departure_time"))
+    def _index_stop_times(
+        self, rows: list[tuple[str, str, int, int | None, int | None]] | None = None
+    ) -> None:
+        if rows is None:
+            rows = self._load_stop_times_rows()
+
+        for tid, sid, seq, arr_s, dep_s in rows:
             self._stop_times_by_stopid[(tid, sid)] = (arr_s, dep_s, seq)
             self._stop_times_by_seq[(tid, seq)] = (sid, arr_s, dep_s)
             rid = self.route_id_for_trip(tid)

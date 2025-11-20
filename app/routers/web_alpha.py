@@ -20,6 +20,7 @@ from app.services.platform_habits import get_service as get_platform_habits
 from app.services.route_trains_index import build_route_trains_index as build_trains_index
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
+from app.services.shapes_repo import get_repo as get_shapes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.train_services_index import (
@@ -1168,6 +1169,84 @@ def train_map(
     lon = getattr(train_obj, "lon", None)
     if lat in (None, "") or lon in (None, ""):
         raise HTTPException(404, "Train position unavailable")
+    train_id = getattr(train_obj, "train_id", "")
+
+    route_geojson = None
+    route_stops_geojson = None
+    route_debug = {
+        "route_id": None,
+        "direction_id": None,
+        "coords": 0,
+    }
+    try:
+        route_obj = vm.get("route")
+        unified = vm.get("unified") or {}
+        route_id = (
+            getattr(route_obj, "route_id", None)
+            or (unified.get("route_id") if isinstance(unified, dict) else None)
+            or getattr(train_obj, "route_id", None)
+        )
+        direction_id = (
+            getattr(route_obj, "direction_id", None)
+            or (unified.get("direction_id") if isinstance(unified, dict) else None)
+            or getattr(train_obj, "direction_id", None)
+        )
+        poly = None
+        if route_id:
+            poly = get_shapes_repo().polyline_for_route(route_id, direction_id)
+        if poly:
+            coords = [
+                [float(p.lon), float(p.lat)]
+                for p in poly
+                if p.lat is not None and p.lon is not None
+            ]
+            if len(coords) > 500:
+                step = max(1, len(coords) // 500)
+                coords = coords[::step]
+            route_geojson = {"type": "LineString", "coordinates": coords}
+            route_debug.update(
+                {"route_id": route_id, "direction_id": direction_id, "coords": len(coords)}
+            )
+        else:
+            route_debug.update({"route_id": route_id, "direction_id": direction_id, "coords": 0})
+
+        stops_src = (vm.get("trip") or {}).get("stops") or []
+        if not stops_src and route_obj and getattr(route_obj, "stations", None):
+            stops_src = [
+                {
+                    "stop_id": st.stop_id,
+                    "stop_name": st.stop_name,
+                    "lat": getattr(st, "lat", None),
+                    "lon": getattr(st, "lon", None),
+                    "seq": getattr(st, "seq", None),
+                }
+                for st in getattr(route_obj, "stations", [])
+            ]
+        if stops_src:
+            features = []
+            for st in stops_src:
+                try:
+                    lat_s = float(st.get("lat"))
+                    lon_s = float(st.get("lon"))
+                except Exception:
+                    continue
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [lon_s, lat_s]},
+                        "properties": {
+                            "stop_id": st.get("stop_id"),
+                            "name": st.get("stop_name") or st.get("name"),
+                            "seq": st.get("seq"),
+                        },
+                    }
+                )
+            if features:
+                route_stops_geojson = {"type": "FeatureCollection", "features": features}
+    except Exception:
+        route_geojson = None
+        route_stops_geojson = None
+        route_debug = {"route_id": None, "direction_id": None, "coords": 0}
 
     return templates.TemplateResponse(
         "train_map.html",
@@ -1177,7 +1256,11 @@ def train_map(
             "train": train_obj,
             "train_service": vm.get("unified"),
             "route": vm.get("route"),
+            "route_geojson": route_geojson,
+            "route_stops_geojson": route_stops_geojson,
+            "route_debug": route_debug,
             "last_snapshot": cache.last_snapshot_iso(),
+            "position_api": f"/api/trains/{nucleus}/{identifier}/position?train_id={train_id}",
             "position": {
                 "lat": float(lat),
                 "lon": float(lon),

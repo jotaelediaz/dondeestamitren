@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -24,10 +25,26 @@ def _gtfs_dir() -> Path:
     return Path("app/data/gtfs")
 
 
+def _current_release_token() -> str | None:
+    try:
+        from app.services.gtfs_static_manager import STATE_FILE
+
+        if STATE_FILE.exists():
+            state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            return state.get("active_release") or state.get("sha256")
+    except Exception:
+        pass
+    return None
+
+
 def _csv_params():
     enc = getattr(settings, "GTFS_ENCODING", None) or "utf-8"
     delim = getattr(settings, "GTFS_DELIMITER", None) or ","
     return enc, delim
+
+
+def _log_cache_path():
+    return getattr(settings, "SCHEDULED_CACHE_PATH", "app/data/derived/scheduled_cache.json")
 
 
 def _norm_row(row: dict) -> dict:
@@ -117,6 +134,9 @@ class ScheduledTrainsRepo:
         self.stop_times_path = self.gtfs_dir / "stop_times.txt"
         self.calendar_path = self.gtfs_dir / "calendar.txt"
         self.calendar_dates_path = self.gtfs_dir / "calendar_dates.txt"
+        self.cache_path = Path(
+            getattr(settings, "SCHEDULED_CACHE_PATH", "app/data/derived/scheduled_cache.json")
+        )
 
         self._trips: dict[str, _TripRow] = {}
         self._calls_by_trip: dict[str, list[ScheduledCall]] = {}
@@ -133,10 +153,14 @@ class ScheduledTrainsRepo:
 
     # -------------------- Public API --------------------
 
-    def refresh(self) -> None:
+    def refresh(self, *, force: bool = False) -> None:
+        if self._loaded and not force:
+            return
         log.info("ScheduledTrainsRepo.refresh() gtfs_dir=%s", self.gtfs_dir)
-        self._load_trips()
-        self._load_stop_times()
+        if not self._load_from_cache():
+            self._load_trips()
+            self._load_stop_times()
+            self._persist_cache()
         self._by_date_trip.clear()
         self._by_date_stop.clear()
         self._active_services_by_date.clear()
@@ -417,6 +441,148 @@ class ScheduledTrainsRepo:
         log.info(
             "Cargadas stop_times para %d trips (filas=%d) de %s", len(self._calls_by_trip), rows, p
         )
+
+    # ------------------- Cache base GTFS -------------------
+
+    def _load_from_cache(self) -> bool:
+        path = self.cache_path
+        if not path.exists():
+            return False
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log.warning("scheduled_repo: no se pudo leer cache %s: %r", path, exc)
+            return False
+        if not isinstance(data, dict) or data.get("version") != 1:
+            return False
+        token = data.get("active_release")
+        current = _current_release_token()
+        if current and token and token != current:
+            return False
+        trips_raw = data.get("trips")
+        calls_raw = data.get("calls")
+        if not isinstance(trips_raw, list) or not isinstance(calls_raw, list):
+            return False
+
+        trips: dict[str, _TripRow] = {}
+        for item in trips_raw:
+            if not isinstance(item, list) or len(item) < 4:
+                continue
+            trip_id, route_id, service_id, direction_id = item[:4]
+            headsign = item[4] if len(item) > 4 else None
+            short_name = item[5] if len(item) > 5 else None
+            block_id = item[6] if len(item) > 6 else None
+            if not trip_id:
+                continue
+            trips[trip_id] = _TripRow(
+                trip_id=trip_id or "",
+                route_id=route_id or "",
+                service_id=service_id or "",
+                direction_id=direction_id or "",
+                headsign=headsign or None,
+                short_name=short_name or None,
+                block_id=block_id or None,
+            )
+
+        calls_by_trip: dict[str, list[ScheduledCall]] = {}
+        for item in calls_raw:
+            if not isinstance(item, list) or len(item) < 3:
+                continue
+            trip_id, stop_id, stop_sequence = item[:3]
+            if trip_id not in trips:
+                continue
+            try:
+                seq = int(stop_sequence)
+            except Exception:
+                continue
+            arr = item[3] if len(item) > 3 else None
+            dep = item[4] if len(item) > 4 else None
+            sch = ScheduledCall(
+                stop_id=stop_id or "",
+                stop_sequence=seq,
+                arrival_time=int(arr) if isinstance(arr, int | float) else None,
+                departure_time=int(dep) if isinstance(dep, int | float) else None,
+                stop_headsign=(item[5] if len(item) > 5 else None) or None,
+                pickup_type=item[6] if len(item) > 6 else None,
+                drop_off_type=item[7] if len(item) > 7 else None,
+                timepoint=item[8] if len(item) > 8 else None,
+                platform_code=(item[9] if len(item) > 9 else None) or None,
+            )
+            calls_by_trip.setdefault(trip_id, []).append(sch)
+
+        if not trips or not calls_by_trip:
+            return False
+
+        for lst in calls_by_trip.values():
+            lst.sort(key=lambda c: c.stop_sequence)
+
+        self._trips = trips
+        self._calls_by_trip = calls_by_trip
+        log.info(
+            "scheduled_repo: cargado cache (%d trips, %d llamadas) desde %s",
+            len(trips),
+            sum(len(v) for v in calls_by_trip.values()),
+            path,
+        )
+        return True
+
+    def _persist_cache(self) -> None:
+        if not self._trips or not self._calls_by_trip:
+            return
+        path = self.cache_path
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return
+        token = _current_release_token()
+        trips_raw = [
+            [
+                t.trip_id,
+                t.route_id,
+                t.service_id,
+                t.direction_id,
+                t.headsign,
+                t.short_name,
+                t.block_id,
+            ]
+            for t in self._trips.values()
+        ]
+        calls_raw = []
+        for trip_id, lst in self._calls_by_trip.items():
+            for c in lst:
+                calls_raw.append(
+                    [
+                        trip_id,
+                        c.stop_id,
+                        c.stop_sequence,
+                        c.arrival_time,
+                        c.departure_time,
+                        getattr(c, "stop_headsign", None),
+                        getattr(c, "pickup_type", None),
+                        getattr(c, "drop_off_type", None),
+                        getattr(c, "timepoint", None),
+                        getattr(c, "platform_code", None),
+                    ]
+                )
+        payload = {
+            "version": 1,
+            "active_release": token,
+            "generated_at": int(datetime.now().timestamp()),
+            "trips": trips_raw,
+            "calls": calls_raw,
+        }
+        tmp = path.parent / (path.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(path)
+            log.info(
+                "scheduled_repo: persistido cache (%d trips, %d llamadas) en %s",
+                len(trips_raw),
+                len(calls_raw),
+                path,
+            )
+        except Exception as exc:
+            log.warning("scheduled_repo: no se pudo persistir cache %s: %r", path, exc)
 
     # ------------------- Calendar and exceptions -------------------
 
@@ -713,6 +879,7 @@ class ScheduledTrainsRepo:
 
     def reload(self) -> None:
         self.refresh()
+        return
 
 
 def _try_int(x: Any) -> int | None:
