@@ -4,8 +4,8 @@
 
     const MAP_SELECTOR = '[data-train-map]';
     const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
-    const ANIM_TICK_MS = 1_000;
-    const POLL_MS = 15_000;
+    const ANIM_TICK_MS = 500;
+    const POLL_MS = 30_000;
     const SMOOTH_WINDOW_MS = 30_000;
     const DEFAULT_LINE_COLOR = '#0064b4';
 
@@ -35,6 +35,11 @@
         if (!Number.isFinite(denom) || denom <= 0) return 0;
         const t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / denom;
         return clamp01(t);
+    }
+
+    function etaFraction(nowMs, depEpoch, arrEpoch) {
+        if (!Number.isFinite(depEpoch) || !Number.isFinite(arrEpoch) || arrEpoch <= depEpoch) return null;
+        return clamp01((nowMs / 1000 - depEpoch) / (arrEpoch - depEpoch));
     }
 
     function parseJSON(input) {
@@ -185,6 +190,29 @@
         root.appendChild(marker);
     }
 
+    function teardownElement(root) {
+        if (!root || !root.__trainMap) return;
+        const state = root.__trainMap;
+        if (state.animTimer) clearInterval(state.animTimer);
+        if (state.pollTimer) clearTimeout(state.pollTimer);
+        if (state.abortCtrl) {
+            try { state.abortCtrl.abort(); } catch (_) {}
+        }
+        if (state.map && typeof state.map.remove === 'function') {
+            try { state.map.remove(); } catch (_) {}
+        }
+        root.__trainMap = null;
+        root.dataset.mapMounted = '';
+    }
+
+    function cleanupInSubtree(root) {
+        if (!root) return;
+        const nodes = root.matches && root.matches(MAP_SELECTOR)
+            ? [root]
+            : Array.from(root.querySelectorAll ? root.querySelectorAll(MAP_SELECTOR) : []);
+        nodes.forEach(teardownElement);
+    }
+
     function updateMarkerPosition(root) {
         const state = root.__trainMap;
         if (!state || !state.marker) return;
@@ -193,14 +221,43 @@
 
         const hasRoute = state.routeCtx && Number.isFinite(state.routeStartDist) && Number.isFinite(state.routeEndDist);
         if (hasRoute) {
+            const etaFrac = etaFraction(now, state.segmentDepTs, state.segmentArrTs);
+            const anchor = Number.isFinite(state.routeProgressAtRefresh)
+                ? clamp01(state.routeProgressAtRefresh)
+                : null;
+            const anchorTs = state.routeProgressTs || state.lastTs || now;
+            const etaArrivalMs = Number.isFinite(state.segmentArrTs) ? state.segmentArrTs * 1000 : null;
+            const predictedArrMs = state.predictedArrMs || etaArrivalMs;
+
             let tRoute = null;
             if (
-                Number.isFinite(state.segmentDepTs) &&
-                Number.isFinite(state.segmentArrTs) &&
-                state.segmentArrTs > state.segmentDepTs
+                etaFrac !== null &&
+                anchor !== null &&
+                Number.isFinite(state.routeEtaAtRefresh)
             ) {
-                tRoute = clamp01((now / 1000 - state.segmentDepTs) / (state.segmentArrTs - state.segmentDepTs));
-            } else if (Number.isFinite(state.lastTs) && Number.isFinite(state.nextTs) && state.nextTs > state.lastTs) {
+                const denom = Math.max(1e-3, 1 - state.routeEtaAtRefresh);
+                const scaled = anchor + (etaFrac - state.routeEtaAtRefresh) * ((1 - anchor) / denom);
+                tRoute = clamp01(scaled);
+            } else if (etaFrac !== null) {
+                tRoute = etaFrac;
+            }
+            if (tRoute === null && anchor !== null) {
+                const spanMs = Math.max(
+                    500,
+                    (predictedArrMs && predictedArrMs > anchorTs)
+                        ? (predictedArrMs - anchorTs)
+                        : SMOOTH_WINDOW_MS
+                );
+                const projected = anchor + ((now - anchorTs) / spanMs) * (1 - anchor);
+                tRoute = clamp01(projected);
+            } else if (tRoute !== null && anchor !== null) {
+                tRoute = Math.max(tRoute, anchor);
+            } else if (
+                tRoute === null &&
+                Number.isFinite(state.lastTs) &&
+                Number.isFinite(state.nextTs) &&
+                state.nextTs > state.lastTs
+            ) {
                 tRoute = clamp01((now - state.lastTs) / Math.max(1, state.nextTs - state.lastTs));
             }
             if (tRoute !== null) {
@@ -241,6 +298,9 @@
 
     function setRouteSegment(state, payload) {
         if (!state.routeCtx) return;
+        const nowMs = Date.now();
+        const progressPct = toNumber(payload.next_stop_progress_pct);
+        const progressFrac = Number.isFinite(progressPct) ? clamp01(progressPct / 100) : null;
         const fromId = (payload.segment_from_stop_id || payload.current_stop_id || payload.currentStopId || '').toString().trim();
         const toId = (payload.segment_to_stop_id || payload.next_stop_id || payload.nextStopId || '').toString().trim();
         const from = state.routeCtx.stopIndex[fromId] || null;
@@ -275,7 +335,7 @@
             Number.isFinite(startDist) &&
             Number.isFinite(endDist) &&
             Math.abs(endDist - startDist) < 1 &&
-            movedMeters > 5
+            (movedMeters > 5 || (progressFrac !== null && progressFrac > 0.05))
         ) {
             endDist = Math.min(
                 state.routeCtx.totalLength || Infinity,
@@ -285,6 +345,22 @@
 
         state.routeStartDist = Number.isFinite(startDist) ? startDist : null;
         state.routeEndDist = Number.isFinite(endDist) ? endDist : null;
+        const segDep = toNumber(payload.segment_dep_epoch);
+        const segArr = toNumber(payload.segment_arr_epoch);
+        const depForEta = Number.isFinite(segDep) ? segDep : state.segmentDepTs;
+        const arrForEta = Number.isFinite(segArr) ? segArr : state.segmentArrTs;
+        const etaAtNow = etaFraction(nowMs, depForEta, arrForEta);
+        if (Number.isFinite(segDep)) state.segmentDepTs = segDep;
+        if (Number.isFinite(segArr)) state.segmentArrTs = segArr;
+        const anchor = progressFrac ?? etaAtNow ?? null;
+        state.routeProgressAtRefresh = anchor;
+        state.routeProgressTs = nowMs;
+        state.routeEtaAtRefresh = etaAtNow;
+        const etaArrivalMs = Number.isFinite(arrForEta) ? arrForEta * 1000 : null;
+        state.predictedArrMs = etaArrivalMs || (state.predictedArrMs && state.predictedArrMs > nowMs ? state.predictedArrMs : null);
+        if (!state.predictedArrMs && anchor !== null) {
+            state.predictedArrMs = nowMs + Math.max(POLL_MS, SMOOTH_WINDOW_MS);
+        }
         state.segmentFromId = fromId || null;
         state.segmentToId = toId || null;
     }
@@ -314,7 +390,8 @@
             state.lastPos = prev || { lon, lat };
             state.nextPos = { lon, lat };
             state.lastTs = now;
-            state.nextTs = now + SMOOTH_WINDOW_MS;
+            const smoothMs = Math.max(POLL_MS, SMOOTH_WINDOW_MS);
+            state.nextTs = now + smoothMs;
             const segDep = toNumber(data.segment_dep_epoch);
             const segArr = toNumber(data.segment_arr_epoch);
             if (Number.isFinite(segDep) && Number.isFinite(segArr) && segArr > segDep) {
@@ -322,7 +399,7 @@
                 state.segmentArrTs = segArr;
             } else {
                 state.segmentDepTs = now / 1000;
-                state.segmentArrTs = state.segmentDepTs + SMOOTH_WINDOW_MS / 1000;
+                state.segmentArrTs = state.segmentDepTs + smoothMs / 1000;
             }
             if (Number.isFinite(toNumber(data.heading))) {
                 state.heading = toNumber(data.heading);
@@ -449,6 +526,10 @@
             segmentArrTs: null,
             segmentFromId: null,
             segmentToId: null,
+            routeProgressAtRefresh: null,
+            routeProgressTs: null,
+            routeEtaAtRefresh: null,
+            predictedArrMs: null,
             heading,
         };
 
@@ -476,8 +557,13 @@
     });
 
     if (window.htmx && window.htmx.version) {
+        document.body.addEventListener('htmx:beforeSwap', (evt) => {
+            cleanupInSubtree(evt.target || evt.detail?.target || document);
+        });
         document.body.addEventListener('htmx:afterSwap', (evt) => {
             scan(evt.target);
         });
     }
+
+    window.addEventListener('pagehide', () => cleanupInSubtree(document));
 })();

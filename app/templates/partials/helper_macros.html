@@ -79,7 +79,8 @@
 			{%- set rt_epoch = rt_arrival_time.epoch -%}
 		{%- endif -%}
 	{%- endif -%}
-	{%- set delay_value = (rt_arrival_time.delay_min | default(0)) if show_rt else 0 -%}
+	{%- set delay_raw = rt_arrival_time.delay_min if show_rt and rt_arrival_time is not none else 0 -%}
+	{%- set delay_value = delay_raw | int(0) -%}
 	{%- set show_scheduled_time = scheduled_time is not none and (not show_rt or rt_hhmm != scheduled_time or is_passed_station) -%}
 	{%- set stop_habitual = (stop.habitual_platform if stop.habitual_publishable else None) -%}
 	{%- set split_marker = ' ó ' -%}

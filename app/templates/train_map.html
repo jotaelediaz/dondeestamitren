@@ -18,22 +18,7 @@
             <div class="line-chip-header-buttons"></div>
         </div>
     </div>
-
-    <div class="app-block-padding app-block-vertical-padding">
-        <div class="train-details-panel" style="--line-color: {{ route.color_bg if route else '#7a99b4' }}">
-            <div class="train-details-header">
-                <div class="train-details-route-link train-details-preheader">
-                    <span class="train-details-label">{{ train_service.route_short_name or route.route_short_name if route else 'Servicio' }}</span>
-                </div>
-            </div>
-            <div class="train-map-panel">
-                <div class="train-map-meta">
-                    <span><strong>Último snapshot:</strong> {{ last_snapshot | default('—') }}</span>
-                    <span><strong>Lat/Lon:</strong> {{ '%.5f'|format(position.lat) }}, {{ '%.5f'|format(position.lon) }}</span>
-                    {% if position.heading %}
-                        <span><strong>Rumbo:</strong> {{ position.heading }}°</span>
-                    {% endif %}
-                </div>
+	
 <div class="train-map-container">
     <div id="train-map"
          data-train-map="true"
@@ -64,10 +49,6 @@
     </p>
     {% endif %}
 </div>
-                <p class="train-map-footer">Fuente de datos: {{ last_snapshot | default('—') }} — Posición estimada según el último snapshot disponible.</p>
-            </div>
-        </div>
-    </div>
 </section>
 {% endblock %}
 

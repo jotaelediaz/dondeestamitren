@@ -29,6 +29,7 @@
     --app-margin: 14px;
     --topbar-height: 33px;
     --bottom-nav-height: 60px;
+    --content-fade-height: calc(var(--bottom-nav-height) + (var(--app-margin) * 1.2));
 
     --vt-ease: cubic-bezier(.2,0,.2,1);
     --vt-in: 220ms;
@@ -130,6 +131,29 @@ main {
     flex-direction: column;
     height: 100svh;
     min-height: 0;
+    position: relative;
+}
+
+#content {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        #000 0%,
+        #000 calc(100% - var(--content-fade-height)),
+        transparent 100%
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        #000 0%,
+        #000 calc(100% - var(--content-fade-height)),
+        transparent 100%
+    );
+    mask-size: 100% 100%;
+    -webkit-mask-size: 100% 100%;
+    mask-repeat: no-repeat;
+    -webkit-mask-repeat: no-repeat;
 }
 
 /* -- Topbar navbar -- */
@@ -220,19 +244,6 @@ main {
     overflow: hidden;
     backdrop-filter: blur(3px);
     border-radius: 999px;
-}
-
-main:after {
-    background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--jotaele-background) 50%, transparent) 30%, var(--jotaele-background));
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: calc(var(--bottom-nav-height) + var(--app-margin));
-    z-index: 1;
-    pointer-events: none;
-    opacity: 0.8;
 }
 
 .backdrop-nav {
@@ -1516,12 +1527,8 @@ ul.chip-list {
 .train-map-container {
     position: relative;
     width: 100%;
-    height: calc(100vh - 9rem);
-    min-height: 20rem;
-    border-radius: 18px;
+    height: 100%;
     overflow: hidden;
-    border: 1px solid var(--jotaele-background-accent);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
 }
 
 #train-map {
