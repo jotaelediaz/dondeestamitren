@@ -736,6 +736,7 @@ def train_detail(
 
     train_obj = vm.get("train")
     train_last_stop_id = getattr(train_obj, "stop_id", None) if train_obj else None
+    train_id = getattr(train_obj, "train_id", None) if train_obj else None
     detail_view = build_train_detail_view(
         vm,
         rt_arrival_times,
@@ -762,6 +763,11 @@ def train_detail(
             "rt_arrival_times": rt_arrival_times,
             "train_last_seen_stop_id": train_last_stop_id,
             "train_detail_view": detail_view,
+            "position_api": (
+                f"/api/trains/{nucleus}/{identifier}/position?train_id={train_id}"
+                if train_id and vm.get("kind") == "live"
+                else None
+            ),
         },
     )
 

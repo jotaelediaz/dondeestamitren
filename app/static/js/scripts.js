@@ -129,6 +129,224 @@
     const TRAIN_PROGRESS_MAX_DROP = 15;
     const TRAIN_PROGRESS_TICK = 1_000;
 
+    function setHidden(el, hidden) {
+        if (!el) return;
+        if (hidden) el.setAttribute('hidden', '');
+        else el.removeAttribute('hidden');
+    }
+
+    function replacePrefixedClasses(el, prefix, value) {
+        if (!el || !el.classList) return;
+        el.classList.forEach((cls) => {
+            if (cls.startsWith(prefix)) el.classList.remove(cls);
+        });
+        if (value) el.classList.add(`${prefix}${value}`);
+    }
+
+    function findStopNode(panel, stopId) {
+        if (!panel || !stopId) return null;
+        const sid = String(stopId);
+        return Array.from(panel.querySelectorAll('[data-stop-id]')).find(
+            (el) => String(el.dataset.stopId || el.getAttribute('data-stop-id') || '') === sid,
+        ) || null;
+    }
+
+    function updateStopRow(panel, stop) {
+        if (!panel || !stop) return;
+        const stopId = stop.stop_id || stop.stopId;
+        const el = findStopNode(panel, stopId);
+        if (!el) return;
+
+        const classes = ['grid-route-map-station'];
+        if (stop.status_class) classes.push(stop.status_class);
+        if (stop.station_position) classes.push(stop.station_position);
+        if (stop.is_next_stop) classes.push('next-stop');
+        if (stop.is_current_stop) classes.push('current-stop');
+        el.className = classes.join(' ').trim();
+        if (stop.station_id) el.dataset.stationId = stop.station_id;
+        if (stop.stop_id) el.dataset.stopId = stop.stop_id;
+
+        const stationName = el.querySelector('.station-name');
+        if (stationName && stop.name) stationName.textContent = stop.name;
+
+        const times = stop.times || {};
+        const rtBlock = el.querySelector('[data-stop-rt]');
+        if (rtBlock) {
+            setHidden(rtBlock, !times.show_rt);
+            const tEl = rtBlock.querySelector('[data-stop-rt-time]');
+            if (tEl) {
+                const val = times?.rt?.hhmm || '';
+                tEl.textContent = val || '';
+                if (val) tEl.setAttribute('datetime', val);
+                else tEl.removeAttribute('datetime');
+                const epoch = times?.rt?.epoch;
+                if (epoch !== undefined && epoch !== null && epoch !== '') tEl.dataset.epoch = String(epoch);
+                else delete tEl.dataset.epoch;
+            }
+        }
+
+        const schedBlock = el.querySelector('[data-stop-scheduled]');
+        if (schedBlock) {
+            const showScheduled = !!times.show_scheduled;
+            setHidden(schedBlock, !showScheduled);
+            const schedTime = schedBlock.querySelector('[data-stop-sched-time]');
+            if (schedTime) {
+                const val = times.scheduled || '';
+                schedTime.textContent = val || '';
+                if (val) schedTime.setAttribute('datetime', val);
+                else schedTime.removeAttribute('datetime');
+            }
+            const rtVal = times?.rt?.hhmm || '';
+            const schedVal = times?.scheduled || '';
+            const offCurrent = Boolean(times.show_rt && rtVal && schedVal && rtVal !== schedVal);
+            schedBlock.classList.toggle('scheduled-time-is-not-current', offCurrent);
+        }
+
+        const delayWrap = el.querySelector('[data-stop-delay-wrapper]');
+        if (delayWrap) {
+            const delayVal = Number(times.delay_value || 0);
+            const showDelay = Boolean(times.show_rt && delayVal !== 0);
+            setHidden(delayWrap, !showDelay);
+            const delay = delayWrap.querySelector('[data-stop-delay]');
+            if (delay) {
+                delay.className = 'stop-time-label delay-label';
+                if (delayVal > 0) delay.classList.add('delayed-train');
+                else if (delayVal < 0) delay.classList.add('advanced-train');
+                delay.value = delayVal;
+                const abs = Math.abs(delayVal);
+                delay.textContent = delayVal > 0 ? `(+${delayVal} min)` : `(-${abs} min)`;
+                delay.setAttribute(
+                    'aria-label',
+                    delayVal > 0 ? `+${delayVal} minutos de retraso` : `${abs} minutos de adelanto`,
+                );
+            }
+        }
+
+        const platform = stop.platform || {};
+        const badge = el.querySelector('[data-platform-badge]');
+        if (badge) {
+            badge.dataset.platform = platform.label ?? '';
+            badge.dataset.src = platform.src ?? '';
+            if (platform.habitual) badge.dataset.habitual = platform.habitual;
+            else badge.removeAttribute('data-habitual');
+            const baseCls = ['platform-badge'];
+            if (platform.base_class) baseCls.push(platform.base_class);
+            if (platform.exceptional) baseCls.push('exceptional-platform');
+            badge.className = baseCls.join(' ').trim();
+            const unit = badge.querySelector('.platform-unit');
+            if (unit) unit.textContent = platform.label ?? '?';
+        }
+    }
+
+    function updateTrainDetailDebug(panel, detail, service) {
+        if (!panel) return;
+        const debug = detail?.debug || {};
+        const status = debug.status_text || service.status_text || '';
+        const current = debug.current_stop || service.current_stop_name || service.current_stop_id || '—';
+        const next = debug.next_stop || service.next_stop_name || service.next_stop_id || '—';
+        const statusEl = panel.querySelector('[data-train-status-text]');
+        if (statusEl) statusEl.textContent = `Estado en directo: ${status}`;
+        const currEl = panel.querySelector('[data-train-current-stop]');
+        if (currEl) currEl.textContent = `Parada actual: ${current}`;
+        const nextEl = panel.querySelector('[data-train-next-stop]');
+        if (nextEl) nextEl.textContent = `Siguiente parada: ${next}`;
+    }
+
+    function updateTrainDetailUI(panel, payload) {
+        if (!panel || !payload) return;
+        const detail = payload.train_detail || payload.detail || {};
+        const service = payload.train_service || payload.trainService || {};
+        const trainStatusKey = detail.train_status_key || service.current_status || '';
+        const flowState = detail.train_flow_state || detail.train_type?.flow_state || '';
+
+        panel.dataset.trainStatus = String(trainStatusKey).toLowerCase();
+
+        panel.querySelectorAll('[data-train-flow-state]').forEach((el) => {
+            replacePrefixedClasses(el, 'train-flow-state--', flowState);
+        });
+
+        const typeBadge = panel.querySelector('[data-train-type-badge]');
+        if (typeBadge) {
+            typeBadge.classList.remove('is-live', 'is-scheduled');
+            if (detail.train_type?.is_live) typeBadge.classList.add('is-live');
+            else typeBadge.classList.add('is-scheduled');
+            replacePrefixedClasses(typeBadge, 'train-flow-state--', flowState);
+            if (detail.train_type?.text !== undefined) {
+                const lbl = typeBadge.querySelector('.train-type-badge__label');
+                if (lbl) lbl.textContent = detail.train_type.text;
+                typeBadge.title = detail.train_type.text || '';
+                typeBadge.setAttribute('aria-label', `Servicio ${detail.train_type.text || ''}`);
+            }
+            const dot = typeBadge.querySelector('.train-type-live-dot');
+            if (dot) {
+                dot.className = `live-pill train-type-live-dot${detail.train_type?.live_badge_class ? ` ${detail.train_type.live_badge_class}` : ''}`;
+            }
+        }
+
+        const origin = detail.schedule?.origin || {};
+        const destination = detail.schedule?.destination || {};
+        const originDisplay = panel.querySelector('[data-origin-display]');
+        if (originDisplay) originDisplay.textContent = origin.display || '--:--';
+        const destDisplay = panel.querySelector('[data-destination-display]');
+        if (destDisplay) destDisplay.textContent = destination.display || '--:--';
+
+        const originLabelWrap = panel.querySelector('[data-origin-label]');
+        const shouldShowOriginLabel = Boolean(
+            origin.show_scheduled && origin.scheduled && origin.scheduled !== origin.display,
+        );
+        if (originLabelWrap) setHidden(originLabelWrap, !shouldShowOriginLabel);
+        const originSched = panel.querySelector('[data-origin-scheduled]');
+        if (originSched) {
+            originSched.textContent = origin.scheduled || '';
+            replacePrefixedClasses(originSched, 'train-arrival-time--', origin.state || 'on-time');
+        }
+
+        const destLabelWrap = panel.querySelector('[data-destination-label]');
+        const shouldShowDestLabel = Boolean(
+            destination.show_scheduled && destination.scheduled && destination.scheduled !== destination.display,
+        );
+        if (destLabelWrap) setHidden(destLabelWrap, !shouldShowDestLabel);
+        const destSched = panel.querySelector('[data-destination-scheduled]');
+        if (destSched) {
+            destSched.textContent = destination.scheduled || '';
+            replacePrefixedClasses(destSched, 'train-arrival-time--', destination.state || 'on-time');
+        }
+
+        const labelsWrap = panel.querySelector('[data-route-labels]');
+        if (labelsWrap) {
+            const showLabels = shouldShowOriginLabel || shouldShowDestLabel || detail.show_through_label;
+            setHidden(labelsWrap, !showLabels);
+        }
+
+        const statusLabel = panel.querySelector('[data-train-status-label]');
+        if (statusLabel) {
+            const hasStatus = detail.show_through_label && (detail.status_station_name || detail.status_descriptor_text);
+            setHidden(statusLabel, !hasStatus);
+            statusLabel.title = detail.status_descriptor_text || '';
+            statusLabel.setAttribute('aria-label', detail.status_descriptor_text || '');
+            const icon = statusLabel.querySelector('[data-train-status-icon]');
+            if (icon && detail.status_icon) icon.textContent = detail.status_icon;
+            const txt = statusLabel.querySelector('[data-train-status-text]');
+            if (txt) txt.textContent = detail.status_station_name || detail.status_descriptor_text || '';
+        }
+
+        const map = panel.querySelector('[data-train-progress-map]');
+        if (map) {
+            const base = Array.from(map.classList).filter((cls) => !cls.startsWith('train-status--'));
+            if (detail.train_status_class) base.push(detail.train_status_class);
+            map.className = base.join(' ').trim();
+            if (trainStatusKey) map.dataset.trainStatus = String(trainStatusKey).toLowerCase();
+            const progress = detail.next_stop_progress_pct ?? service.next_stop_progress_pct;
+            if (Number.isFinite(progress)) {
+                map.style.setProperty('--next_stop_progress', `${Math.round(progress)}%`);
+                updateTrainProgressUI(panel, progress);
+            }
+        }
+
+        (detail.stops || []).forEach((stop) => updateStopRow(panel, stop));
+        updateTrainDetailDebug(panel, detail, service);
+    }
+
     function stopTrainDetailAuto(panel) {
         const st = panel?.__trainAuto;
         if (!st) return;
@@ -149,7 +367,11 @@
     function applyTrainDetailPayload(panel, payload) {
         if (!panel || !payload) return;
         const st = panel.__trainAuto || {};
+        const detail = payload.train_detail || payload.detail || {};
         const service = payload.train_service || payload.trainService || {};
+        if (service && detail && detail.next_stop_progress_pct !== undefined && detail.next_stop_progress_pct !== null) {
+            service.next_stop_progress_pct = detail.next_stop_progress_pct;
+        }
         const nextStopId = service.next_stop_id || service.nextStopId || null;
         const rawProgress = Number(service.next_stop_progress_pct ?? service.nextStopProgressPct);
         const now = Date.now();
@@ -193,6 +415,7 @@
         if (payload.kind) panel.dataset.trainKind = payload.kind;
         if (service.current_status) panel.dataset.trainStatus = service.current_status;
 
+        updateTrainDetailUI(panel, payload);
         ensureProgressTimer(panel);
     }
 

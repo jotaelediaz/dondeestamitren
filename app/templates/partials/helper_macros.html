@@ -105,7 +105,7 @@
 		{%- set live_plat = stop.platform if platform_src == 'live' else None -%}
 	{%- endif -%}
 
-<div class="station-block {{ station_position }}" role="group" data-station-index="{{ stop.seq + 1 }}" data-stop-id="{{ 'st-' ~ stop.stop_id }}" aria-labelledby="{{ _id }}-name" aria-describedby="{{ _id }}-times" {%- if is_current %} aria-current="location"{% endif %}>
+<div class="station-block {{ station_position }}" role="group" data-station-index="{{ stop.seq + 1 }}" data-stop-id="{{ 'st-' ~ stop.stop_id }}" data-stop-key="{{ stop.stop_id }}" aria-labelledby="{{ _id }}-name" aria-describedby="{{ _id }}-times" {%- if is_current %} aria-current="location"{% endif %}>
 	<div class="grid-route-line">
 		<div class="route-line-wrapper" aria-hidden="true" role="presentation" tabindex="-1">
 			<i class="route-line-fragment" aria-hidden="true"></i>
@@ -121,32 +121,26 @@
 		
 		<div class="grid-route-connections">
 			<dl class="stop-times">
-				{%- if show_rt -%}
-					<div class="stop-time real-time" aria-live="polite" aria-atomic="true">
+					<div class="stop-time real-time" aria-live="polite" aria-atomic="true" data-stop-rt{% if not show_rt %} hidden{% endif %}>
 						<dt class="sr-only">Hora en tiempo real</dt>
 						<dd>
-							<time class="stop-time-label" {%- if rt_hhmm %} datetime="{{ rt_hhmm }}"{% endif -%}{% if rt_epoch is not none %} data-epoch="{{ rt_epoch }}"{% endif %}>
+							<time class="stop-time-label" data-stop-rt-time {%- if rt_hhmm %} datetime="{{ rt_hhmm }}"{% endif -%}{% if rt_epoch is not none %} data-epoch="{{ rt_epoch }}"{% endif %}>
 								{{ rt_hhmm }}
 							</time>
 						</dd>
 					</div>
-				{%- endif -%}
 					
-					{%- if show_scheduled_time -%}
-						<div class="stop-time scheduled-time{% if show_rt and rt_hhmm != scheduled_time %} scheduled-time-is-not-current{% endif %}">
+						<div class="stop-time scheduled-time{% if show_rt and rt_hhmm != scheduled_time %} scheduled-time-is-not-current{% endif %}" data-stop-scheduled{% if not show_scheduled_time %} hidden{% endif %}>
 							<dt class="sr-only">Hora programada</dt>
-							<dd><time class="stop-time-label" datetime="{{ scheduled_time }}">{{ scheduled_time }}</time>
+							<dd><time class="stop-time-label" data-stop-sched-time datetime="{{ scheduled_time }}">{{ scheduled_time }}</time>
 							</dd>
 						</div>
-					{%- endif -%}
 					
-					{%- if show_rt and delay_value != 0 -%}
-						<dd>
-							<data class="stop-time-label delay-label{% if delay_value>0 %} delayed-train{% elif delay_value<0 %} advanced-train{% endif %}" value="{{ delay_value }}" aria-label="{% if delay_value>0 %}+{{ delay_value }} minutos de retraso{% else %}{{ delay_value|abs }} minutos de adelanto{% endif %}">
+						<dd data-stop-delay-wrapper{% if not (show_rt and delay_value != 0) %} hidden{% endif %}>
+							<data class="stop-time-label delay-label{% if delay_value>0 %} delayed-train{% elif delay_value<0 %} advanced-train{% endif %}" data-stop-delay value="{{ delay_value }}" aria-label="{% if delay_value>0 %}+{{ delay_value }} minutos de retraso{% else %}{{ delay_value|abs }} minutos de adelanto{% endif %}">
 								({% if delay_value>0 %}+{{ delay_value }} min{% else %}-{{ delay_value|abs }} min{% endif %})
 							</data>
 						</dd>
-				{%- endif -%}
 			</dl>
 		</div>
 	</div>
@@ -158,7 +152,7 @@
 			{% set habit_norm = (habitual_platform or '')|string|trim|upper %}
 			{% set has_habitual = habit_norm and habit_norm != '?' %}
 			<div class="train-platform-badge" aria-labelledby="platform-label-{{ stop.stop_id }}">
-				<div class="platform-badge {{ base_cls }}{% if platform_src=='live' and has_habitual and live_norm and live_norm != habit_norm %} exceptional-platform{% endif %}" data-platform="{{ show_plat }}" data-src="{{ platform_src }}"{% if has_habitual %} data-habitual="{{ habitual_platform }}"{% endif %}>
+				<div class="platform-badge {{ base_cls }}{% if platform_src=='live' and has_habitual and live_norm and live_norm != habit_norm %} exceptional-platform{% endif %}" data-platform-badge data-platform="{{ show_plat }}" data-src="{{ platform_src }}"{% if has_habitual %} data-habitual="{{ habitual_platform }}"{% endif %}>
 					<data value="{{ show_plat }}"><span class="platform-unit">{{ show_plat }}</span></data>
 				</div>
 			</div>
