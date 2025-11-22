@@ -299,10 +299,27 @@
     function setRouteSegment(state, payload) {
         if (!state.routeCtx) return;
         const nowMs = Date.now();
-        const progressPct = toNumber(payload.next_stop_progress_pct);
+        const segment = payload && payload.segment ? payload.segment : {};
+        const progressPct = toNumber(
+            segment.progress_pct
+            ?? payload.next_stop_progress_pct
+            ?? payload.progress_pct
+        );
         const progressFrac = Number.isFinite(progressPct) ? clamp01(progressPct / 100) : null;
-        const fromId = (payload.segment_from_stop_id || payload.current_stop_id || payload.currentStopId || '').toString().trim();
-        const toId = (payload.segment_to_stop_id || payload.next_stop_id || payload.nextStopId || '').toString().trim();
+        const fromId = (
+            segment?.from_stop?.id
+            ?? payload.segment_from_stop_id
+            ?? payload.current_stop_id
+            ?? payload.currentStopId
+            ?? ''
+        ).toString().trim();
+        const toId = (
+            segment?.to_stop?.id
+            ?? payload.segment_to_stop_id
+            ?? payload.next_stop_id
+            ?? payload.nextStopId
+            ?? ''
+        ).toString().trim();
         const from = state.routeCtx.stopIndex[fromId] || null;
         const to = state.routeCtx.stopIndex[toId] || null;
         const lastProj = projectOnRoute(state.routeCtx, state.lastPos || state.nextPos || {});
@@ -345,8 +362,14 @@
 
         state.routeStartDist = Number.isFinite(startDist) ? startDist : null;
         state.routeEndDist = Number.isFinite(endDist) ? endDist : null;
-        const segDep = toNumber(payload.segment_dep_epoch);
-        const segArr = toNumber(payload.segment_arr_epoch);
+        const segDep = toNumber(
+            segment.dep_epoch
+            ?? payload.segment_dep_epoch
+        );
+        const segArr = toNumber(
+            segment.arr_epoch
+            ?? payload.segment_arr_epoch
+        );
         const depForEta = Number.isFinite(segDep) ? segDep : state.segmentDepTs;
         const arrForEta = Number.isFinite(segArr) ? segArr : state.segmentArrTs;
         const etaAtNow = etaFraction(nowMs, depForEta, arrForEta);
@@ -377,8 +400,9 @@
             const resp = await fetch(state.positionApi, { signal: state.abortCtrl.signal });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
-            const lat = toNumber(data.lat);
-            const lon = toNumber(data.lon);
+            const position = data.position || data;
+            const lat = toNumber(position.lat);
+            const lon = toNumber(position.lon);
             if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('Posición inválida');
 
             const now = Date.now();
@@ -392,8 +416,9 @@
             state.lastTs = now;
             const smoothMs = Math.max(POLL_MS, SMOOTH_WINDOW_MS);
             state.nextTs = now + smoothMs;
-            const segDep = toNumber(data.segment_dep_epoch);
-            const segArr = toNumber(data.segment_arr_epoch);
+            const segment = data.segment || {};
+            const segDep = toNumber(segment.dep_epoch ?? data.segment_dep_epoch);
+            const segArr = toNumber(segment.arr_epoch ?? data.segment_arr_epoch);
             if (Number.isFinite(segDep) && Number.isFinite(segArr) && segArr > segDep) {
                 state.segmentDepTs = segDep;
                 state.segmentArrTs = segArr;
@@ -401,8 +426,8 @@
                 state.segmentDepTs = now / 1000;
                 state.segmentArrTs = state.segmentDepTs + smoothMs / 1000;
             }
-            if (Number.isFinite(toNumber(data.heading))) {
-                state.heading = toNumber(data.heading);
+            if (Number.isFinite(toNumber(position.heading))) {
+                state.heading = toNumber(position.heading);
             }
             setRouteSegment(state, data);
             updateMarkerPosition(root);

@@ -128,6 +128,40 @@
     };
     const TRAIN_PROGRESS_MAX_DROP = 15;
     const TRAIN_PROGRESS_TICK = 1_000;
+    const STATUS_META = {
+        IN_TRANSIT_TO: { text: 'En tránsito', descriptor: 'En tránsito a:', icon: 'arrow_right_alt', className: 'train-status--enroute' },
+        INCOMING_AT: { text: 'Llegando', descriptor: 'Llegando a:', icon: 'arrow_right_alt', className: 'train-status--arriving' },
+        STOPPED_AT: { text: 'En estación', descriptor: 'En estación:', icon: 'directions_subway', className: 'train-status--stopped' },
+        SCHEDULED: { text: 'Programado', descriptor: 'Programado', icon: 'schedule', className: 'train-status--scheduled' },
+        UNKNOWN: { text: 'Estado desconocido', descriptor: 'Estado desconocido', icon: 'help', className: 'train-status--unknown' },
+    };
+
+    const numberOrNull = (val) => {
+        const n = Number(val);
+        return Number.isFinite(n) ? n : null;
+    };
+
+    const progressFromSegmentTimes = (segment, nowTsSec = null) => {
+        if (!segment) return null;
+        const dep = numberOrNull(segment.dep_epoch ?? segment.segment_dep_epoch);
+        const arr = numberOrNull(segment.arr_epoch ?? segment.segment_arr_epoch);
+        if (!Number.isFinite(dep) || !Number.isFinite(arr) || arr <= dep) return null;
+        const now = Number.isFinite(nowTsSec) ? nowTsSec : (Date.now() / 1000);
+        return Math.max(0, Math.min(100, ((now - dep) / (arr - dep)) * 100));
+    };
+
+    function statusMetaFor(status) {
+        const key = String(status || '').toUpperCase();
+        return STATUS_META[key] || STATUS_META.UNKNOWN;
+    }
+
+    function statusClassFor(status) {
+        return statusMetaFor(status).className;
+    }
+
+    function statusTextFor(status) {
+        return statusMetaFor(status).text;
+    }
 
     function setHidden(el, hidden) {
         if (!el) return;
@@ -141,6 +175,87 @@
             if (cls.startsWith(prefix)) el.classList.remove(cls);
         });
         if (value) el.classList.add(`${prefix}${value}`);
+    }
+
+    function normalizeTrainPayload(payload) {
+        if (!payload) return null;
+        const train = payload.train || {};
+        const position = payload.position || {};
+        const segment = payload.segment || {};
+        const schedule = payload.schedule || payload.train_detail?.schedule || payload.detail?.schedule || {};
+        const stopsBlock = payload.stops || {};
+        const rawStops = Array.isArray(stopsBlock.items)
+            ? stopsBlock.items
+            : ((payload.train_detail && payload.train_detail.stops) || payload.detail?.stops || []);
+        const statusObj = payload.status || {};
+        const statusKey = (statusObj.key || payload.status || payload.train_detail?.train_status_key || '').toString().toUpperCase() || 'UNKNOWN';
+        const nextStopId = segment?.to_stop?.id ?? payload.next_stop_id ?? null;
+        const currentStopId = segment?.from_stop?.id ?? payload.current_stop_id ?? null;
+        const nextStopName = segment?.to_stop?.name ?? payload.next_stop_name ?? null;
+        const currentStopName = segment?.from_stop?.name ?? payload.current_stop_name ?? null;
+        const stops = rawStops.map((stop) => {
+            const sid = stop?.stop_id ?? stop?.stopId;
+            const isNext = stop?.is_next_stop ?? stop?.is_next ?? (nextStopId && sid && String(sid) === String(nextStopId));
+            const isCurrent = stop?.is_current_stop ?? stop?.is_current ?? (currentStopId && sid && String(sid) === String(currentStopId));
+            return { ...stop, is_next_stop: !!isNext, is_current_stop: !!isCurrent };
+        });
+        const segmentDep = segment?.dep_epoch
+            ?? segment?.segment_dep_epoch
+            ?? payload.segment_dep_epoch
+            ?? payload.dep_epoch;
+        const segmentArr = segment?.arr_epoch
+            ?? segment?.segment_arr_epoch
+            ?? payload.segment_arr_epoch
+            ?? payload.arr_epoch;
+        const progressPct = numberOrNull(segment?.progress_pct ?? payload.next_stop_progress_pct ?? payload.progress_pct)
+            ?? progressFromSegmentTimes(
+                { ...segment, dep_epoch: segmentDep, arr_epoch: segmentArr },
+                numberOrNull(position?.ts_unix),
+            );
+        const seenAge = numberOrNull(train?.seen?.age_s ?? payload.train_seen_age ?? payload.train_seen_age_seconds);
+
+        // Fallback schedule derivation from stops if missing
+        const derivedSchedule = { ...schedule };
+        if (!derivedSchedule.origin && rawStops.length > 0) {
+            const first = rawStops[0]?.times || {};
+            derivedSchedule.origin = {
+                display: first?.rt?.hhmm || first?.scheduled || '--:--',
+                scheduled: first?.scheduled,
+                rt: first?.rt?.hhmm,
+                state: (first?.rt && first?.rt?.hhmm && first?.scheduled && first?.rt?.hhmm !== first?.scheduled) ? 'late' : 'on-time',
+                show_scheduled: Boolean(first?.scheduled && first?.rt?.hhmm && first?.rt?.hhmm !== first?.scheduled),
+            };
+        }
+        if (!derivedSchedule.destination && rawStops.length > 0) {
+            const last = rawStops[rawStops.length - 1]?.times || {};
+            derivedSchedule.destination = {
+                display: last?.rt?.hhmm || last?.scheduled || '--:--',
+                scheduled: last?.scheduled,
+                rt: last?.rt?.hhmm,
+                state: (last?.rt && last?.rt?.hhmm && last?.scheduled && last?.rt?.hhmm !== last?.scheduled) ? 'late' : 'on-time',
+                show_scheduled: Boolean(last?.scheduled && last?.rt?.hhmm && last?.rt?.hhmm !== last?.scheduled),
+            };
+        }
+
+        return {
+            train_kind: train.kind || payload.kind || '',
+            status_key: statusKey || 'UNKNOWN',
+            status_class: statusClassFor(statusKey || 'UNKNOWN'),
+            flow_state: statusObj.flow_state || payload.train_detail?.train_flow_state || payload.detail?.train_flow_state || '',
+            train_type: statusObj.train_type || payload.train_detail?.train_type || payload.detail?.train_type || {},
+            schedule: derivedSchedule,
+            stops,
+            stop_count: stopsBlock.count ?? payload.train_detail?.stop_count ?? stops.length,
+            current_stop_id: currentStopId,
+            next_stop_id: nextStopId,
+            current_stop_name: currentStopName,
+            next_stop_name: nextStopName,
+            progress_pct: progressPct,
+            seen_age: seenAge,
+            seen_iso: train?.seen?.iso ?? payload.train_seen_iso ?? null,
+            rt_updated_iso: schedule.rt_updated_iso,
+            position,
+        };
     }
 
     function findStopNode(panel, stopId) {
@@ -160,8 +275,10 @@
         const classes = ['grid-route-map-station'];
         if (stop.status_class) classes.push(stop.status_class);
         if (stop.station_position) classes.push(stop.station_position);
-        if (stop.is_next_stop) classes.push('next-stop');
-        if (stop.is_current_stop) classes.push('current-stop');
+        const isNext = stop.is_next_stop ?? stop.is_next ?? false;
+        const isCurrent = stop.is_current_stop ?? stop.is_current ?? false;
+        if (isNext) classes.push('next-stop');
+        if (isCurrent) classes.push('current-stop');
         el.className = classes.join(' ').trim();
         if (stop.station_id) el.dataset.stationId = stop.station_id;
         if (stop.stop_id) el.dataset.stopId = stop.stop_id;
@@ -238,12 +355,12 @@
         }
     }
 
-    function updateTrainDetailDebug(panel, detail, service) {
+    function updateTrainDetailDebug(panel, model) {
         if (!panel) return;
-        const debug = detail?.debug || {};
-        const status = debug.status_text || service.status_text || '';
-        const current = debug.current_stop || service.current_stop_name || service.current_stop_id || '—';
-        const next = debug.next_stop || service.next_stop_name || service.next_stop_id || '—';
+        const statusCode = model?.status_key || 'UNKNOWN';
+        const status = statusTextFor(statusCode);
+        const current = model?.current_stop_name || model?.current_stop_id || '—';
+        const next = model?.next_stop_name || model?.next_stop_id || '—';
         const statusEl = panel.querySelector('[data-train-status-text]');
         if (statusEl) statusEl.textContent = `Estado en directo: ${status}`;
         const currEl = panel.querySelector('[data-train-current-stop]');
@@ -252,12 +369,11 @@
         if (nextEl) nextEl.textContent = `Siguiente parada: ${next}`;
     }
 
-    function updateTrainDetailUI(panel, payload) {
-        if (!panel || !payload) return;
-        const detail = payload.train_detail || payload.detail || {};
-        const service = payload.train_service || payload.trainService || {};
-        const trainStatusKey = detail.train_status_key || service.current_status || '';
-        const flowState = detail.train_flow_state || detail.train_type?.flow_state || '';
+    function updateTrainDetailUI(panel, model) {
+        if (!panel || !model) return;
+        const trainStatusKey = model.status_key || 'UNKNOWN';
+        const flowState = model.flow_state || model.train_type?.flow_state || '';
+        const statusMeta = statusMetaFor(trainStatusKey);
 
         panel.dataset.trainStatus = String(trainStatusKey).toLowerCase();
 
@@ -268,83 +384,84 @@
         const typeBadge = panel.querySelector('[data-train-type-badge]');
         if (typeBadge) {
             typeBadge.classList.remove('is-live', 'is-scheduled');
-            if (detail.train_type?.is_live) typeBadge.classList.add('is-live');
+            if (model.train_type?.is_live) typeBadge.classList.add('is-live');
             else typeBadge.classList.add('is-scheduled');
             replacePrefixedClasses(typeBadge, 'train-flow-state--', flowState);
-            if (detail.train_type?.text !== undefined) {
-                const lbl = typeBadge.querySelector('.train-type-badge__label');
-                if (lbl) lbl.textContent = detail.train_type.text;
-                typeBadge.title = detail.train_type.text || '';
-                typeBadge.setAttribute('aria-label', `Servicio ${detail.train_type.text || ''}`);
-            }
+            const labelText = model.train_type?.text || statusTextFor(trainStatusKey);
+            const lbl = typeBadge.querySelector('.train-type-badge__label');
+            if (lbl) lbl.textContent = labelText;
+            typeBadge.title = labelText || '';
+            typeBadge.setAttribute('aria-label', `Servicio ${labelText || ''}`);
             const dot = typeBadge.querySelector('.train-type-live-dot');
             if (dot) {
-                dot.className = `live-pill train-type-live-dot${detail.train_type?.live_badge_class ? ` ${detail.train_type.live_badge_class}` : ''}`;
+                dot.className = `live-pill train-type-live-dot${model.train_type?.live_badge_class ? ` ${model.train_type.live_badge_class}` : ''}`;
             }
         }
 
-        const origin = detail.schedule?.origin || {};
-        const destination = detail.schedule?.destination || {};
+        const origin = model.schedule?.origin || {};
+        const destination = model.schedule?.destination || {};
+        const originDisplayText = origin.display || origin.rt || origin.scheduled || '--:--';
+        const destinationDisplayText = destination.display || destination.rt || destination.scheduled || '--:--';
         const originDisplay = panel.querySelector('[data-origin-display]');
-        if (originDisplay) originDisplay.textContent = origin.display || '--:--';
+        if (originDisplay) originDisplay.textContent = originDisplayText;
         const destDisplay = panel.querySelector('[data-destination-display]');
-        if (destDisplay) destDisplay.textContent = destination.display || '--:--';
+        if (destDisplay) destDisplay.textContent = destinationDisplayText;
 
         const originLabelWrap = panel.querySelector('[data-origin-label]');
         const shouldShowOriginLabel = Boolean(
-            origin.show_scheduled && origin.scheduled && origin.scheduled !== origin.display,
+            origin.show_scheduled && origin.scheduled && origin.scheduled !== originDisplayText,
         );
         if (originLabelWrap) setHidden(originLabelWrap, !shouldShowOriginLabel);
         const originSched = panel.querySelector('[data-origin-scheduled]');
         if (originSched) {
-            originSched.textContent = origin.scheduled || '';
+            originSched.textContent = origin.scheduled || originDisplayText || '';
             replacePrefixedClasses(originSched, 'train-arrival-time--', origin.state || 'on-time');
         }
 
         const destLabelWrap = panel.querySelector('[data-destination-label]');
         const shouldShowDestLabel = Boolean(
-            destination.show_scheduled && destination.scheduled && destination.scheduled !== destination.display,
+            destination.show_scheduled && destination.scheduled && destination.scheduled !== destinationDisplayText,
         );
         if (destLabelWrap) setHidden(destLabelWrap, !shouldShowDestLabel);
         const destSched = panel.querySelector('[data-destination-scheduled]');
         if (destSched) {
-            destSched.textContent = destination.scheduled || '';
+            destSched.textContent = destination.scheduled || destinationDisplayText || '';
             replacePrefixedClasses(destSched, 'train-arrival-time--', destination.state || 'on-time');
         }
 
         const labelsWrap = panel.querySelector('[data-route-labels]');
+        const showStatusLabel = Boolean(trainStatusKey && trainStatusKey !== 'UNKNOWN');
         if (labelsWrap) {
-            const showLabels = shouldShowOriginLabel || shouldShowDestLabel || detail.show_through_label;
+            const showLabels = shouldShowOriginLabel || shouldShowDestLabel || showStatusLabel;
             setHidden(labelsWrap, !showLabels);
         }
 
         const statusLabel = panel.querySelector('[data-train-status-label]');
         if (statusLabel) {
-            const hasStatus = detail.show_through_label && (detail.status_station_name || detail.status_descriptor_text);
-            setHidden(statusLabel, !hasStatus);
-            statusLabel.title = detail.status_descriptor_text || '';
-            statusLabel.setAttribute('aria-label', detail.status_descriptor_text || '');
+            setHidden(statusLabel, !showStatusLabel);
+            statusLabel.title = statusMeta.descriptor || '';
+            statusLabel.setAttribute('aria-label', statusMeta.descriptor || '');
             const icon = statusLabel.querySelector('[data-train-status-icon]');
-            if (icon && detail.status_icon) icon.textContent = detail.status_icon;
+            if (icon) icon.textContent = statusMeta.icon || '';
             const txt = statusLabel.querySelector('[data-train-status-text]');
-            if (txt) txt.textContent = detail.status_station_name || detail.status_descriptor_text || '';
+            if (txt) txt.textContent = model.next_stop_name || model.current_stop_name || statusMeta.descriptor || '';
         }
 
         const map = panel.querySelector('[data-train-progress-map]');
         if (map) {
             const base = Array.from(map.classList).filter((cls) => !cls.startsWith('train-status--'));
-            if (detail.train_status_class) base.push(detail.train_status_class);
+            if (model.status_class) base.push(model.status_class);
             map.className = base.join(' ').trim();
             if (trainStatusKey) map.dataset.trainStatus = String(trainStatusKey).toLowerCase();
-            const progress = detail.next_stop_progress_pct ?? service.next_stop_progress_pct;
-            if (Number.isFinite(progress)) {
-                map.style.setProperty('--next_stop_progress', `${Math.round(progress)}%`);
-                updateTrainProgressUI(panel, progress);
-            }
         }
 
-        (detail.stops || []).forEach((stop) => updateStopRow(panel, stop));
-        updateTrainDetailDebug(panel, detail, service);
+        const progress = model.progress_pct;
+        if (Number.isFinite(progress)) {
+            updateTrainProgressUI(panel, progress);
+        }
+
+        (model.stops || []).forEach((stop) => updateStopRow(panel, stop));
+        updateTrainDetailDebug(panel, model);
     }
 
     function stopTrainDetailAuto(panel) {
@@ -365,15 +482,12 @@
     }
 
     function applyTrainDetailPayload(panel, payload) {
-        if (!panel || !payload) return;
+        if (!panel || !payload) return null;
+        const model = normalizeTrainPayload(payload);
+        if (!model) return null;
         const st = panel.__trainAuto || {};
-        const detail = payload.train_detail || payload.detail || {};
-        const service = payload.train_service || payload.trainService || {};
-        if (service && detail && detail.next_stop_progress_pct !== undefined && detail.next_stop_progress_pct !== null) {
-            service.next_stop_progress_pct = detail.next_stop_progress_pct;
-        }
-        const nextStopId = service.next_stop_id || service.nextStopId || null;
-        const rawProgress = Number(service.next_stop_progress_pct ?? service.nextStopProgressPct);
+        const nextStopId = model.next_stop_id || null;
+        const rawProgress = numberOrNull(model.progress_pct);
         const now = Date.now();
         const currentAnimated = progressFromState(now, st);
         let progress = Number.isFinite(rawProgress) ? rawProgress : null;
@@ -390,10 +504,11 @@
         }
 
         if (progress !== null) {
-            st.progressStart = Number.isFinite(currentAnimated) ? currentAnimated : progress;
+            // Sincroniza al valor recibido: evitamos que el animador reescriba con el valor previo
+            st.progressStart = progress;
             st.progressTarget = progress;
             st.progressStartTs = now;
-            st.progressDuration = st.baseInterval || TRAIN_DETAIL_INTERVALS.base;
+            st.progressDuration = 0;
             st.lastProgress = progress;
         } else if (prevProgress !== null && sameStop) {
             st.progressStart = Number.isFinite(currentAnimated) ? currentAnimated : prevProgress;
@@ -404,6 +519,12 @@
         }
         if (nextStopId) st.lastStopId = String(nextStopId);
 
+        // Usamos la mejor estimación disponible para pintar ahora mismo
+        const displayProgress = Number.isFinite(progress)
+            ? progress
+            : (Number.isFinite(st.lastProgress) ? st.lastProgress : progressFromState(now, st));
+        model.progress_pct = Number.isFinite(displayProgress) ? displayProgress : null;
+
         const html = payload.html;
         if (typeof html === 'string' && html.trim()) {
             panel.innerHTML = html;
@@ -412,28 +533,26 @@
             if (animVal !== null) updateTrainProgressUI(panel, animVal);
         }
 
-        if (payload.kind) panel.dataset.trainKind = payload.kind;
-        if (service.current_status) panel.dataset.trainStatus = service.current_status;
+        if (model.train_kind) panel.dataset.trainKind = model.train_kind;
+        if (model.status_key) panel.dataset.trainStatus = model.status_key;
 
-        updateTrainDetailUI(panel, payload);
+        updateTrainDetailUI(panel, model);
         ensureProgressTimer(panel);
+        return model;
     }
 
-    function nextTrainDetailInterval(payload, panel) {
-        const kind = (payload && payload.kind) || (panel?.dataset?.trainKind) || 'live';
+    function nextTrainDetailInterval(model, panel) {
+        const kind = (model && model.train_kind) || (panel?.dataset?.trainKind) || 'live';
         if (kind !== 'live') return TRAIN_DETAIL_INTERVALS.scheduled;
 
-        const service = payload?.train_service || payload?.trainService || {};
-        const status = String(service.current_status || '').toUpperCase();
+        const status = String(model?.status_key || '').toUpperCase();
         if (status === 'INCOMING_AT') return TRAIN_DETAIL_INTERVALS.approaching;
         if (status === 'STOPPED_AT') return TRAIN_DETAIL_INTERVALS.stopped;
 
-        const progress = Number(service.next_stop_progress_pct);
+        const progress = numberOrNull(model?.progress_pct);
         if (Number.isFinite(progress) && progress >= 70) return TRAIN_DETAIL_INTERVALS.approaching;
 
-        const seenAge = (typeof payload?.train_seen_age === 'number')
-            ? payload.train_seen_age
-            : (typeof payload?.train_seen_age_seconds === 'number' ? payload.train_seen_age_seconds : null);
+        const seenAge = numberOrNull(model?.seen_age);
         if (typeof seenAge === 'number' && seenAge > 180) return TRAIN_DETAIL_INTERVALS.stale;
 
         return TRAIN_DETAIL_INTERVALS.base;
@@ -481,13 +600,12 @@
             });
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const payload = await resp.json();
-            applyTrainDetailPayload(panel, payload);
+            const model = applyTrainDetailPayload(panel, payload);
             st.errors = 0;
-            const base = nextTrainDetailInterval(payload, panel);
+            const base = nextTrainDetailInterval(model, panel);
             const jitter = Math.floor(Math.random() * 500);
             scheduleTrainDetailTick(panel, base + jitter);
         } catch (err) {
-            console.debug('[train-detail] refresh error', err);
             st.errors = Math.min(st.errors + 1, 6);
             const backoffBase = (panel?.dataset?.trainKind === 'scheduled')
                 ? TRAIN_DETAIL_INTERVALS.scheduled
@@ -538,14 +656,15 @@
     function updateTrainProgressUI(panel, progress) {
         if (!panel || progress === null || !Number.isFinite(progress)) return;
         const pct = Math.max(0, Math.min(100, Math.round(progress)));
-        const map = panel.querySelector('[data-train-progress-map]');
-        if (map && map.style) {
-            map.style.setProperty('--next_stop_progress', `${pct}%`);
-        }
-        const li = panel.querySelector('[data-train-progress]');
-        if (li) {
+        const scope = panel.closest('.train-details-content-area') || panel;
+        const maps = scope.querySelectorAll('[data-train-progress-map]');
+        const labels = scope.querySelectorAll('[data-train-progress]');
+        maps.forEach((map) => {
+            if (map?.style) map.style.setProperty('--next_stop_progress', `${pct}%`);
+        });
+        labels.forEach((li) => {
             li.textContent = `Porcentaje de avance: ${pct}%`;
-        }
+        });
     }
 
     function progressFromState(now, st) {
@@ -3093,6 +3212,10 @@
                 if (node.querySelector?.('.train-eta-chip') || node.matches?.('.train-eta-chip')) {
                     wireETA(node);
                 }
+
+                if (node.matches?.('[data-train-detail]') || node.querySelector?.('[data-train-detail]')) {
+                    bindTrainDetailAutoRefresh(node);
+                }
             });
         }
     });
@@ -3100,6 +3223,7 @@
 
     if (window.htmx) {
         document.body.addEventListener('htmx:afterSwap', (e) => init(e.target));
+        document.body.addEventListener('htmx:load', (e) => bindTrainDetailAutoRefresh(e.target));
         document.body.addEventListener('htmx:beforeSwap', (e) => {
             const { panel, body } = getStaticDrawer();
             if (!panel || !body) return;

@@ -294,10 +294,8 @@ def _detail_payload(detail_view: Any, vm: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
-    next_stop_progress = train_service.get("next_stop_progress_pct")
     debug_info = {
-        "progress_pct": next_stop_progress,
-        "status_text": train_service.get("status_text"),
+        "status": train_service.get("current_status"),
         "current_stop": train_service.get("current_stop_name")
         or train_service.get("current_stop_id"),
         "next_stop": train_service.get("next_stop_name") or train_service.get("next_stop_id"),
@@ -334,7 +332,6 @@ def _detail_payload(detail_view: Any, vm: dict[str, Any]) -> dict[str, Any]:
         },
         "train_status_key": train_status_key,
         "train_status_class": train_status_class,
-        "next_stop_progress_pct": next_stop_progress,
         "stop_count": _fld(detail_view, "stop_count"),
         "rt_updated_iso": _fld(detail_view, "rt_updated_iso"),
         "stops": stops_payload,
@@ -418,26 +415,47 @@ def live_train_position(
         ("eta_arr_epoch", "eta_dep_epoch", "sched_arr_epoch", "sched_dep_epoch"),
     )
 
-    payload = {
-        "train_id": getattr(train_obj, "train_id", None),
-        "vehicle_id": getattr(train_obj, "vehicle_id", None),
-        "route_id": getattr(train_obj, "route_id", None),
-        "direction_id": getattr(train_obj, "direction_id", None),
-        "lat": float(lat),
-        "lon": float(lon),
-        "heading": getattr(train_obj, "bearing", None),
-        "ts_unix": getattr(train_obj, "ts_unix", None) or getattr(train_obj, "timestamp", None),
-        "status": getattr(train_obj, "current_status", None),
-        "current_stop_id": getattr(train_obj, "current_stop_id", None)
-        or unified.get("current_stop_id")
-        or getattr(train_obj, "stop_id", None),
-        "next_stop_id": getattr(train_obj, "next_stop_id", None) or unified.get("next_stop_id"),
-        "segment_from_stop_id": segment_from_id,
-        "segment_to_stop_id": segment_to_id,
-        "segment_dep_epoch": seg_dep_epoch,
-        "segment_arr_epoch": seg_arr_epoch,
-        "next_stop_progress_pct": progress_val,
+    payload: dict[str, Any] = {
+        "train": {
+            "id": getattr(train_obj, "train_id", None),
+            "vehicle_id": getattr(train_obj, "vehicle_id", None),
+            "route_id": getattr(train_obj, "route_id", None),
+            "direction_id": getattr(train_obj, "direction_id", None),
+            "kind": vm.get("kind"),
+            "seen": {
+                "iso": vm.get("train_seen_iso"),
+                "age_s": vm.get("train_seen_age"),
+            },
+        },
+        "position": {
+            "lat": float(lat),
+            "lon": float(lon),
+            "heading": getattr(train_obj, "bearing", None),
+            "ts_unix": getattr(train_obj, "ts_unix", None) or getattr(train_obj, "timestamp", None),
+        },
+        "segment": {
+            "from_stop": {
+                "id": unified.get("current_stop_id")
+                or getattr(train_obj, "current_stop_id", None)
+                or getattr(train_obj, "stop_id", None),
+                "name": unified.get("current_stop_name")
+                or getattr(train_obj, "current_stop_name", None),
+            },
+            "to_stop": {
+                "id": getattr(train_obj, "next_stop_id", None) or unified.get("next_stop_id"),
+                "name": unified.get("next_stop_name") or getattr(train_obj, "next_stop_name", None),
+            },
+            "dep_epoch": seg_dep_epoch,
+            "arr_epoch": seg_arr_epoch,
+            "progress_pct": progress_val,
+        },
     }
+
+    status_view: dict[str, Any] = {}
+    schedule_view: dict[str, Any] = {}
+    stops_payload: list[dict[str, Any]] = []
+    stop_count: int | None = None
+    detail_view: Any | None = None
     try:
         rt_info = build_rt_arrival_times_from_vm(vm, tz_name=tz) or {}
         rt_arrival_times = {
@@ -471,24 +489,70 @@ def live_train_position(
         detail_view = build_train_detail_view(
             vm, rt_arrival_times, repo, last_seen_stop_id=train_last_stop_id
         )
-        payload.update(
-            {
-                "kind": vm.get("kind"),
-                "train_service": vm.get("unified"),
-                "train_seen_iso": vm.get("train_seen_iso"),
-                "train_seen_age": vm.get("train_seen_age"),
-                "train_detail": _detail_payload(detail_view, vm),
-            }
-        )
+        status_view = _fld(detail_view, "status") or {}
+        schedule_view = _fld(detail_view, "schedule") or {}
+        stop_count = _fld(detail_view, "stop_count")
+        live_platform_value = (vm.get("unified") or {}).get("platform")
+        live_platform_stop_id = (vm.get("unified") or {}).get("next_stop_id")
+        if str((vm.get("unified") or {}).get("current_status", "")).upper() == "STOPPED_AT":
+            live_platform_stop_id = (vm.get("unified") or {}).get(
+                "current_stop_id"
+            ) or live_platform_stop_id
+        train_current_stop_id = (vm.get("unified") or {}).get("current_stop_id")
+        for stop_view in _fld(detail_view, "stops") or []:
+            stops_payload.append(
+                _serialize_stop_view(
+                    stop_view,
+                    train_service=vm.get("unified") or {},
+                    kind=vm.get("kind"),
+                    live_platform_value=live_platform_value,
+                    live_platform_stop_id=live_platform_stop_id,
+                    train_current_stop_id=train_current_stop_id,
+                )
+            )
     except Exception:
-        payload.update(
-            {
-                "kind": vm.get("kind"),
-                "train_service": vm.get("unified"),
-                "train_seen_iso": vm.get("train_seen_iso"),
-                "train_seen_age": vm.get("train_seen_age"),
-            }
-        )
+        status_view = {}
+        schedule_view = {}
+        stops_payload = []
+        stop_count = None
+
+    flow_state = _fld(status_view, "train_flow_state")
+    train_status_key, _ = _train_status_meta(vm.get("unified") or {}, vm.get("kind"))
+    payload["status"] = {
+        "key": train_status_key,
+        "flow_state": flow_state,
+        "train_type": {
+            "label": _fld(status_view, "train_type_label"),
+            "is_live": bool(_fld(status_view, "is_live_train")),
+            "live_badge_class": _fld(status_view, "live_badge_class"),
+        },
+    }
+
+    origin_display_time = _compute_origin_display_time(schedule_view, status_view)
+    destination_display_time = (
+        _fld(schedule_view, "destination_time")
+        or _fld(schedule_view, "scheduled_destination_time")
+        or "--:--"
+    )
+    payload["schedule"] = {
+        "origin": {
+            "display": origin_display_time,
+            "scheduled": _fld(schedule_view, "scheduled_origin_time"),
+            "state": _fld(schedule_view, "origin_time_state") or "on-time",
+            "show_scheduled": bool(_fld(schedule_view, "show_origin_schedule_time")),
+            "rt": _fld(schedule_view, "origin_time"),
+        },
+        "destination": {
+            "display": destination_display_time,
+            "scheduled": _fld(schedule_view, "scheduled_destination_time"),
+            "state": _fld(schedule_view, "destination_time_state") or "on-time",
+            "show_scheduled": bool(_fld(schedule_view, "show_destination_schedule_time")),
+            "rt": _fld(schedule_view, "destination_time"),
+        },
+        "rt_updated_iso": _fld(schedule_view, "rt_updated_iso")
+        or _fld(detail_view, "rt_updated_iso"),
+    }
+    payload["stops"] = {"count": stop_count, "items": stops_payload}
     return JSONResponse(jsonable_encoder(payload))
 
 

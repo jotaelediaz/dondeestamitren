@@ -1053,8 +1053,9 @@ ul.chip-list {
     display: block;
     position: absolute;
     width: var(--line-route-width);
-    height: calc(100% + 1px);
+    height: calc(100% - (var(--icon-dot-size) - 3px));
     background: var(--line-color);
+    top: calc(var(--icon-dot-size) - 2px);
 }
 
 .grid-route-map .route-dot {
@@ -1091,11 +1092,6 @@ ul.chip-list {
     transform: translateY(-0.2em);
     transition: ease 0.2s;
     overflow-y: clip;
-}
-
-.grid-route-map .grid-route-map-station.origin-station .route-line-fragment {
-    height: calc(100% - (var(--icon-dot-size) / 2));
-    bottom: 0;
 }
 
 .grid-route-map .grid-route-map-station.destination-station .route-line-fragment {
@@ -2274,22 +2270,27 @@ ul.chip-list {
 
 .train-details-panel {
     background: color-mix(in srgb, var(--jotaele-white) 70%, var(--jotaele-background) 30%);
-    border-radius: 24px;
+    border-radius: 14px;
     box-shadow: 0 0 0 1px var(--jotaele-background-accent);
     padding: calc(var(--app-margin) * 1) calc(var(--app-margin) * 1);
+    opacity: 0.8;
 }
 
 .train-details-panel .train-details-header .train-details-preheader {
     display: flex;
     color: var(--jotaele-black);
     font-family: 'Sora', sans-serif;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     font-weight: 700;
     white-space: nowrap;
     letter-spacing: 0;
-    gap: 0.35rem;
+    gap: 0.15rem;
     align-items: center;
     justify-content: center;
+}
+
+.train-details-panel .train-details-header .train-details-preheader .train-details-label {
+    margin-left: 0.25rem;
 }
 
 .train-type-badge {
@@ -2332,19 +2333,20 @@ ul.chip-list {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: calc(var(--app-margin) * 1);
+    margin-bottom: calc(var(--app-margin) * 0.8);
+    padding-bottom: calc(var(--app-margin) * 0.7);
+    border-bottom: 1px solid var(--jotaele-background-accent);
 }
 
 .train-details-header .line-chip-icon {
     flex: 0 0;
-    height: 1.2rem;
+    height: 1.1rem;
 }
 
 .train-details-header-content {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    display: flex;
     align-items: center;
-    gap: calc(var(--app-margin) * 0.6);
+    gap: calc(var(--app-margin) * 0.2);
     min-width: 0;
     margin-bottom: calc(var(--app-margin) * 0.7);
 }
@@ -2354,7 +2356,7 @@ ul.chip-list {
 }
 
 .train-details-header-content .train-header-terminal {
-    flex: 1 1 33.33%;
+    flex: 0 1 auto;
     font-family: Sora, sans-serif;
     font-weight: 700;
     color: var(--jotaele-black);
@@ -2363,21 +2365,16 @@ ul.chip-list {
     line-height: 1.2em;
     overflow: hidden;
     text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-}
-
-.train-details-header-content .train-header-terminal.destination {
-    text-align: right;
+    display: block;
+    white-space: nowrap;
 }
 
 .train-header-terminal.through {
     display: flex;
     align-items: flex-end;
-    min-width: 4rem;
     justify-content: center;
     margin-left: -7px;
+    flex: 0 1 2.5rem;
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevrons {
@@ -2387,8 +2384,8 @@ ul.chip-list {
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevron {
-    width: 0.75rem;
-    height: 0.75rem;
+    width: 0.55rem;
+    height: 0.55rem;
     border-top: 0.2rem solid var(--jotaele-color-button);
     border-right: 0.2rem solid var(--jotaele-color-button);
     transform: rotate(45deg);
@@ -2396,7 +2393,7 @@ ul.chip-list {
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevron + .through-chevron {
-    margin-left: -0.3rem;
+    margin-left: -0.25rem;
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevrons.train-flow-state--in-transit .through-chevron {
@@ -2441,9 +2438,9 @@ ul.chip-list {
 }
 
 .mini-route-map-grid {
-    --line-route-width: 5px;
+    --line-route-width: 4px;
     --number-of-stations: 3;
-    --icon-dot-size: calc(var(--line-route-width) * 2.1);
+    --icon-dot-size: calc(var(--line-route-width) * 2.9);
 
     display: grid;
     grid-template-rows: auto;
@@ -2484,6 +2481,11 @@ ul.chip-list {
     top: calc(50% - (var(--icon-dot-size) / 2));
 }
 
+.mini-route-map-grid .grid-route-map-station.origin-station .route-dot {
+    border: 3px solid var(--line-color);
+    background: var(--jotaele-white);
+}
+
 .mini-route-map-grid .grid-route-map-station.through-station {
     --through-ellipsis-dot-size: calc(var(--line-route-width) * 1);
     --through-ellipsis-inner-gap: calc(var(--through-ellipsis-dot-size) * 2);
@@ -2522,6 +2524,16 @@ ul.chip-list {
     gap: calc(var(--app-margin) * 0.6);
 }
 
+.mini-route-map-grid .route-line-time {
+    display: inline-flex;
+    align-items: baseline;
+    gap: calc(var(--app-margin) * 0.3);
+}
+
+.mini-route-map-grid .grid-route-map-station.destination-station .route-line-time {
+    justify-content: flex-end;
+}
+
 .mini-route-map-grid .grid-route-station-info {
     display: none;
 }
@@ -2541,7 +2553,7 @@ ul.chip-list {
 .mini-route-map-grid .arrival-hour {
     color: var(--jotaele-text-muted);
     font-weight: 500;
-    font-size: 1.2rem;
+    font-size: 1rem;
     display: flex;
     flex-direction: column;
     white-space: nowrap;
@@ -2582,10 +2594,17 @@ ul.chip-list {
 }
 
 .station-status-label {
-    display: inline-flex;
+    display: none;
     align-items: center;
     gap: 0.2rem;
     min-width: 0;
+    font-family: 'Rubik', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 450;
+    letter-spacing: 0.1px;
+    line-height: 1;
+    color: var(--jotaele-color-button);
+    margin-bottom: calc(var(--app-margin) * 0.7);
 }
 
 .station-status-icon {
@@ -2604,14 +2623,6 @@ ul.chip-list {
     font-size: 0.7rem;
     line-height: normal;
     font-variation-settings: "FILL" 0, "wght" 700, "GRAD" 0, "opsz" 24;
-}
-
-.station-status-label .station-label-text {
-    flex: 0 1 auto;
-    min-width: 0;
-    white-space: normal;
-    text-align: inherit;
-    align-items: center;
 }
 
 .mini-route-label.through-label .station-status-label {
@@ -2785,3 +2796,10 @@ ul.chip-list {
         box-shadow: inset 0 0 0 2px var(--jotaele-teal), 0 0 0 8px color-mix(in srgb, var(--jotaele-teal) 0%, transparent);
     }
 }
+
+/*
+body {
+    background: url(/static/img/prueba7.jpg);
+    background-size: auto 96%;
+    background-position: 0 26px;
+}*/
