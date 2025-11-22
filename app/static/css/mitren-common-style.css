@@ -1095,7 +1095,7 @@ ul.chip-list {
 }
 
 .grid-route-map .grid-route-map-station.destination-station .route-line-fragment {
-    height: calc(var(--icon-dot-size) / 2);
+    height: 0;
 }
 
 .grid-route-map .grid-route-connections {
@@ -2369,12 +2369,16 @@ ul.chip-list {
     white-space: nowrap;
 }
 
+.train-details-header-content .train-header-terminal.destination {
+    flex: 0 1 50%;
+}
+
 .train-header-terminal.through {
     display: flex;
     align-items: flex-end;
     justify-content: center;
     margin-left: -7px;
-    flex: 0 1 2.5rem;
+    flex: 0 0 2.5rem;
 }
 
 .train-details-header-content .train-header-terminal.through .through-chevrons {
@@ -2444,7 +2448,7 @@ ul.chip-list {
 
     display: grid;
     grid-template-rows: auto;
-    grid-template-columns: repeat(var(--number-of-stations), 1fr);
+    grid-template-columns: auto repeat(var(--number-of-stations), 1fr) auto;
     grid-row-gap: calc(var(--app-margin) * 0.3);
     grid-auto-flow: column dense;
 }
@@ -2521,7 +2525,8 @@ ul.chip-list {
 .mini-route-map-grid .grid-route-line {
     display: flex;
     align-items: center;
-    gap: calc(var(--app-margin) * 0.6);
+    justify-content: center;
+    width: 100%;
 }
 
 .mini-route-map-grid .route-line-time {
@@ -2532,6 +2537,30 @@ ul.chip-list {
 
 .mini-route-map-grid .grid-route-map-station.destination-station .route-line-time {
     justify-content: flex-end;
+}
+
+.mini-route-map-grid .grid-time-cell {
+    display: flex;
+    align-items: center;
+}
+
+.mini-route-map-grid .grid-line-cell,
+.mini-route-map-grid .grid-route-map-station {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mini-route-map-grid .grid-time-cell .route-line-time {
+    justify-content: center;
+}
+
+.mini-route-map-grid .grid-time-cell.origin-station .route-line-time {
+    margin-right: 0.3rem;
+}
+
+.mini-route-map-grid .grid-time-cell.destination-station .route-line-time {
+    margin-left: 0.3rem;
 }
 
 .mini-route-map-grid .grid-route-station-info {
@@ -2566,7 +2595,7 @@ ul.chip-list {
 .arrival-hour-sched {
     color: var(--jotaele-black);
     font-weight: 400;
-    font-size: 1rem;
+    font-size: 0.85rem;
 }
 
 .arrival-hour-sched.train-arrival-time--late {

@@ -23,6 +23,7 @@ from app.domain.models import (
 from app.services.live_trains_cache import LiveTrainsCache, get_live_trains_cache
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.scheduled_trains_repo import get_repo as get_scheduled_repo
+from app.services.shapes_repo import get_repo as get_shapes_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.train_pass_recorder import (
     StopPassRecord,
@@ -488,6 +489,22 @@ def _build_trip_rows(
     if route_ref_id is not None:
         route_ref_id = str(route_ref_id)
 
+    shapes_repo = get_shapes_repo()
+    shape_polyline = None
+    if route_ref_id:
+        dir_candidates = []
+        if direction_id not in (None, ""):
+            dir_candidates.append(str(direction_id))
+        if route_obj and getattr(route_obj, "direction_id", None) not in (None, ""):
+            dir_candidates.append(str(route_obj.direction_id))
+        if live_obj and getattr(live_obj, "direction_id", None) not in (None, ""):
+            dir_candidates.append(str(live_obj.direction_id))
+        dir_candidates.extend(["0", "1", None])
+        for did in dir_candidates:
+            shape_polyline = shapes_repo.polyline_for_route(route_ref_id, did)
+            if shape_polyline:
+                break
+
     def _lookup_stop_obj(route_value: str | None, stop_value: str | None):
         if not stoprepo or not route_value or not stop_value:
             return None
@@ -676,7 +693,33 @@ def _build_trip_rows(
         lat_to = meta_to.get("lat")
         lon_to = meta_to.get("lon")
         spatial_progress = None
-        if None not in (lat_cur, lon_cur, lat_from, lon_from, lat_to, lon_to):
+        shape_from = meta_from.get("shape_cum_m")
+        shape_to = meta_to.get("shape_cum_m")
+
+        if shape_polyline and shape_from is not None and shape_to is not None:
+            shape_live = None
+            if None not in (lat_cur, lon_cur):
+                with suppress(Exception):
+                    shape_live = shapes_repo.project_distance(
+                        shape_polyline, float(lat_cur), float(lon_cur)
+                    )
+            if shape_live is not None:
+                delta = float(shape_to) - float(shape_from)
+                if abs(delta) > 5:
+                    prog = (float(shape_live) - float(shape_from)) / delta
+                    if delta < 0:
+                        prog = (float(shape_from) - float(shape_live)) / abs(delta)
+                    if prog > -0.25 and prog < 1.25:
+                        spatial_progress = max(0.0, min(1.0, prog))
+
+        if spatial_progress is None and None not in (
+            lat_cur,
+            lon_cur,
+            lat_from,
+            lon_from,
+            lat_to,
+            lon_to,
+        ):
             seg_dist = _haversine_m(float(lat_from), float(lon_from), float(lat_to), float(lon_to))
             frac = _project_fraction_on_segment(
                 float(lat_from),
@@ -689,11 +732,12 @@ def _build_trip_rows(
             if seg_dist > 5 and frac is not None and frac > -0.25 and frac < 1.25:
                 spatial_progress = max(0.0, min(1.0, frac))
 
+        # Prefer the spatial component (shape-aware); fall back to temporal if missing.
         progress_val: float | None = None
-        if temporal_progress is not None:
-            progress_val = temporal_progress
-        elif spatial_progress is not None:
+        if spatial_progress is not None:
             progress_val = spatial_progress
+        elif temporal_progress is not None:
+            progress_val = temporal_progress
 
         if progress_val is None:
             return None
@@ -811,6 +855,15 @@ def _build_trip_rows(
         if km_val is None and route_station is not None:
             km_val = getattr(route_station, "km", None)
 
+        shape_cum_m = None
+        if shape_polyline and lat_val is not None and lon_val is not None:
+            with suppress(Exception):
+                shape_cum_m = shapes_repo.project_distance(
+                    shape_polyline, float(lat_val), float(lon_val)
+                )
+        if shape_cum_m is None and isinstance(km_val, (int | float)):
+            shape_cum_m = float(km_val) * 1000.0
+
         rows.append(
             {
                 "seq": c["seq"],
@@ -852,6 +905,7 @@ def _build_trip_rows(
             "lat": lat_val,
             "lon": lon_val,
             "km": km_val,
+            "shape_cum_m": shape_cum_m,
         }
 
     seq_by_sid = {

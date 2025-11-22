@@ -126,8 +126,10 @@
         stale: 30_000,
         maxBackoff: 120_000,
     };
-    const TRAIN_PROGRESS_MAX_DROP = 15;
-    const TRAIN_PROGRESS_TICK = 1_000;
+    const TRAIN_PROGRESS_TICK = 500;
+    const PROGRESS_DEADBAND = 2; // puntos permitidos de discrepancia sin retroceder
+    const PROGRESS_CATCHUP_MAX = 5; // máximo ajuste inmediato hacia arriba
+    const PROGRESS_MIN_SLOPE_PPS = 0.05; // avance mínimo en % por segundo para evitar quedarnos planos
     const STATUS_META = {
         IN_TRANSIT_TO: { text: 'En tránsito', descriptor: 'En tránsito a:', icon: 'arrow_right_alt', className: 'train-status--enroute' },
         INCOMING_AT: { text: 'Llegando', descriptor: 'Llegando a:', icon: 'arrow_right_alt', className: 'train-status--arriving' },
@@ -251,6 +253,9 @@
             current_stop_name: currentStopName,
             next_stop_name: nextStopName,
             progress_pct: progressPct,
+            server_progress: progressPct,
+            segment_dep_epoch: segmentDep,
+            segment_arr_epoch: segmentArr,
             seen_age: seenAge,
             seen_iso: train?.seen?.iso ?? payload.train_seen_iso ?? null,
             rt_updated_iso: schedule.rt_updated_iso,
@@ -487,49 +492,15 @@
         if (!model) return null;
         const st = panel.__trainAuto || {};
         const nextStopId = model.next_stop_id || null;
-        const rawProgress = numberOrNull(model.progress_pct);
-        const now = Date.now();
-        const currentAnimated = progressFromState(now, st);
-        let progress = Number.isFinite(rawProgress) ? rawProgress : null;
-
-        const prevStopId = st.lastStopId || null;
-        const prevProgress = Number.isFinite(st.lastProgress) ? st.lastProgress : null;
-        const sameStop = prevStopId && nextStopId && String(prevStopId) === String(nextStopId);
-
-        if (sameStop && prevProgress !== null && progress !== null) {
-            const drop = prevProgress - progress;
-            if (drop > 0 && drop < TRAIN_PROGRESS_MAX_DROP) {
-                progress = prevProgress;
-            }
-        }
-
-        if (progress !== null) {
-            // Sincroniza al valor recibido: evitamos que el animador reescriba con el valor previo
-            st.progressStart = progress;
-            st.progressTarget = progress;
-            st.progressStartTs = now;
-            st.progressDuration = 0;
-            st.lastProgress = progress;
-        } else if (prevProgress !== null && sameStop) {
-            st.progressStart = Number.isFinite(currentAnimated) ? currentAnimated : prevProgress;
-            st.progressTarget = prevProgress;
-            st.progressStartTs = now;
-            st.progressDuration = st.baseInterval || TRAIN_DETAIL_INTERVALS.base;
-            st.lastProgress = prevProgress;
-        }
-        if (nextStopId) st.lastStopId = String(nextStopId);
-
-        // Usamos la mejor estimación disponible para pintar ahora mismo
-        const displayProgress = Number.isFinite(progress)
-            ? progress
-            : (Number.isFinite(st.lastProgress) ? st.lastProgress : progressFromState(now, st));
-        model.progress_pct = Number.isFinite(displayProgress) ? displayProgress : null;
+        const inferred = updateProgressInference(panel, model);
+        model.progress_pct = Number.isFinite(inferred) ? inferred : null;
+        model.porcentaje_inferido = model.progress_pct;
 
         const html = payload.html;
         if (typeof html === 'string' && html.trim()) {
             panel.innerHTML = html;
             disableBoostForStopLinks(panel);
-            const animVal = progressFromState(Date.now(), st);
+            const animVal = inferProgressAt(st, Date.now());
             if (animVal !== null) updateTrainProgressUI(panel, animVal);
         }
 
@@ -537,6 +508,7 @@
         if (model.status_key) panel.dataset.trainStatus = model.status_key;
 
         updateTrainDetailUI(panel, model);
+        updateServerProgressLabel(panel, model.server_progress);
         ensureProgressTimer(panel);
         return model;
     }
@@ -631,10 +603,14 @@
                 inFlight: false,
                 errors: 0,
                 baseInterval: TRAIN_DETAIL_INTERVALS.base,
-                progressStart: null,
-                progressTarget: null,
-                progressStartTs: null,
-                progressDuration: TRAIN_DETAIL_INTERVALS.base,
+                anchorProgress: null,
+                anchorTs: null,
+                targetTs: null,
+                progressSlopePerMs: null,
+                progressCeil: null,
+                inferredProgress: null,
+                serverProgress: null,
+                lastStopId: null,
                 progressTimer: null,
             };
         }
@@ -653,6 +629,25 @@
         ensureProgressTimer(panel);
     }
 
+    function progressValueMode(panel) {
+        const st = panel?.__trainAuto;
+        if (!st) return 'Inferido';
+        const anchorTs = Number(st.anchorTs);
+        if (!Number.isFinite(anchorTs)) return 'Inferido';
+        const delta = Date.now() - anchorTs;
+        return delta <= TRAIN_PROGRESS_TICK ? 'Real' : 'Inferido';
+    }
+
+    function updateServerProgressLabel(panel, serverProgress) {
+        const label = panel?.querySelector('[data-train-progress-real]');
+        if (!label) return;
+        const pct = Number.isFinite(serverProgress) ? Math.round(serverProgress) : null;
+        const text = pct !== null
+            ? `Último porcentaje de avance real: ${pct}%`
+            : 'Último porcentaje de avance real: —';
+        label.textContent = text;
+    }
+
     function updateTrainProgressUI(panel, progress) {
         if (!panel || progress === null || !Number.isFinite(progress)) return;
         const pct = Math.max(0, Math.min(100, Math.round(progress)));
@@ -662,22 +657,106 @@
         maps.forEach((map) => {
             if (map?.style) map.style.setProperty('--next_stop_progress', `${pct}%`);
         });
+        const mode = progressValueMode(panel);
         labels.forEach((li) => {
-            li.textContent = `Porcentaje de avance: ${pct}%`;
+            li.textContent = `Porcentaje de avance: ${pct}% (${mode})`;
         });
     }
 
-    function progressFromState(now, st) {
+    const MOVING_STATUS_KEYS = new Set(['IN_TRANSIT_TO', 'INCOMING_AT']);
+    const clampProgress = (p) => Math.max(0, Math.min(100, p));
+
+    function dataTimestampMs(model) {
+        const posTsSec = numberOrNull(model?.position?.ts_unix ?? model?.position?.timestamp);
+        if (Number.isFinite(posTsSec)) return posTsSec * 1000;
+        const seenAge = numberOrNull(model?.seen_age);
+        if (Number.isFinite(seenAge)) return Date.now() - (seenAge * 1000);
+        return Date.now();
+    }
+
+    function inferProgressAt(st, tsMs) {
         if (!st) return null;
-        const start = Number.isFinite(st.progressStart) ? st.progressStart : null;
-        const target = Number.isFinite(st.progressTarget) ? st.progressTarget : null;
-        const startTs = Number.isFinite(st.progressStartTs) ? st.progressStartTs : null;
-        const duration = Number.isFinite(st.progressDuration) ? st.progressDuration : null;
-        if (start === null || target === null || startTs === null || duration === null || duration <= 0) {
-            return target ?? start ?? null;
+        const anchor = numberOrNull(st.anchorProgress);
+        const anchorTs = numberOrNull(st.anchorTs);
+        const slope = Number(st.progressSlopePerMs);
+        if (anchor === null || anchorTs === null || !Number.isFinite(slope)) {
+            return Number.isFinite(st.inferredProgress) ? st.inferredProgress : null;
         }
-        const t = Math.min(1, Math.max(0, (now - startTs) / duration));
-        return start + (target - start) * t;
+        const delta = Math.max(0, tsMs - anchorTs);
+        let val = anchor + delta * slope;
+        if (Number.isFinite(st.progressCeil)) {
+            val = Math.min(val, st.progressCeil);
+        }
+        val = clampProgress(val);
+        st.inferredProgress = val;
+        return val;
+    }
+
+    function updateProgressInference(panel, model) {
+        const st = panel?.__trainAuto;
+        if (!st) return null;
+
+        const nowMs = Date.now();
+        const dataTsMs = dataTimestampMs(model);
+        const serverProgress = numberOrNull(model?.server_progress ?? model?.progress_pct);
+        const nextStopId = model?.next_stop_id || null;
+        const sameStop = st.lastStopId && nextStopId && String(st.lastStopId) === String(nextStopId);
+
+        const statusKey = String(model?.status_key || '').toUpperCase();
+        const etaArrSec = numberOrNull(model?.segment_arr_epoch);
+        const etaMs = Number.isFinite(etaArrSec) ? etaArrSec * 1000 : null;
+        const targetTs = (etaMs && etaMs > dataTsMs) ? etaMs : dataTsMs + (st.baseInterval || TRAIN_DETAIL_INTERVALS.base);
+
+        const currentDisplay = inferProgressAt(st, dataTsMs);
+
+        let anchorProgress = Number.isFinite(currentDisplay) ? currentDisplay : null;
+        if (anchorProgress === null && Number.isFinite(serverProgress)) {
+            anchorProgress = serverProgress;
+        }
+
+        if (Number.isFinite(serverProgress)) {
+            if (anchorProgress === null) {
+                anchorProgress = serverProgress;
+            } else if (serverProgress > anchorProgress) {
+                anchorProgress = Math.max(anchorProgress, serverProgress - PROGRESS_DEADBAND);
+            } else if (!sameStop) {
+                // Permite reanclar al valor del servidor al cambiar de tramo
+                anchorProgress = serverProgress;
+            }
+        }
+
+        if (!Number.isFinite(anchorProgress)) {
+            st.inferredProgress = null;
+            return null;
+        }
+
+        if (Number.isFinite(serverProgress) && Number.isFinite(anchorProgress)) {
+            const baseDisplay = Number.isFinite(currentDisplay) ? currentDisplay : anchorProgress;
+            const upperCap = baseDisplay + PROGRESS_CATCHUP_MAX;
+            anchorProgress = Math.min(anchorProgress, upperCap);
+        }
+
+        st.anchorProgress = clampProgress(anchorProgress);
+        st.anchorTs = dataTsMs;
+        st.targetTs = targetTs;
+        st.serverProgress = Number.isFinite(serverProgress) ? serverProgress : st.serverProgress;
+
+        let slope = 0;
+        if (MOVING_STATUS_KEYS.has(statusKey)) {
+            const denomMs = Math.max(500, targetTs - dataTsMs);
+            const desiredTarget = 100; // avanzamos hacia 100% en la ETA
+            slope = (desiredTarget - st.anchorProgress) / denomMs;
+            if (slope < 0) slope = 0;
+            const minSlope = PROGRESS_MIN_SLOPE_PPS / 1000;
+            if (slope > 0 && slope < minSlope) slope = minSlope;
+        }
+
+        st.progressSlopePerMs = slope;
+
+        const inferredNow = inferProgressAt(st, nowMs);
+        st.inferredProgress = inferredNow;
+        if (nextStopId) st.lastStopId = String(nextStopId);
+        return inferredNow;
     }
 
     function ensureProgressTimer(panel) {
@@ -685,7 +764,7 @@
         if (!st) return;
         if (st.progressTimer) return;
         st.progressTimer = setInterval(() => {
-            const val = progressFromState(Date.now(), st);
+            const val = inferProgressAt(st, Date.now());
             if (val !== null) updateTrainProgressUI(panel, val);
         }, TRAIN_PROGRESS_TICK);
     }
