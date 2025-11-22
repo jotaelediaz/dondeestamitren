@@ -175,7 +175,7 @@
 								{% set next_stop_progress = train_service.next_stop_progress_pct if train_service.next_stop_progress_pct is not none else 0 %}
 								{% set next_stop_progress_css = (next_stop_progress|string) ~ '%' %}
 								<li data-train-progress>Porcentaje de avance: {{ next_stop_progress }}%</li>
-								<li data-train-progress-real>Último porcentaje de avance real: {{ next_stop_progress }}%</li>
+								<li data-train-progress-real>Último porcentaje de avance en servidor: {{ next_stop_progress }}%</li>
 						<li data-train-status-text>Estado en directo: {{ train_service.status_text }}</li>
 						<li data-train-current-stop>Parada actual: {{ train_service.current_stop_name or train_service.current_stop_id or '—' }}</li>
 						<li data-train-next-stop>Siguiente parada: {{ train_service.next_stop_name or train_service.next_stop_id or '—' }}</li>

@@ -139,6 +139,12 @@
     };
 
     const numberOrNull = (val) => {
+        if (val === null || val === undefined || val === '') return null;
+        if (typeof val === 'string') {
+            const cleaned = val.trim().replace(/%$/, '').replace(',', '.');
+            const n = Number(cleaned);
+            return Number.isFinite(n) ? n : null;
+        }
         const n = Number(val);
         return Number.isFinite(n) ? n : null;
     };
@@ -209,7 +215,18 @@
             ?? segment?.segment_arr_epoch
             ?? payload.segment_arr_epoch
             ?? payload.arr_epoch;
-        const progressPct = numberOrNull(segment?.progress_pct ?? payload.next_stop_progress_pct ?? payload.progress_pct)
+        const progressPct = numberOrNull(
+            segment?.progress_pct
+            ?? payload.next_stop_progress_pct
+            ?? payload.progress_pct
+            ?? payload.train_detail?.next_stop_progress_pct
+            ?? payload.train_detail?.progress_pct
+            ?? payload.detail?.next_stop_progress_pct
+            ?? payload.detail?.progress_pct
+            ?? payload.train?.next_stop_progress_pct
+            ?? payload.train?.progress_pct
+            ?? payload.status?.progress_pct
+        )
             ?? progressFromSegmentTimes(
                 { ...segment, dep_epoch: segmentDep, arr_epoch: segmentArr },
                 numberOrNull(position?.ts_unix),
@@ -495,6 +512,10 @@
         const inferred = updateProgressInference(panel, model);
         model.progress_pct = Number.isFinite(inferred) ? inferred : null;
         model.porcentaje_inferido = model.progress_pct;
+        const serverProgressForLabel = Number.isFinite(model.server_progress)
+            ? model.server_progress
+            : (st.serverProgress ?? null);
+        model.server_progress = serverProgressForLabel;
 
         const html = payload.html;
         if (typeof html === 'string' && html.trim()) {
@@ -508,7 +529,7 @@
         if (model.status_key) panel.dataset.trainStatus = model.status_key;
 
         updateTrainDetailUI(panel, model);
-        updateServerProgressLabel(panel, model.server_progress);
+        updateServerProgressLabel(panel, serverProgressForLabel);
         ensureProgressTimer(panel);
         return model;
     }
@@ -703,9 +724,23 @@
         const sameStop = st.lastStopId && nextStopId && String(st.lastStopId) === String(nextStopId);
 
         const statusKey = String(model?.status_key || '').toUpperCase();
+        const isStopped = statusKey === 'STOPPED_AT';
+        st.progressCeil = null;
         const etaArrSec = numberOrNull(model?.segment_arr_epoch);
         const etaMs = Number.isFinite(etaArrSec) ? etaArrSec * 1000 : null;
         const targetTs = (etaMs && etaMs > dataTsMs) ? etaMs : dataTsMs + (st.baseInterval || TRAIN_DETAIL_INTERVALS.base);
+
+        if (isStopped) {
+            st.anchorProgress = 0;
+            st.anchorTs = dataTsMs;
+            st.targetTs = dataTsMs;
+            st.progressSlopePerMs = 0;
+            st.progressCeil = 0;
+            st.serverProgress = Number.isFinite(serverProgress) ? serverProgress : st.serverProgress;
+            st.inferredProgress = 0;
+            if (nextStopId) st.lastStopId = String(nextStopId);
+            return 0;
+        }
 
         const currentDisplay = inferProgressAt(st, dataTsMs);
 
@@ -734,6 +769,10 @@
             const baseDisplay = Number.isFinite(currentDisplay) ? currentDisplay : anchorProgress;
             const upperCap = baseDisplay + PROGRESS_CATCHUP_MAX;
             anchorProgress = Math.min(anchorProgress, upperCap);
+        }
+
+        if (Number.isFinite(serverProgress)) {
+            anchorProgress = Math.max(anchorProgress, serverProgress);
         }
 
         st.anchorProgress = clampProgress(anchorProgress);
