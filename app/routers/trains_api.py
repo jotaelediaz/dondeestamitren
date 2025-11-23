@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -368,8 +369,7 @@ def live_train_position(
 
     lat = getattr(train_obj, "lat", None)
     lon = getattr(train_obj, "lon", None)
-    if lat in (None, "") or lon in (None, ""):
-        raise HTTPException(404, detail="Train position unavailable")
+    has_position = lat not in (None, "") and lon not in (None, "")
 
     unified = vm.get("unified") or {}
     trip_info = vm.get("trip") or {}
@@ -383,6 +383,11 @@ def live_train_position(
         progress_val = None
     if progress_val is None:
         progress_val = getattr(train_obj, "next_stop_progress_pct", None)
+
+    # If train is stopped at a station, progress should be 0 (not null)
+    current_status = str(unified.get("current_status", "")).upper()
+    if current_status == "STOPPED_AT":
+        progress_val = 0
 
     stop_rows = trip_info.get("stops") or []
 
@@ -415,6 +420,58 @@ def live_train_position(
         ("eta_arr_epoch", "eta_dep_epoch", "sched_arr_epoch", "sched_dep_epoch"),
     )
 
+    # Fallback: if no progress but we have segment times, calculate temporal progress
+    # This helps dormant trains (no recent updates) maintain a progress estimate
+    if (
+        progress_val is None
+        and current_status not in ("", "STOPPED_AT")
+        and isinstance(seg_dep_epoch, int | float)
+        and isinstance(seg_arr_epoch, int | float)
+    ):
+        now_ts = time.time()
+        denom = float(seg_arr_epoch) - float(seg_dep_epoch)
+        if denom > 0:
+            temporal_progress = (now_ts - float(seg_dep_epoch)) / denom
+            temporal_progress = max(0.0, min(1.0, temporal_progress))
+            progress_val = int(round(temporal_progress * 100))
+
+    # Build interpolation parameters for deterministic client-side progress
+    # Use the same timestamp logic as _progress_for_segment in train_services_index.py
+    pos_ts = None
+    for attr in ("ts_unix", "ts", "timestamp", "last_ts", "last_update_ts"):
+        val = getattr(train_obj, attr, None)
+        if isinstance(val, int | float):
+            pos_ts = val
+            break
+    # Fallback to current server time (same as _now_ts in train_services_index.py)
+    if pos_ts is None:
+        pos_ts = time.time()
+
+    interpolation_anchor_ts = pos_ts
+    interpolation_anchor_progress = progress_val if isinstance(progress_val, int | float) else None
+    interpolation_target_ts = seg_arr_epoch if isinstance(seg_arr_epoch, int | float) else None
+
+    # Estimate target_ts when not available from schedule
+    if interpolation_target_ts is None and interpolation_anchor_progress is not None:
+        remaining_pct = 100 - interpolation_anchor_progress
+        if remaining_pct > 0:
+            # Estimate based on train speed or default segment time
+            speed_kmh = getattr(train_obj, "speed_kmh", None)
+            if isinstance(speed_kmh, int | float) and speed_kmh > 5:
+                # Estimate ~2km per segment on average, calculate time to complete
+                avg_segment_km = 2.0
+                remaining_km = avg_segment_km * (remaining_pct / 100)
+                time_to_arrival_s = (remaining_km / speed_kmh) * 3600
+                interpolation_target_ts = pos_ts + time_to_arrival_s
+            else:
+                # Default: assume 2 minutes for full segment, scale by remaining
+                default_segment_seconds = 120
+                time_to_arrival_s = default_segment_seconds * (remaining_pct / 100)
+                interpolation_target_ts = pos_ts + time_to_arrival_s
+        else:
+            # Already at 100%, target is now
+            interpolation_target_ts = pos_ts
+
     payload: dict[str, Any] = {
         "train": {
             "id": getattr(train_obj, "train_id", None),
@@ -428,10 +485,11 @@ def live_train_position(
             },
         },
         "position": {
-            "lat": float(lat),
-            "lon": float(lon),
+            "lat": float(lat) if has_position else None,
+            "lon": float(lon) if has_position else None,
             "heading": getattr(train_obj, "bearing", None),
             "ts_unix": getattr(train_obj, "ts_unix", None) or getattr(train_obj, "timestamp", None),
+            "available": has_position,
         },
         "segment": {
             "from_stop": {
@@ -448,6 +506,16 @@ def live_train_position(
             "dep_epoch": seg_dep_epoch,
             "arr_epoch": seg_arr_epoch,
             "progress_pct": progress_val,
+        },
+        "interpolation": {
+            "anchor_progress": interpolation_anchor_progress,
+            "anchor_ts": interpolation_anchor_ts,
+            "target_ts": interpolation_target_ts,
+            "is_stopped": bool(
+                isinstance(getattr(train_obj, "speed_kmh", None), int | float)
+                and train_obj.speed_kmh < 5
+                and str(unified.get("current_status", "")).upper() == "IN_TRANSIT_TO"
+            ),
         },
     }
 

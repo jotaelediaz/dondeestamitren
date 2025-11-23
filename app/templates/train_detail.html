@@ -176,9 +176,9 @@
 								{% set next_stop_progress_css = (next_stop_progress|string) ~ '%' %}
 								<li data-train-progress>Porcentaje de avance: {{ next_stop_progress }}%</li>
 								<li data-train-progress-real>Último porcentaje de avance en servidor: {{ next_stop_progress }}%</li>
-						<li data-train-status-text>Estado en directo: {{ train_service.status_text }}</li>
-						<li data-train-current-stop>Parada actual: {{ train_service.current_stop_name or train_service.current_stop_id or '—' }}</li>
-						<li data-train-next-stop>Siguiente parada: {{ train_service.next_stop_name or train_service.next_stop_id or '—' }}</li>
+						<li data-debug-status>Estado en directo: {{ train_service.status_text }}</li>
+						<li data-debug-current>Parada actual: {{ train_service.current_stop_name or train_service.current_stop_id or '—' }}</li>
+						<li data-debug-next>Siguiente parada: {{ train_service.next_stop_name or train_service.next_stop_id or '—' }}</li>
 					</ul>
 					<div class="app-block-padding">
 						{% set stop_views = detail.stops %}
@@ -224,6 +224,25 @@
 							{% endfor %}
 							</ul>
 						</div>
+
+			{# Mapa del tren embebido #}
+			{% if train_position %}
+				{% with
+					map_element_id='train-detail-map',
+					map_position=train_position,
+					map_train_label=train_service.train_label,
+					map_route_id=train_service.route_id or '',
+					map_direction_id=train_service.direction_id or '',
+					map_api=position_api or '',
+					map_line_color=route.color_bg if route else '',
+					map_route_name=train_service.route_short_name or route.route_short_name if route else '',
+					map_route_geojson=route_geojson,
+					map_route_stops_geojson=route_stops_geojson
+				%}
+					{% include 'partials/train_map_embed.html' %}
+				{% endwith %}
+			{% endif %}
+
 			</div>
 		</div>
 	</section>

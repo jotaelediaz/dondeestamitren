@@ -435,6 +435,8 @@
             const elapsed = Date.now() - started;
             schedulePoll(root, Math.max(5_000, POLL_MS - elapsed));
         } catch (err) {
+            // Ignore AbortError - it's expected when cleaning up
+            if (err.name === 'AbortError') return;
             console.warn('No se pudo obtener la posición del tren', err);
             schedulePoll(root, POLL_MS * 2);
         }

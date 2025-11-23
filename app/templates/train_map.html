@@ -19,36 +19,31 @@
         </div>
     </div>
 	
-<div class="train-map-container">
-    <div id="train-map"
-         data-train-map="true"
-         role="region"
-         aria-label="Mapa con la posición actual del tren"
-         data-map-lat="{{ position.lat }}"
-         data-map-lon="{{ position.lon }}"
-         data-map-heading="{{ position.heading or 0 }}"
-         data-map-train="{{ train.train_id }}"
-         data-map-route-id="{{ route_debug.route_id if route_debug else '' }}"
-         data-map-route-dir="{{ route_debug.direction_id if route_debug else '' }}"
-         data-map-api="{{ position_api or '' }}"
-         data-map-line-color="{{ route.color_bg if route else '' }}"
-         data-map-route="{{ train_service.route_short_name or route.route_short_name if route else '' }}"
-         {% if route_geojson %}data-map-route-geojson='{{ route_geojson | tojson }}'{% endif %}
-         {% if route_stops_geojson %}data-map-stops-geojson='{{ route_stops_geojson | tojson }}'{% endif %}
-         {% if route %}data-map-route-color="{{ route.color_bg if route else '' }}"{% endif %}>
-    </div>
-    {% if route_geojson %}
-    <script id="train-route-geojson" type="application/json">{{ route_geojson | tojson }}</script>
-    {% endif %}
-    {% if route_stops_geojson %}
-    <script id="train-route-stops-geojson" type="application/json">{{ route_stops_geojson | tojson }}</script>
-    {% endif %}
-    {% if route_debug %}
-    <p class="train-map-debug" style="font-size: 0.9rem; color: #666; margin-top: 0.5rem;">
-        Debug ruta: route_id={{ route_debug.route_id or '—' }}, dir={{ route_debug.direction_id or '—' }}, coords={{ route_debug.coords }}
-    </p>
-    {% endif %}
-</div>
+{% with
+    map_element_id='train-map',
+    map_position=position,
+    map_train_label=train.train_id,
+    map_route_id=route_debug.route_id if route_debug else '',
+    map_direction_id=route_debug.direction_id if route_debug else '',
+    map_api=position_api or '',
+    map_line_color=route.color_bg if route else '',
+    map_route_name=train_service.route_short_name or route.route_short_name if route else '',
+    map_route_geojson=route_geojson,
+    map_route_stops_geojson=route_stops_geojson
+%}
+    {% include 'partials/train_map_embed.html' %}
+{% endwith %}
+{% if route_geojson %}
+<script id="train-route-geojson" type="application/json">{{ route_geojson | tojson }}</script>
+{% endif %}
+{% if route_stops_geojson %}
+<script id="train-route-stops-geojson" type="application/json">{{ route_stops_geojson | tojson }}</script>
+{% endif %}
+{% if route_debug %}
+<p class="train-map-debug" style="font-size: 0.9rem; color: #666; margin-top: 0.5rem;">
+    Debug ruta: route_id={{ route_debug.route_id or '—' }}, dir={{ route_debug.direction_id or '—' }}, coords={{ route_debug.coords }}
+</p>
+{% endif %}
 </section>
 {% endblock %}
 

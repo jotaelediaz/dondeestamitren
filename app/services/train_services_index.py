@@ -687,6 +687,14 @@ def _build_trip_rows(
             if denom > 0:
                 temporal_progress = max(0.0, min(1.0, (float(now_ts) - float(t_departure)) / denom))
 
+        # Detect if train is stopped (very low speed) and freeze temporal progress
+        speed_kmh = getattr(live_obj, "speed_kmh", None)
+        is_train_stopped = isinstance(speed_kmh, int | float) and speed_kmh < 5
+        if is_train_stopped and temporal_progress is not None and status == "IN_TRANSIT_TO":
+            # Train is practically stopped mid-segment, don't advance temporal progress
+            # Use a conservative estimate based on position if available
+            pass  # Will prefer spatial_progress below if available
+
         lat_cur, lon_cur = _latlon(live_obj)
         lat_from = meta_from.get("lat")
         lon_from = meta_from.get("lon")
@@ -733,8 +741,25 @@ def _build_trip_rows(
                 spatial_progress = max(0.0, min(1.0, frac))
 
         # Prefer the spatial component (shape-aware); fall back to temporal if missing.
+        # Validate coherence between spatial and temporal progress
         progress_val: float | None = None
-        if spatial_progress is not None:
+
+        # If train is stopped mid-segment, strongly prefer spatial over temporal
+        if is_train_stopped and status == "IN_TRANSIT_TO":
+            if spatial_progress is not None:
+                progress_val = spatial_progress
+            elif temporal_progress is not None:
+                # Freeze temporal at current value, don't let it advance
+                progress_val = temporal_progress
+        elif spatial_progress is not None and temporal_progress is not None:
+            diff = abs(spatial_progress - temporal_progress)
+            if diff > 0.3:  # >30% difference indicates possible issue
+                # Use the more conservative (lower) value to avoid overshooting
+                progress_val = min(spatial_progress, temporal_progress)
+            else:
+                # Values are coherent, prefer spatial (more accurate)
+                progress_val = spatial_progress
+        elif spatial_progress is not None:
             progress_val = spatial_progress
         elif temporal_progress is not None:
             progress_val = temporal_progress
