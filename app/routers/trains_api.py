@@ -5,7 +5,7 @@ import re
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
@@ -15,6 +15,7 @@ from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.shapes_repo import get_repo as get_shapes_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.train_services_index import build_train_detail_vm
+from app.services.ws_manager import get_ws_manager
 from app.viewkit import hhmm_local, safe_get_field
 from app.viewmodels.train_detail import build_train_detail_view
 
@@ -952,3 +953,106 @@ def upcoming_services_for_stop(
         "variants_considered": variants,
         "services": services,
     }
+
+
+# ---------------------- WebSocket endpoint ----------------------
+
+
+@router.websocket("/ws/trains/{nucleus}")
+async def websocket_trains(websocket: WebSocket, nucleus: str):
+    """
+    WebSocket endpoint for real-time train updates.
+
+    Messages from client:
+    - {"type": "subscribe", "station_id": "12345"} - Subscribe to specific station
+    - {"type": "ping"} - Keep-alive ping
+
+    Messages to client:
+    - {"type": "trains_update", "data": [...]} - Train positions updated
+    - {"type": "arrivals_update", "station_id": "...", "data": [...]} - Arrivals for station
+    - {"type": "pong"} - Response to ping
+    - {"type": "subscribed", "nucleus": "...", "station_id": "..."} - Subscription confirmed
+    - {"type": "error", "message": "..."} - Error message
+    """
+    manager = get_ws_manager()
+
+    try:
+        await manager.connect(websocket)
+
+        # Auto-subscribe to nucleus
+        nucleus_norm = (nucleus or "").strip().lower()
+        if nucleus_norm:
+            await manager.subscribe(websocket, nucleus_norm)
+            await manager.send_to_connection(
+                websocket,
+                {
+                    "type": "subscribed",
+                    "nucleus": nucleus_norm,
+                    "station_id": None,
+                },
+            )
+
+        # Listen for messages
+        while True:
+            try:
+                data = await websocket.receive_json()
+                msg_type = (data.get("type") or "").strip().lower()
+
+                if msg_type == "ping":
+                    await manager.send_to_connection(websocket, {"type": "pong"})
+
+                elif msg_type == "subscribe":
+                    station_id = (data.get("station_id") or "").strip() or None
+                    await manager.subscribe(websocket, nucleus_norm, station_id)
+                    await manager.send_to_connection(
+                        websocket,
+                        {
+                            "type": "subscribed",
+                            "nucleus": nucleus_norm,
+                            "station_id": station_id,
+                        },
+                    )
+
+                elif msg_type == "unsubscribe":
+                    # Re-subscribe to just nucleus (removes station filter)
+                    await manager.subscribe(websocket, nucleus_norm, None)
+                    await manager.send_to_connection(
+                        websocket,
+                        {
+                            "type": "subscribed",
+                            "nucleus": nucleus_norm,
+                            "station_id": None,
+                        },
+                    )
+
+                else:
+                    await manager.send_to_connection(
+                        websocket,
+                        {
+                            "type": "error",
+                            "message": f"Unknown message type: {msg_type}",
+                        },
+                    )
+
+            except Exception as e:
+                # JSON parse error or other issue
+                if "disconnect" in str(e).lower():
+                    break
+                await manager.send_to_connection(
+                    websocket,
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    },
+                )
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect(websocket)
+
+
+@router.get("/ws/stats")
+async def websocket_stats():
+    """Get WebSocket connection statistics."""
+    return get_ws_manager().get_stats()

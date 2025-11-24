@@ -24,6 +24,7 @@ from app.routers.web_admin import router as web_admin_router
 from app.routers.web_alpha import router as web_alpha_router
 from app.services.gtfs_static_manager import STORE_ROOT
 from app.services.live_trains_cache import get_live_trains_cache
+from app.services.ws_manager import broadcast_trains_sync, set_event_loop
 
 scheduler: BackgroundScheduler | None = None
 
@@ -82,7 +83,40 @@ def build_scheduler() -> BackgroundScheduler:
                 get_trip_updates_cache().refresh()
 
     def job_live():
-        get_live_trains_cache().refresh()
+        cache = get_live_trains_cache()
+        cache.refresh()
+
+        # Broadcast to WebSocket subscribers
+        try:
+            from app.services.ws_manager import get_ws_manager
+
+            manager = get_ws_manager()
+
+            # Get nuclei with active subscribers
+            active_nuclei = list(manager._by_nucleus.keys())
+
+            for nucleus in active_nuclei:
+                trains = cache.get_by_nucleus(nucleus)
+                if trains:
+                    # Convert trains to dicts for JSON serialization
+                    trains_data = []
+                    for t in trains:
+                        trains_data.append(
+                            {
+                                "train_id": getattr(t, "train_id", None),
+                                "route_id": getattr(t, "route_id", None),
+                                "route_short_name": getattr(t, "route_short_name", None),
+                                "direction_id": getattr(t, "direction_id", None),
+                                "stop_id": getattr(t, "stop_id", None),
+                                "current_status": getattr(t, "current_status", None),
+                                "lat": getattr(t, "lat", None),
+                                "lon": getattr(t, "lon", None),
+                                "timestamp": getattr(t, "timestamp", None),
+                            }
+                        )
+                    broadcast_trains_sync(nucleus, trains_data)
+        except Exception as e:
+            log.debug("WebSocket broadcast error: %s", e)
         return
 
     def job_tu():
@@ -199,6 +233,11 @@ def build_scheduler() -> BackgroundScheduler:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global scheduler
+    import asyncio
+
+    # Set event loop for WebSocket broadcasts from scheduler jobs
+    set_event_loop(asyncio.get_event_loop())
+
     scheduler = build_scheduler()
     scheduler.start()
     try:

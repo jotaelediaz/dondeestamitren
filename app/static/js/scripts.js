@@ -37,6 +37,151 @@
         }
     }
 
+// ------------------ WebSocket Manager ------------------
+    const wsManager = {
+        socket: null,
+        nucleus: null,
+        reconnectAttempts: 0,
+        maxReconnectAttempts: 5,
+        reconnectDelay: 1000,
+        listeners: new Map(),
+        connected: false,
+
+        connect(nucleus) {
+            if (!nucleus) return;
+            this.nucleus = nucleus.toLowerCase();
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = `${protocol}//${window.location.host}/api/ws/trains/${this.nucleus}`;
+
+            try {
+                this.socket = new WebSocket(url);
+
+                this.socket.onopen = () => {
+                    console.debug('[ws] Connected to', url);
+                    this.connected = true;
+                    this.reconnectAttempts = 0;
+                    this.emit('connected', { nucleus: this.nucleus });
+                };
+
+                this.socket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.debug('[ws] Message:', data.type);
+                        this.emit(data.type, data);
+                    } catch (e) {
+                        console.debug('[ws] Parse error:', e);
+                    }
+                };
+
+                this.socket.onclose = (event) => {
+                    console.debug('[ws] Closed:', event.code, event.reason);
+                    this.connected = false;
+                    this.emit('disconnected', { code: event.code });
+
+                    // Attempt reconnection
+                    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                        this.reconnectAttempts++;
+                        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+                        console.debug('[ws] Reconnecting in', delay, 'ms (attempt', this.reconnectAttempts, ')');
+                        setTimeout(() => this.connect(this.nucleus), delay);
+                    } else {
+                        console.debug('[ws] Max reconnect attempts reached, falling back to polling');
+                        this.emit('fallback', {});
+                    }
+                };
+
+                this.socket.onerror = (error) => {
+                    console.debug('[ws] Error:', error);
+                };
+
+            } catch (e) {
+                console.debug('[ws] Failed to connect:', e);
+            }
+        },
+
+        disconnect() {
+            if (this.socket) {
+                this.socket.close();
+                this.socket = null;
+            }
+            this.connected = false;
+        },
+
+        send(data) {
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify(data));
+                return true;
+            }
+            return false;
+        },
+
+        subscribe(stationId) {
+            return this.send({ type: 'subscribe', station_id: stationId });
+        },
+
+        ping() {
+            return this.send({ type: 'ping' });
+        },
+
+        on(event, callback) {
+            if (!this.listeners.has(event)) {
+                this.listeners.set(event, []);
+            }
+            this.listeners.get(event).push(callback);
+        },
+
+        off(event, callback) {
+            if (!this.listeners.has(event)) return;
+            const cbs = this.listeners.get(event);
+            const idx = cbs.indexOf(callback);
+            if (idx !== -1) cbs.splice(idx, 1);
+        },
+
+        emit(event, data) {
+            if (!this.listeners.has(event)) return;
+            for (const cb of this.listeners.get(event)) {
+                try { cb(data); } catch (e) { console.debug('[ws] Listener error:', e); }
+            }
+        }
+    };
+
+    // Auto-connect WebSocket when page has nucleus info
+    function initWebSocket() {
+        // Try to get nucleus from various sources
+        const nucleusEl = document.querySelector('[data-nucleus]');
+        const nucleus = nucleusEl?.dataset.nucleus ||
+                       document.body.dataset.nucleus ||
+                       new URLSearchParams(window.location.search).get('nucleus');
+
+        if (nucleus) {
+            wsManager.connect(nucleus);
+
+            // Set up ping interval to keep connection alive
+            setInterval(() => {
+                if (wsManager.connected) {
+                    wsManager.ping();
+                }
+            }, 30000);
+        }
+    }
+
+    // Handle train updates from WebSocket
+    wsManager.on('trains_update', (data) => {
+        console.debug('[ws] Trains update:', data.count, 'trains for', data.nucleus);
+        // Dispatch custom event that other components can listen to
+        window.dispatchEvent(new CustomEvent('trains-ws-update', { detail: data }));
+    });
+
+    // Handle connection status
+    wsManager.on('connected', () => {
+        console.debug('[ws] WebSocket connected, real-time updates enabled');
+    });
+
+    wsManager.on('fallback', () => {
+        console.debug('[ws] Falling back to HTTP polling');
+    });
+
 // ------------------ Utilities ------------------
     function stripHxAttrs(html) {
         return String(html).replace(/\s(hx-(target|swap|indicator|trigger))(=(".*?"|'.*?'|[^\s>]+))?/gi, "");
@@ -1185,12 +1330,10 @@
 
 // ------------------ Drawer Train routes ------------------
     function bindRouteTrainsPanel(root = document) {
-        console.debug('[trains] bindRouteTrainsPanel() called. root=', root);
         const btn   = root.querySelector('#btn-toggle-trains') || document.querySelector('#btn-toggle-trains');
         const panel = document.getElementById('drawer');
         const body  = document.getElementById('drawer-content');
         const close = null;
-        console.debug('[trains] btn?', !!btn, 'panel?', !!panel, 'body?', !!body, 'btn=', btn);
         if (!panel || !body) return;
 
         panel.setAttribute('role', 'dialog');
@@ -1409,10 +1552,8 @@
         }
 
         if (btn && !boundButtons.has(btn)) {
-            console.debug('[trains] binding btn listener', btn);
             boundButtons.add(btn);
             btn.addEventListener('click', (e) => {
-                console.debug('[trains] btn click; panel open?', document.getElementById('drawer')?.classList.contains('open'), 'mode=', document.getElementById('drawer')?.dataset.mode, 'hasOpenFn?', !!document.getElementById('drawer')?.__openTrainsPanel);
                 e.preventDefault();
                 const p = document.getElementById('drawer');
                 if (!p) return;
@@ -2519,6 +2660,11 @@
         if (window.TrainDetail) window.TrainDetail.bindAutoRefresh(root);
 
         wireETA(root);
+
+        // Initialize WebSocket for real-time updates
+        if (root === document) {
+            initWebSocket();
+        }
     }
 
     document.addEventListener('DOMContentLoaded', () => init());
