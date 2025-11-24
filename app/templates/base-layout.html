@@ -39,7 +39,7 @@
 <script src="{{ request.url_for('static', path='vendor/htmx.min.js') }}"></script>
 
 <main id="app" class="tft-screen-size container-main">
-	<header id="topbar" hx-preserve>
+	<header id="topbar">
 		{% block topbar %}{% include "partials/topbar.html" %}{% endblock %}
 	</header>
 	
@@ -55,12 +55,12 @@
 		<div id="drawer-content" class="drawer-inner"></div>
 	</aside>
 	
-	<nav id="bottom-nav" role="navigation" aria-label="Menú" hx-preserve>
+	<nav id="bottom-nav" role="navigation" aria-label="Menú">
 		{% block bottom_navbar %}{% include "partials/navbar.html" %}{% endblock %}
 	</nav>
 </main>
 
-<div id="action-buttons" hx-preserve>
+<div id="action-buttons">
 	<div id="action-buttons-items"></div>
 </div>
 

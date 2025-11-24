@@ -50,10 +50,25 @@
 	
 	{% if open_stop_id %}
 		<script>
-        document.addEventListener('DOMContentLoaded', function(){
+        (function() {
             const url = "/routes/{{ nucleus.slug }}/{{ route.route_id }}/stops/{{ open_stop_id }}";
-            window.AppDrawers?.openStop(url);
-        });
+            function tryOpenDrawer() {
+                if (window.AppDrawers && window.AppDrawers.openStop) {
+                    window.AppDrawers.openStop(url);
+                    return true;
+                }
+                return false;
+            }
+            if (tryOpenDrawer()) return;
+
+            document.addEventListener('DOMContentLoaded', function() {
+                if (tryOpenDrawer()) return;
+                requestAnimationFrame(() => {
+                    if (tryOpenDrawer()) return;
+                    setTimeout(tryOpenDrawer, 50);
+                });
+            });
+        })();
 		</script>
 	{% endif %}
 	

@@ -11,6 +11,30 @@
         });
     }
 
+    /**
+     * Safely swap HTML content using DOMParser to avoid XSS risks.
+     */
+    function safeSwapHTML(container, html) {
+        if (!container) return;
+        try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const parseError = doc.querySelector('parsererror');
+            if (parseError) {
+                container.innerHTML = html;
+                return;
+            }
+            container.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            while (doc.body.firstChild) {
+                fragment.appendChild(doc.body.firstChild);
+            }
+            container.appendChild(fragment);
+        } catch (err) {
+            container.innerHTML = html;
+        }
+    }
+
     // ------------------ Train detail anchor scroll ------------------
     function scrollTrainDetailToAnchor() {
         const scrollContainer = document.querySelector('.grouped-lists-scroll');
@@ -531,7 +555,7 @@
 
         const html = payload.html;
         if (typeof html === 'string' && html.trim()) {
-            panel.innerHTML = html;
+            safeSwapHTML(panel, html);
             disableBoostForStopLinks(panel);
             const animVal = inferProgressAt(st, Date.now());
             if (animVal !== null) updateTrainProgressUI(panel, animVal);
@@ -611,6 +635,12 @@
             const jitter = Math.floor(Math.random() * 500);
             scheduleTrainDetailTick(panel, base + jitter);
         } catch (err) {
+            // Don't count aborted requests as errors
+            if (err.name === 'AbortError') {
+                console.debug('[train-detail] Request aborted');
+                return; // Don't reschedule - the new request will handle it
+            }
+
             st.errors = Math.min(st.errors + 1, 6);
             const backoffBase = (panel?.dataset?.trainKind === 'scheduled')
                 ? TRAIN_DETAIL_INTERVALS.scheduled

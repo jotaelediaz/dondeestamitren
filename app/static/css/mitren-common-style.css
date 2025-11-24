@@ -1320,7 +1320,7 @@ ul.chip-list {
     bottom: 0;
     z-index: 9999;
     transform: translateY(100%);
-    transition: ease 0.2s;
+    transition: ease 0.3s;
     color: var(--jotaele-black);
     max-height: 60vh;
     outline: 0;

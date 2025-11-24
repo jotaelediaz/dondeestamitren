@@ -182,6 +182,43 @@
         console.debug('[ws] Falling back to HTTP polling');
     });
 
+// ------------------ Safe HTML Swap ------------------
+    /**
+     * Safely swap HTML content using DOMParser to avoid XSS risks.
+     * Falls back to innerHTML if DOMParser fails.
+     */
+    function safeSwapHTML(container, html) {
+        if (!container) return;
+
+        try {
+            // Use DOMParser for safer HTML parsing
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+
+            // Check for parsing errors
+            const parseError = doc.querySelector('parsererror');
+            if (parseError) {
+                console.warn('[safeSwap] HTML parse error, using fallback');
+                container.innerHTML = html;
+                return;
+            }
+
+            // Clear and append parsed content
+            container.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+
+            // Move all body children to fragment
+            while (doc.body.firstChild) {
+                fragment.appendChild(doc.body.firstChild);
+            }
+
+            container.appendChild(fragment);
+        } catch (err) {
+            console.warn('[safeSwap] Error:', err, '- using fallback');
+            container.innerHTML = html;
+        }
+    }
+
 // ------------------ Utilities ------------------
     function stripHxAttrs(html) {
         return String(html).replace(/\s(hx-(target|swap|indicator|trigger))(=(".*?"|'.*?'|[^\s>]+))?/gi, "");
@@ -244,7 +281,7 @@
     function swapDrawerHTML(html) {
         const { body } = getStaticDrawer();
         if (!body) return;
-        body.innerHTML = html;
+        safeSwapHTML(body, html);
         if (window.htmx) htmx.process(body);
         body.querySelectorAll('.drawer-close,[data-close-sheet]').forEach(btn => {
             if (boundButtons.has(btn)) return;
@@ -1374,7 +1411,6 @@
             }
         }
 
-        console.debug('[trains] boundPanels.has(panel)=', boundPanels.has(panel));
         if (!boundPanels.has(panel)) {
             boundPanels.add(panel);
             let lastFocusEl = null;
@@ -1404,7 +1440,7 @@
                     const template = document.createElement('template');
                     template.innerHTML = html;
                     if (template.content.firstChild) {
-                        body.innerHTML = html;
+                        safeSwapHTML(body, html);
                         if (window.htmx) htmx.process(body);
                         enrichBodyBindings();
                         panel.dataset.trainsLoaded = '1';
@@ -1525,7 +1561,7 @@
                     tpl.innerHTML = html;
 
                     if (tpl.content.firstChild) {
-                        bodyEl.innerHTML = html;
+                        safeSwapHTML(bodyEl, html);
                         if (window.htmx) htmx.process(bodyEl);
                         enrichBodyBindings();
                         panel.dataset.trainsLoaded = '1';
@@ -1978,6 +2014,11 @@
                 && stopMatchesNext
                 && Number.isFinite(progressPct)
                 && progressPct >= 99;
+            const isIncomingAlmostArrived = isRealtime
+                && trainState === 'INCOMING_AT'
+                && stopMatchesNext
+                && Number.isFinite(progressPct)
+                && progressPct > 95;
 
             const pill = card.querySelector('[data-field="primary-pill"]');
             if (pill) {
@@ -1992,7 +2033,7 @@
                 minEl.setAttribute('data-loading', 'false');
                 minEl.dataset.ltMinute = isLessThanOneMinute ? 'true' : 'false';
                 // Mark station state before building to avoid flicker when stopped at platform
-                const stationState = isStoppedAtStation || inferredStationByProgress;
+                const stationState = isStoppedAtStation || inferredStationByProgress || isIncomingAlmostArrived;
                 minEl.dataset.stationActive = stationState ? 'true' : 'false';
                 const timeNode = minEl.querySelector('time');
                 if (timeNode) {
@@ -2003,7 +2044,7 @@
                     }
                 }
                 RollingNumber.ensure(minEl);
-                RollingNumber.setStationState(minEl, isStoppedAtStation, strings.stationStatusLabel);
+                RollingNumber.setStationState(minEl, stationState, strings.stationStatusLabel);
             }
 
             const clockEl = card.querySelector('[data-field="primary-clock"]');
@@ -2489,7 +2530,7 @@
                     template.innerHTML = html;
                     if (template.content.firstChild) {
                         const incomingCtx = DrawerStopCtx.getFromHTML(html);
-                        body.innerHTML = html;
+                        safeSwapHTML(body, html);
                         if (window.htmx) htmx.process(body);
                         wireETA(body);
                         body.querySelectorAll('a[href]').forEach(a => {
@@ -2613,7 +2654,7 @@
                         setDrawerMode('stop');
                         panel.classList.add('open');
                         const body = document.getElementById('drawer-content');
-                        if (body) { body.innerHTML = html; if (window.htmx) htmx.process(body); }
+                        if (body) { safeSwapHTML(body, html); if (window.htmx) htmx.process(body); }
                         try { history.replaceState({}, '', href); } catch(_) {}
                     });
             }
@@ -2752,6 +2793,43 @@
                 delete panel.dataset.mode;
             } catch(_) {}
             panel.classList.remove('drawer-trains','drawer-stop');
+        });
+
+        // Fix for hx-preserve elements disappearing on history navigation
+        document.body.addEventListener('htmx:historyRestore', (e) => {
+            console.debug('[htmx] historyRestore - ensuring preserved elements are visible');
+
+            // Ensure topbar is visible
+            const topbar = document.getElementById('topbar');
+            if (topbar) {
+                topbar.style.display = '';
+                topbar.hidden = false;
+            }
+
+            // Ensure bottom-nav is visible
+            const bottomNav = document.getElementById('bottom-nav');
+            if (bottomNav) {
+                bottomNav.style.display = '';
+                bottomNav.hidden = false;
+            }
+
+            // Ensure action-buttons is visible
+            const actionButtons = document.getElementById('action-buttons');
+            if (actionButtons) {
+                actionButtons.style.display = '';
+                actionButtons.hidden = false;
+            }
+
+            // Close any open drawer
+            const { panel } = getStaticDrawer();
+            if (panel && panel.classList.contains('open')) {
+                closeStaticDrawer();
+            }
+
+            // Re-initialize bindings for the restored content
+            requestAnimationFrame(() => {
+                init(document.getElementById('content') || document);
+            });
         });
     }
 })();
