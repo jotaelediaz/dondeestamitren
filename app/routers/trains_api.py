@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.services.eta_projector import build_rt_arrival_times_from_vm
 from app.services.live_trains_cache import get_live_trains_cache
 from app.services.routes_repo import get_repo as get_routes_repo
+from app.services.shapes_repo import get_repo as get_shapes_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.train_services_index import build_train_detail_vm
 from app.viewkit import hhmm_local
@@ -81,6 +82,78 @@ def _fld(obj: Any, name: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
         return obj.get(name, default)
     return getattr(obj, name, default)
+
+
+def _route_geojson_from_vm(vm: dict[str, Any], train_obj: Any) -> tuple[dict | None, dict | None]:
+    route_geojson = None
+    route_stops_geojson = None
+    try:
+        route_obj = vm.get("route")
+        unified = vm.get("unified") or {}
+        route_id = (
+            getattr(route_obj, "route_id", None)
+            or (unified.get("route_id") if isinstance(unified, dict) else None)
+            or getattr(train_obj, "route_id", None)
+        )
+        direction_id = (
+            getattr(route_obj, "direction_id", None)
+            or (unified.get("direction_id") if isinstance(unified, dict) else None)
+            or getattr(train_obj, "direction_id", None)
+        )
+        poly = None
+        if route_id:
+            poly = get_shapes_repo().polyline_for_route(route_id, direction_id)
+        if poly:
+            coords = [
+                [float(p.lon), float(p.lat)]
+                for p in poly
+                if getattr(p, "lat", None) is not None and getattr(p, "lon", None) is not None
+            ]
+            if len(coords) > 500:
+                step = max(1, len(coords) // 500)
+                coords = coords[::step]
+            if coords:
+                route_geojson = {"type": "LineString", "coordinates": coords}
+
+        stops_src = (vm.get("trip") or {}).get("stops") or []
+        if not stops_src and route_obj and getattr(route_obj, "stations", None):
+            stops_src = [
+                {
+                    "stop_id": st.stop_id,
+                    "stop_name": st.stop_name,
+                    "lat": getattr(st, "lat", None),
+                    "lon": getattr(st, "lon", None),
+                    "seq": getattr(st, "seq", None),
+                }
+                for st in getattr(route_obj, "stations", [])
+            ]
+        if stops_src:
+            features = []
+            for st in stops_src:
+                try:
+                    lat_s = float(st.get("lat"))
+                    lon_s = float(st.get("lon"))
+                except Exception:
+                    continue
+                if lat_s is None or lon_s is None:
+                    continue
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [lon_s, lat_s]},
+                        "properties": {
+                            "stop_id": st.get("stop_id"),
+                            "name": st.get("stop_name") or st.get("name"),
+                            "seq": st.get("seq"),
+                        },
+                    }
+                )
+            if features:
+                route_stops_geojson = {"type": "FeatureCollection", "features": features}
+    except Exception:
+        route_geojson = None
+        route_stops_geojson = None
+    return route_geojson, route_stops_geojson
 
 
 def _train_type_label_text(status_view: Any) -> str:
@@ -518,6 +591,11 @@ def live_train_position(
             ),
         },
     }
+    route_geojson, route_stops_geojson = _route_geojson_from_vm(vm, train_obj)
+    if route_geojson:
+        payload["route_geojson"] = route_geojson
+    if route_stops_geojson:
+        payload["route_stops_geojson"] = route_stops_geojson
 
     status_view: dict[str, Any] = {}
     schedule_view: dict[str, Any] = {}

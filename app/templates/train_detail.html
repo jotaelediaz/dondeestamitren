@@ -226,18 +226,29 @@
 						</div>
 
 			{# Mapa del tren embebido #}
-			{% if train_position %}
+			{% if position_api or (train_position is defined and train_position) or (route_geojson is defined and route_geojson) %}
+				{% set initial_map_position = None %}
+				{% if train_position is defined and train_position %}
+					{% if train_position.position is defined %}
+						{% set initial_map_position = train_position.position %}
+					{% else %}
+						{% set initial_map_position = train_position %}
+					{% endif %}
+				{% elif train_service.lat is defined and train_service.lat %}
+					{% set initial_map_position = {'lat': train_service.lat, 'lon': train_service.lon, 'heading': train_service.bearing if train_service.bearing is defined else None} %}
+				{% endif %}
 				{% with
 					map_element_id='train-detail-map',
-					map_position=train_position,
+					map_position=initial_map_position,
+					map_payload=train_position if train_position is defined else None,
 					map_train_label=train_service.train_label,
 					map_route_id=train_service.route_id or '',
 					map_direction_id=train_service.direction_id or '',
 					map_api=position_api or '',
 					map_line_color=route.color_bg if route else '',
 					map_route_name=train_service.route_short_name or route.route_short_name if route else '',
-					map_route_geojson=route_geojson,
-					map_route_stops_geojson=route_stops_geojson
+					map_route_geojson=route_geojson if route_geojson is defined else None,
+					map_route_stops_geojson=route_stops_geojson if route_stops_geojson is defined else None
 				%}
 					{% include 'partials/train_map_embed.html' %}
 				{% endwith %}

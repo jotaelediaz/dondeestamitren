@@ -81,6 +81,42 @@
         return null;
     }
 
+    function deriveCenterFromRoute(routeData, stopsData) {
+        const coords = extractRouteCoords(routeData) || [];
+        let pool = [];
+        if (Array.isArray(coords) && coords.length > 0) {
+            pool = coords;
+        } else if (stopsData && Array.isArray(stopsData.features)) {
+            pool = stopsData.features
+                .map((f) => f?.geometry?.coordinates)
+                .filter((c) => Array.isArray(c) && c.length >= 2);
+        }
+        if (!pool || pool.length === 0) return null;
+        const sum = pool.reduce(
+            (acc, c) => {
+                acc.lon += Number(c[0]) || 0;
+                acc.lat += Number(c[1]) || 0;
+                return acc;
+            },
+            { lon: 0, lat: 0 }
+        );
+        const n = pool.length || 1;
+        return [sum.lon / n, sum.lat / n];
+    }
+
+    async function fetchPositionSnapshot(api) {
+        if (!api) return null;
+        const resp = await fetch(api);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const position = data.position || data;
+        const lat = toNumber(position.lat);
+        const lon = toNumber(position.lon);
+        const heading = toNumber(position.heading);
+        const hasPosition = Number.isFinite(lat) && Number.isFinite(lon);
+        return { data, lat: hasPosition ? lat : null, lon: hasPosition ? lon : null, heading, hasPosition };
+    }
+
     function buildRouteCtx(routeData, stopsData) {
         const coords = extractRouteCoords(routeData);
         if (!coords || coords.length < 2) return null;
@@ -397,25 +433,24 @@
         state.abortCtrl = new AbortController();
         const started = Date.now();
         try {
-            const resp = await fetch(state.positionApi, { signal: state.abortCtrl.signal });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data = await resp.json();
-            const position = data.position || data;
-            const lat = toNumber(position.lat);
-            const lon = toNumber(position.lon);
-            if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('Posición inválida');
-
+            const snap = await fetchPositionSnapshot(state.positionApi);
+            if (!snap) throw new Error('Sin datos de posición');
+            const data = snap.data || {};
+            const hasPosition = snap.hasPosition;
             const now = Date.now();
+            const smoothMs = Math.max(POLL_MS, SMOOTH_WINDOW_MS);
             let prev = state.nextPos;
             if (!prev && state.marker && typeof state.marker.getLngLat === 'function') {
                 const ll = state.marker.getLngLat();
                 if (ll) prev = { lon: ll.lng, lat: ll.lat };
             }
-            state.lastPos = prev || { lon, lat };
-            state.nextPos = { lon, lat };
-            state.lastTs = now;
-            const smoothMs = Math.max(POLL_MS, SMOOTH_WINDOW_MS);
-            state.nextTs = now + smoothMs;
+            if (hasPosition) {
+                state.lastPos = prev || { lon: snap.lon, lat: snap.lat };
+                state.nextPos = { lon: snap.lon, lat: snap.lat };
+                state.lastTs = now;
+                const smoothMs = Math.max(POLL_MS, SMOOTH_WINDOW_MS);
+                state.nextTs = now + smoothMs;
+            }
             const segment = data.segment || {};
             const segDep = toNumber(segment.dep_epoch ?? data.segment_dep_epoch);
             const segArr = toNumber(segment.arr_epoch ?? data.segment_arr_epoch);
@@ -426,11 +461,38 @@
                 state.segmentDepTs = now / 1000;
                 state.segmentArrTs = state.segmentDepTs + smoothMs / 1000;
             }
-            if (Number.isFinite(toNumber(position.heading))) {
-                state.heading = toNumber(position.heading);
+            if (Number.isFinite(toNumber(snap.heading))) {
+                state.heading = toNumber(snap.heading);
+            }
+            if (data.route_geojson) {
+                root.setAttribute('data-map-route-geojson', JSON.stringify(data.route_geojson));
+            }
+            if (data.route_stops_geojson) {
+                root.setAttribute('data-map-stops-geojson', JSON.stringify(data.route_stops_geojson));
+            }
+            if (data.route_geojson || data.route_stops_geojson) {
+                state.routeCtx = buildRouteCtx(
+                    data.route_geojson || readGeoJSON(root, 'data-map-route-geojson', 'train-route-geojson'),
+                    data.route_stops_geojson || readGeoJSON(root, 'data-map-stops-geojson', 'train-route-stops-geojson')
+                );
             }
             setRouteSegment(state, data);
-            updateMarkerPosition(root);
+            if (hasPosition) {
+                if (!state.marker && state.map) {
+                    const markerEl = document.createElement('div');
+                    markerEl.className = 'train-map-marker';
+                    markerEl.innerHTML = '<span class="material-symbols-rounded" aria-hidden="true">train</span>';
+                    markerEl.setAttribute('role', 'img');
+                    markerEl.setAttribute('aria-label', 'Tren en ruta ' + (state.routeLabel || root.dataset.mapTrain || ''));
+                    state.marker = new maplibregl.Marker({
+                        element: markerEl,
+                        rotation: state.heading || 0,
+                        rotationAlignment: 'map',
+                        pitchAlignment: 'map',
+                    }).setLngLat([snap.lon, snap.lat]).addTo(state.map);
+                }
+                updateMarkerPosition(root);
+            }
             ensureAnimation(root);
             const elapsed = Date.now() - started;
             schedulePoll(root, Math.max(5_000, POLL_MS - elapsed));
@@ -442,7 +504,7 @@
         }
     }
 
-    function renderInteractive(root, center, heading, routeLabel, routeData, stopsData, lineColor) {
+    function renderInteractive(root, center, heading, routeLabel, routeData, stopsData, lineColor, hasPosition = true) {
         if (!window.maplibregl) return false;
         try {
             const map = new maplibregl.Map({
@@ -457,26 +519,31 @@
             map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
             map.on('dragstart', () => { const st = root.__trainMap; if (st) st.userPanned = true; });
 
-            const markerEl = document.createElement('div');
-            markerEl.className = 'train-map-marker';
-            markerEl.innerHTML = '<span class="material-symbols-rounded" aria-hidden="true">train</span>';
-            markerEl.setAttribute('role', 'img');
-            markerEl.setAttribute('aria-label', 'Tren en ruta ' + (routeLabel || ''));
-            const marker = new maplibregl.Marker({
-                element: markerEl,
-                rotation: heading || 0,
-                rotationAlignment: 'map',
-                pitchAlignment: 'map',
-            }).setLngLat(center).addTo(map);
+            let marker = null;
+            if (hasPosition && Number.isFinite(center[0]) && Number.isFinite(center[1])) {
+                const markerEl = document.createElement('div');
+                markerEl.className = 'train-map-marker';
+                markerEl.innerHTML = '<span class="material-symbols-rounded" aria-hidden="true">train</span>';
+                markerEl.setAttribute('role', 'img');
+                markerEl.setAttribute('aria-label', 'Tren en ruta ' + (routeLabel || ''));
+                marker = new maplibregl.Marker({
+                    element: markerEl,
+                    rotation: heading || 0,
+                    rotationAlignment: 'map',
+                    pitchAlignment: 'map',
+                }).setLngLat(center).addTo(map);
+            }
 
             root.__trainMap = {
                 ...(root.__trainMap || {}),
                 map,
                 marker,
-                nextPos: { lon: center[0], lat: center[1] },
-                lastPos: { lon: center[0], lat: center[1] },
+                nextPos: hasPosition ? { lon: center[0], lat: center[1] } : null,
+                lastPos: hasPosition ? { lon: center[0], lat: center[1] } : null,
                 routeCtx: buildRouteCtx(routeData, stopsData),
                 positionApi: root.dataset.mapApi || '',
+                lineColor: lineColor || '',
+                routeLabel: routeLabel || '',
             };
 
             map.on('load', () => {
@@ -521,21 +588,78 @@
         }
     }
 
+    async function bootstrapMapFromApi(root) {
+        if (!root || !root.dataset.mapApi || root.dataset.mapMounted === 'loading') return;
+        root.dataset.mapMounted = 'loading';
+        try {
+            const snap = await fetchPositionSnapshot(root.dataset.mapApi);
+            if (!snap) throw new Error('Sin datos de posición');
+            if (snap.hasPosition) {
+                root.dataset.mapLat = snap.lat;
+                root.dataset.mapLon = snap.lon;
+                if (Number.isFinite(snap.heading)) {
+                    root.dataset.mapHeading = snap.heading;
+                }
+                root.dataset.mapHasPosition = 'true';
+            } else {
+                delete root.dataset.mapLat;
+                delete root.dataset.mapLon;
+                delete root.dataset.mapHasPosition;
+            }
+            if (snap.data?.route_geojson) {
+                root.setAttribute('data-map-route-geojson', JSON.stringify(snap.data.route_geojson));
+            }
+            if (snap.data?.route_stops_geojson) {
+                root.setAttribute('data-map-stops-geojson', JSON.stringify(snap.data.route_stops_geojson));
+            }
+            root.dataset.mapMounted = '';
+            initElement(root);
+            if (root.__trainMap) {
+                const state = root.__trainMap;
+                const now = Date.now();
+                if (snap.hasPosition) {
+                    state.lastPos = { lon: snap.lon, lat: snap.lat };
+                    state.nextPos = { lon: snap.lon, lat: snap.lat };
+                    state.lastTs = now;
+                    state.nextTs = now + Math.max(POLL_MS, SMOOTH_WINDOW_MS);
+                }
+                setRouteSegment(state, snap.data || {});
+                ensureAnimation(root);
+                refreshPosition(root);
+            }
+        } catch (err) {
+            console.warn('No se pudo cargar la posición inicial del tren', err);
+            root.textContent = 'No se pudo determinar la posición del tren.';
+            root.dataset.mapMounted = 'invalid';
+        }
+    }
+
     function initElement(root) {
-        if (!root || root.dataset.mapMounted === 'interactive') return;
+        if (!root || root.dataset.mapMounted === 'interactive' || root.dataset.mapMounted === 'loading') return;
         const lat = parseFloat(root.dataset.mapLat || 'NaN');
         const lon = parseFloat(root.dataset.mapLon || 'NaN');
-        if (Number.isNaN(lat) || Number.isNaN(lon)) {
+        const routeData = readGeoJSON(root, 'data-map-route-geojson', 'train-route-geojson');
+        const stopsData = readGeoJSON(root, 'data-map-stops-geojson', 'train-route-stops-geojson');
+        const hasLatLon = Number.isFinite(lat) && Number.isFinite(lon);
+        if (!hasLatLon && root.dataset.mapApi && !routeData) {
+            bootstrapMapFromApi(root);
+            return;
+        }
+        let center = null;
+        if (hasLatLon) {
+            center = [lon, lat];
+        } else {
+            center = deriveCenterFromRoute(routeData, stopsData);
+        }
+        if (!center || !Number.isFinite(center[0]) || !Number.isFinite(center[1])) {
             root.textContent = 'No se pudo determinar la posición del tren.';
             root.dataset.mapMounted = 'invalid';
             return;
         }
         const heading = parseFloat(root.dataset.mapHeading || '0') || 0;
         const routeLabel = root.dataset.mapRoute || root.dataset.mapTrain || '';
-        const center = [lon, lat];
-        const routeData = readGeoJSON(root, 'data-map-route-geojson', 'train-route-geojson');
-        const stopsData = readGeoJSON(root, 'data-map-stops-geojson', 'train-route-stops-geojson');
         const lineColor = root.dataset.mapLineColor || root.dataset.mapRouteColor || DEFAULT_LINE_COLOR;
+        const hasPosition = hasLatLon || root.dataset.mapHasPosition === 'true';
 
         root.__trainMap = {
             map: null,
@@ -543,8 +667,8 @@
             routeCtx: buildRouteCtx(routeData, stopsData),
             positionApi: root.dataset.mapApi || '',
             userPanned: false,
-            lastPos: { lon, lat },
-            nextPos: { lon, lat },
+            lastPos: hasPosition ? { lon: center[0], lat: center[1] } : null,
+            nextPos: hasPosition ? { lon: center[0], lat: center[1] } : null,
             lastTs: Date.now(),
             nextTs: Date.now(),
             routeStartDist: null,
@@ -558,9 +682,11 @@
             routeEtaAtRefresh: null,
             predictedArrMs: null,
             heading,
+            lineColor,
+            routeLabel,
         };
 
-        if (!renderInteractive(root, center, heading, routeLabel, routeData, stopsData, lineColor)) {
+        if (!renderInteractive(root, center, heading, routeLabel, routeData, stopsData, lineColor, hasPosition)) {
             renderFallback(root, center, routeLabel);
         }
     }
