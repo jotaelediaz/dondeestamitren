@@ -2685,7 +2685,6 @@
 
 
     function init(root = document) {
-        console.debug('[init] init(root=)', root);
         root.querySelectorAll('form.search-box, form.search-station-box').forEach(enhanceSearchBox);
         bindSideSheet(root);
         bindReverseToggleDelegated();

@@ -507,6 +507,7 @@
     function renderInteractive(root, center, heading, routeLabel, routeData, stopsData, lineColor, hasPosition = true) {
         if (!window.maplibregl) return false;
         try {
+            const hideControls = (root.dataset.mapHideControls || '').toLowerCase() === 'true';
             const map = new maplibregl.Map({
                 container: root,
                 style: MAP_STYLE,
@@ -514,10 +515,26 @@
                 zoom: 12,
                 pitch: 0,
                 bearing: 0,
-                attributionControl: true,
+                attributionControl: hideControls ? false : true,
             });
-            map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+            if (!hideControls) {
+                map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+            }
             map.on('dragstart', () => { const st = root.__trainMap; if (st) st.userPanned = true; });
+
+            const applyOverlayPadding = () => {
+                const overlayArea = root.closest('.train-details-content-area');
+                if (!overlayArea || !overlayArea.classList.contains('has-map-overlay')) return;
+                const panel = overlayArea.querySelector('.train-details-panel');
+                if (!panel || !map.setPadding || !map.getCenter) return;
+                const mapRect = root.getBoundingClientRect();
+                const panelRect = panel.getBoundingClientRect();
+                if (!mapRect.width || !mapRect.height || !panelRect.height) return;
+                const topPad = Math.min(mapRect.height * 0.7, panelRect.height + 32);
+                const currentCenter = map.getCenter();
+                map.setPadding({ top: topPad, right: 16, bottom: 16, left: 16 });
+                map.setCenter(currentCenter);
+            };
 
             let marker = null;
             if (hasPosition && Number.isFinite(center[0]) && Number.isFinite(center[1])) {
@@ -547,6 +564,7 @@
             };
 
             map.on('load', () => {
+                applyOverlayPadding();
                 const lineColorFinal = lineColor || routeData?.properties?.color || DEFAULT_LINE_COLOR;
                 const uid = `train-route-${routeLabel || root.dataset.mapTrain || Date.now()}`;
                 if (routeData) {
@@ -579,8 +597,11 @@
                 }
             });
 
+            window.addEventListener('resize', applyOverlayPadding, { passive: true });
+
             root.dataset.mapMounted = 'interactive';
             refreshPosition(root);
+            applyOverlayPadding();
             return true;
         } catch (err) {
             console.error('No se pudo inicializar MapLibre:', err);

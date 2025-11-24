@@ -18,12 +18,13 @@
          {% if map_lon is not none %}data-map-lon="{{ map_lon }}"{% endif %}
          {% if map_heading is not none %}data-map-heading="{{ map_heading }}"{% endif %}
          data-map-train="{{ map_label }}"
-         data-map-route-id="{{ map_route_id_final or '' }}"
-         data-map-route-dir="{{ map_dir_final or '' }}"
-         data-map-api="{{ map_api or '' }}"
-         data-map-line-color="{{ map_line_color or '' }}"
-         data-map-route="{{ map_route_name or '' }}"
-         {% if map_route_geojson %}data-map-route-geojson='{{ map_route_geojson | tojson }}'{% endif %}
-         {% if map_route_stops_geojson %}data-map-stops-geojson='{{ map_route_stops_geojson | tojson }}'{% endif %}>
+        data-map-route-id="{{ map_route_id_final or '' }}"
+        data-map-route-dir="{{ map_dir_final or '' }}"
+        data-map-api="{{ map_api or '' }}"
+        data-map-line-color="{{ map_line_color or '' }}"
+        data-map-route="{{ map_route_name or '' }}"
+        data-map-hide-controls="{{ 'true' if map_hide_controls else '' }}"
+        {% if map_route_geojson %}data-map-route-geojson='{{ map_route_geojson | tojson }}'{% endif %}
+        {% if map_route_stops_geojson %}data-map-stops-geojson='{{ map_route_stops_geojson | tojson }}'{% endif %}>
     </div>
 </div>

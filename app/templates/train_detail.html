@@ -41,6 +41,7 @@
 	{% set show_status_label = status.show_through_label %}
 	{% set origin_label_visible = show_origin_label and (schedule.scheduled_origin_time or '') != (origin_display_time or '') %}
 	{% set destination_label_visible = show_destination_label and (schedule.scheduled_destination_time or '') != (destination_display_time or '') %}
+	{% set has_map = position_api or (train_position is defined and train_position) or (route_geojson is defined and route_geojson) %}
 	<section id="line-route" class="line-route app-main-content" aria-label="Tren {{ train_service.train_label }}" style="--train-color: {{ route.color_bg }}">
 		<div class="app-block-padding sticky-title">
 			<div class="line-chip-header">
@@ -60,8 +61,8 @@
 			</div>
 		</div>
 		
-		<div class="train-details-content-area">
-			<div class="app-block-padding app-block-vertical-padding train-details-panel-wrapper">
+		<div class="train-details-content-area{% if has_map %} has-map-overlay{% endif %}">
+			<div class="train-details-panel-wrapper">
 				<div class="train-details-panel" data-train-detail data-train-api="{{ position_api or '' }}" data-train-kind="{{ kind }}" data-train-id="{{ train_service.train_label }}" style="--line-color: {{ route.color_bg }}">
 					<div class="train-details-header">
 						<a href="/routes/{{ nucleus.slug }}/{{ train_service.route_id }}" class="train-details-route-link train-details-preheader">
@@ -170,7 +171,7 @@
 				</div>
 			</div>
 			
-			{% if position_api or (train_position is defined and train_position) or (route_geojson is defined and route_geojson) %}
+			{% if has_map %}
 				{% set initial_map_position = None %}
 				{% if train_position is defined and train_position %}
 					{% if train_position.position is defined %}
@@ -192,7 +193,8 @@
 					map_line_color=route.color_bg if route else '',
 					map_route_name=train_service.route_short_name or route.route_short_name if route else '',
 					map_route_geojson=route_geojson if route_geojson is defined else None,
-					map_route_stops_geojson=route_stops_geojson if route_stops_geojson is defined else None
+					map_route_stops_geojson=route_stops_geojson if route_stops_geojson is defined else None,
+					map_hide_controls=True
 				%}
 					{% include 'partials/train_map_embed.html' %}
 				{% endwith %}
