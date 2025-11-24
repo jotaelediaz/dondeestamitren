@@ -2684,6 +2684,151 @@
     }
 
 
+// ------------------ Train Stops Drawer (iOS Style) ------------------
+    const boundDrawers = new WeakSet();
+
+    function initTrainStopsDrawer(drawer) {
+        if (!drawer || boundDrawers.has(drawer)) return;
+        boundDrawers.add(drawer);
+
+        const handle = drawer.querySelector('[data-drawer-handle]');
+        if (!handle) return;
+
+        let startY = 0;
+        let currentY = 0;
+        let isDragging = false;
+        let hasMoved = false;
+        let initialTransform = 0;
+
+        const getMediumOffset = () => window.innerHeight * 0.35;
+        const getMinimizedOffset = () => window.innerHeight * 0.62;
+        const EXPANDED_OFFSET = 0;
+        const DRAG_THRESHOLD = 10; // Minimum pixels to move before considering it a drag
+
+        function getTransformY() {
+            const transform = window.getComputedStyle(drawer).transform;
+            if (transform === 'none') return 0;
+            const matrix = new DOMMatrix(transform);
+            return matrix.m42;
+        }
+
+        function setDrawerPosition(offsetY) {
+            drawer.style.transform = `translateY(${offsetY}px)`;
+        }
+
+        function snapToPosition() {
+            const currentOffset = getTransformY();
+            const minimizedOffset = getMinimizedOffset();
+            const mediumOffset = getMediumOffset();
+
+            // Calculate midpoints between the three states
+            const midpointExpandedMedium = (EXPANDED_OFFSET + mediumOffset) / 2;
+            const midpointMediumMinimized = (mediumOffset + minimizedOffset) / 2;
+
+            let targetState, targetOffset;
+
+            if (currentOffset < midpointExpandedMedium) {
+                // Closer to expanded
+                targetState = 'expanded';
+                targetOffset = EXPANDED_OFFSET;
+            } else if (currentOffset < midpointMediumMinimized) {
+                // Closer to medium
+                targetState = 'medium';
+                targetOffset = mediumOffset;
+            } else {
+                // Closer to minimized
+                targetState = 'minimized';
+                targetOffset = minimizedOffset;
+            }
+
+            // Use requestAnimationFrame to ensure smooth transition
+            requestAnimationFrame(() => {
+                drawer.setAttribute('data-drawer-state', targetState);
+                drawer.style.transform = '';
+
+                // Notify map to adjust padding after transition starts
+                setTimeout(() => {
+                    const event = new CustomEvent('drawer-state-changed', {
+                        detail: { state: targetState, offset: targetOffset }
+                    });
+                    document.dispatchEvent(event);
+                }, 50);
+            });
+        }
+
+        function handleStart(e) {
+            isDragging = true;
+            hasMoved = false;
+
+            if (e.type === 'touchstart') {
+                startY = e.touches[0].clientY;
+            } else {
+                startY = e.clientY;
+                e.preventDefault();
+            }
+
+            initialTransform = getTransformY();
+        }
+
+        function handleMove(e) {
+            if (!isDragging) return;
+
+            if (e.type === 'touchmove') {
+                currentY = e.touches[0].clientY;
+            } else {
+                currentY = e.clientY;
+            }
+
+            const deltaY = currentY - startY;
+
+            // Only activate dragging if moved beyond threshold
+            if (!hasMoved && Math.abs(deltaY) > DRAG_THRESHOLD) {
+                hasMoved = true;
+                drawer.setAttribute('data-drawer-state', 'dragging');
+            }
+
+            if (!hasMoved) return;
+
+            let newOffset = initialTransform + deltaY;
+
+            // Constrain movement between expanded and minimized
+            const minimizedOffset = getMinimizedOffset();
+            newOffset = Math.max(EXPANDED_OFFSET, Math.min(minimizedOffset, newOffset));
+
+            setDrawerPosition(newOffset);
+        }
+
+        function handleEnd() {
+            if (!isDragging) return;
+            isDragging = false;
+
+            // Only snap if the user actually dragged
+            if (hasMoved) {
+                snapToPosition();
+            }
+
+            hasMoved = false;
+        }
+
+        // Mouse events
+        handle.addEventListener('mousedown', handleStart);
+        document.addEventListener('mousemove', handleMove);
+        document.addEventListener('mouseup', handleEnd);
+
+        // Touch events
+        handle.addEventListener('touchstart', handleStart, { passive: true });
+        document.addEventListener('touchmove', handleMove, { passive: true });
+        document.addEventListener('touchend', handleEnd);
+    }
+
+    function bindTrainStopsDrawer(root = document) {
+        const drawers = root.matches?.('[data-drawer]')
+            ? [root]
+            : Array.from(root.querySelectorAll?.('[data-drawer]') || []);
+
+        drawers.forEach(initTrainStopsDrawer);
+    }
+
     function init(root = document) {
         root.querySelectorAll('form.search-box, form.search-station-box').forEach(enhanceSearchBox);
         bindSideSheet(root);
@@ -2692,6 +2837,7 @@
 
         bindRouteTrainsPanel(root);
         bindStopDrawer(root);
+        bindTrainStopsDrawer(root);
         disableBoostForStopLinks(root);
         bindGlobalStopLinkDelegation();
         bindGlobalTrainsRefreshDelegation();
@@ -2742,6 +2888,10 @@
 
                 if (node.matches?.('[data-train-detail]') || node.querySelector?.('[data-train-detail]')) {
                     if (window.TrainDetail) window.TrainDetail.bindAutoRefresh(node);
+                }
+
+                if (node.matches?.('[data-drawer]') || node.querySelector?.('[data-drawer]')) {
+                    bindTrainStopsDrawer(node);
                 }
             });
         }

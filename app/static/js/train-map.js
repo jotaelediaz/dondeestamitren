@@ -524,7 +524,37 @@
 
             const applyOverlayPadding = () => {
                 const overlayArea = root.closest('.train-details-content-area');
-                if (!overlayArea || !overlayArea.classList.contains('has-map-overlay')) return;
+                if (!overlayArea) return;
+
+                // Handle drawer mode
+                if (overlayArea.classList.contains('has-drawer')) {
+                    const drawer = document.querySelector('[data-drawer]');
+                    if (!drawer || !map.setPadding || !map.getCenter) return;
+
+                    const mapRect = root.getBoundingClientRect();
+                    const drawerState = drawer.getAttribute('data-drawer-state');
+                    const currentCenter = map.getCenter();
+
+                    let bottomPad = 16;
+                    if (drawerState === 'minimized') {
+                        // 38% del viewport visible
+                        bottomPad = window.innerHeight * 0.38 + 16;
+                    } else if (drawerState === 'medium') {
+                        // 65% del viewport visible
+                        bottomPad = window.innerHeight * 0.65 + 16;
+                    } else if (drawerState === 'expanded') {
+                        const drawerRect = drawer.getBoundingClientRect();
+                        const drawerVisibleHeight = window.innerHeight - drawerRect.top;
+                        bottomPad = Math.max(16, drawerVisibleHeight + 16);
+                    }
+
+                    map.setPadding({ top: 16, right: 16, bottom: bottomPad, left: 16 });
+                    map.setCenter(currentCenter);
+                    return;
+                }
+
+                // Handle overlay mode (legacy)
+                if (!overlayArea.classList.contains('has-map-overlay')) return;
                 const panel = overlayArea.querySelector('.train-details-panel');
                 if (!panel || !map.setPadding || !map.getCenter) return;
                 const mapRect = root.getBoundingClientRect();
@@ -598,6 +628,7 @@
             });
 
             window.addEventListener('resize', applyOverlayPadding, { passive: true });
+            document.addEventListener('drawer-state-changed', applyOverlayPadding);
 
             root.dataset.mapMounted = 'interactive';
             refreshPosition(root);

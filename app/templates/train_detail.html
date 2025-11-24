@@ -61,7 +61,7 @@
 			</div>
 		</div>
 		
-		<div class="train-details-content-area{% if has_map %} has-map-overlay{% endif %}">
+		<div class="train-details-content-area{% if has_map %} has-map-overlay has-drawer{% endif %}">
 			<div class="train-details-panel-wrapper">
 				<div class="train-details-panel" data-train-detail data-train-api="{{ position_api or '' }}" data-train-kind="{{ kind }}" data-train-id="{{ train_service.train_label }}" style="--line-color: {{ route.color_bg }}">
 					<div class="train-details-header">
@@ -94,7 +94,7 @@
 							{{ train_service.destination_name or '—' }}
 						</div>
 					</div>
-					
+
 					<div class="station-label station-status-label"{% if not show_status_label %} hidden{% endif %} data-train-status-label title="{{ status_descriptor_text }}" aria-label="{{ status_descriptor_text }}">
 							<span class="station-status-icon" aria-hidden="true">
 								<i class="material-symbols-rounded" data-train-status-icon>{{ status.train_status_icon }}</i>
@@ -200,8 +200,12 @@
 				{% endwith %}
 			{% endif %}
 
-			<div class="grouped-lists-scroll train-details-padding">
-				<div class="app-block-padding">
+			<div class="train-stops-drawer" data-drawer data-drawer-state="medium">
+				<div class="drawer-handle" data-drawer-handle aria-label="Arrastrar para expandir el listado de paradas">
+					<div class="drawer-handle-bar"></div>
+				</div>
+				<div class="drawer-content">
+					<div class="app-block-padding">
 						{% set stop_views = detail.stops %}
 						{% set live_platform_value = train_service.platform %}
 						{% set live_platform_stop_id = train_service.next_stop_id %}
@@ -245,15 +249,16 @@
 							{% endfor %}
 							</ul>
 						</div>
-				<ul>
-					{% set next_stop_progress = train_service.next_stop_progress_pct if train_service.next_stop_progress_pct is not none else 0 %}
-					{% set next_stop_progress_css = (next_stop_progress|string) ~ '%' %}
-					<li data-train-progress>Porcentaje de avance: {{ next_stop_progress }}%</li>
-					<li data-train-progress-real>Último porcentaje de avance en servidor: {{ next_stop_progress }}%</li>
-					<li data-debug-status>Estado en directo: {{ train_service.status_text }}</li>
-					<li data-debug-current>Parada actual: {{ train_service.current_stop_name or train_service.current_stop_id or '—' }}</li>
-					<li data-debug-next>Siguiente parada: {{ train_service.next_stop_name or train_service.next_stop_id or '—' }}</li>
-				</ul>
+					<ul>
+						{% set next_stop_progress = train_service.next_stop_progress_pct if train_service.next_stop_progress_pct is not none else 0 %}
+						{% set next_stop_progress_css = (next_stop_progress|string) ~ '%' %}
+						<li data-train-progress>Porcentaje de avance: {{ next_stop_progress }}%</li>
+						<li data-train-progress-real>Último porcentaje de avance en servidor: {{ next_stop_progress }}%</li>
+						<li data-debug-status>Estado en directo: {{ train_service.status_text }}</li>
+						<li data-debug-current>Parada actual: {{ train_service.current_stop_name or train_service.current_stop_id or '—' }}</li>
+						<li data-debug-next>Siguiente parada: {{ train_service.next_stop_name or train_service.next_stop_id or '—' }}</li>
+					</ul>
+				</div>
 			</div>
 		</div>
 	</section>
