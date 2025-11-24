@@ -10,6 +10,33 @@
     let   stopGlobalHandlersBound   = false;
     let   drawerCloseDelegatedBound = false;
 
+// ------------------ Request Cache ------------------
+    const requestCache = new Map();
+    const CACHE_TTL_MS = 30000; // 30 seconds
+
+    function getCachedResponse(url) {
+        const cached = requestCache.get(url);
+        if (!cached) return null;
+        if (Date.now() - cached.timestamp > CACHE_TTL_MS) {
+            requestCache.delete(url);
+            return null;
+        }
+        return cached.data;
+    }
+
+    function setCachedResponse(url, data) {
+        requestCache.set(url, { data, timestamp: Date.now() });
+        // Cleanup old entries
+        if (requestCache.size > 50) {
+            const now = Date.now();
+            for (const [key, value] of requestCache) {
+                if (now - value.timestamp > CACHE_TTL_MS) {
+                    requestCache.delete(key);
+                }
+            }
+        }
+    }
+
 // ------------------ Utilities ------------------
     function stripHxAttrs(html) {
         return String(html).replace(/\s(hx-(target|swap|indicator|trigger))(=(".*?"|'.*?'|[^\s>]+))?/gi, "");
@@ -20,8 +47,6 @@
             if (a.getAttribute('hx-boost') !== 'false') a.setAttribute('hx-boost', 'false');
         });
     }
-
-    // Train detail functionality moved to train-detail.js
 
     function getStaticDrawer() {
         const panel = document.getElementById('drawer');
@@ -83,43 +108,44 @@
         });
     }
 
-    function loadIntoDrawer(url, opts = {}) {
+    async function loadIntoDrawer(url, opts = {}) {
         const { panel, body } = getStaticDrawer();
         if (!panel || !body) return;
         const inner = panel.querySelector('.drawer-inner') || body;
         const indicator = body.querySelector('.htmx-indicator');
         if (indicator) indicator.style.opacity = '1';
-        fetch(url, { headers: { 'HX-Request': 'true' } })
-            .then(r => r.ok ? r.text() : Promise.reject(r))
-            .then(html => {
-                inner.classList.add('is-fading');
-                const animEl = panel.querySelector('.drawer-body') || inner;
-                let swapped = false;
-                const doSwap = () => {
-                    if (swapped) return;
-                    swapped = true;
-                    swapDrawerHTML(html);
-                    requestAnimationFrame(() => inner.classList.remove('is-fading'));
-                    if (opts.afterLoad) { try { opts.afterLoad(); } catch(_) {} }
-                };
+
+        try {
+            const resp = await fetch(url, { headers: { 'HX-Request': 'true' } });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const html = await resp.text();
+
+            inner.classList.add('is-fading');
+            const animEl = panel.querySelector('.drawer-body') || inner;
+
+            await new Promise(resolve => {
+                const timeout = setTimeout(resolve, 320);
                 const onEnd = (ev) => {
                     if (ev.propertyName !== 'opacity') return;
+                    clearTimeout(timeout);
                     animEl.removeEventListener('transitionend', onEnd);
-                    doSwap();
+                    resolve();
                 };
                 animEl.addEventListener('transitionend', onEnd, { once: true });
-                setTimeout(() => {
-                    try { animEl.removeEventListener('transitionend', onEnd); } catch(_) {}
-                    doSwap();
-                }, 320);
-            })
-            .catch(() => {
-                swapDrawerHTML('<p>Error al cargar.</p>');
-                panel.querySelector('.drawer-inner')?.classList.remove('is-fading');
-            })
-            .finally(() => {
-                if (indicator) indicator.style.opacity = '';
             });
+
+            swapDrawerHTML(html);
+            requestAnimationFrame(() => inner.classList.remove('is-fading'));
+            if (opts.afterLoad) {
+                try { opts.afterLoad(); } catch(_) {}
+            }
+        } catch (err) {
+            console.debug('[drawer] loadIntoDrawer failed:', err);
+            swapDrawerHTML('<p>Error al cargar.</p>');
+            panel.querySelector('.drawer-inner')?.classList.remove('is-fading');
+        } finally {
+            if (indicator) indicator.style.opacity = '';
+        }
     }
 
 // ---------- Context helpers ----------
@@ -1210,32 +1236,41 @@
             boundPanels.add(panel);
             let lastFocusEl = null;
 
-            function loadOnce(sourceBtn) {
+            async function loadOnce(sourceBtn) {
                 const u0  = resolveUrl(sourceBtn);
                 const ctx = RouteCtx.getMain();
                 const url = RouteCtx.appendToURL(u0, ctx);
 
-                fetch(url, { headers: { 'HX-Request': 'true' } })
-                    .then(r => r.ok ? r.text() : Promise.reject(r))
-                    .then(html => {
-                        const incoming = RouteCtx.getDrawerFromHTML(html);
-                        const now = RouteCtx.getMain();
-                        if (incoming && now && !RouteCtx.equal(now, incoming)) {
-                            console.warn('[trains] DESCARTADO por contexto: incoming=', incoming, 'now=', now);
-                            return;
-                        }
+                try {
+                    // Check cache first
+                    let html = getCachedResponse(url);
+                    if (!html) {
+                        const resp = await fetch(url, { headers: { 'HX-Request': 'true' } });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        html = await resp.text();
+                        setCachedResponse(url, html);
+                    }
 
-                        const template = document.createElement('template');
-                        template.innerHTML = html;
-                        if (template.content.firstChild) {
-                            body.innerHTML = html;
-                            if (window.htmx) htmx.process(body);
-                            enrichBodyBindings();
-                            panel.dataset.trainsLoaded = '1';
-                            panel.dataset.trainsCtx = url;
-                        }
-                    })
-                    .catch(() => { console.debug('[trains] loadOnce() FAILED'); body.innerHTML = '<p>Error al cargar los trenes.</p>'; });
+                    const incoming = RouteCtx.getDrawerFromHTML(html);
+                    const now = RouteCtx.getMain();
+                    if (incoming && now && !RouteCtx.equal(now, incoming)) {
+                        console.warn('[trains] DESCARTADO por contexto: incoming=', incoming, 'now=', now);
+                        return;
+                    }
+
+                    const template = document.createElement('template');
+                    template.innerHTML = html;
+                    if (template.content.firstChild) {
+                        body.innerHTML = html;
+                        if (window.htmx) htmx.process(body);
+                        enrichBodyBindings();
+                        panel.dataset.trainsLoaded = '1';
+                        panel.dataset.trainsCtx = url;
+                    }
+                } catch (err) {
+                    console.debug('[trains] loadOnce() FAILED:', err);
+                    body.innerHTML = '<p>Error al cargar los trenes.</p>';
+                }
             }
 
             function bindBodyLinks() {
@@ -1298,7 +1333,7 @@
             }
 
             let refreshing = false;
-            function refreshNow() {
+            async function refreshNow() {
                 if (refreshing) return;
                 refreshing = true;
 
@@ -1313,61 +1348,59 @@
                 const ctx  = RouteCtx.getMain();
                 const url  = RouteCtx.appendToURL(base, ctx);
 
-                fetch(url, { headers: { 'HX-Request': 'true' } })
-                    .then(r => r.ok ? r.text() : Promise.reject(r))
-                    .then(html => {
-                        const incoming = RouteCtx.getDrawerFromHTML(html);
-                        const now = RouteCtx.getMain();
-                        if (incoming && now && !RouteCtx.equal(now, incoming)) {
-                            console.warn('[trains] REFRESH descartado por contexto');
-                            return;
-                        }
+                try {
+                    const resp = await fetch(url, { headers: { 'HX-Request': 'true' } });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const html = await resp.text();
 
-                        inner.classList.add('is-fading');
-                        const animEl = panel.querySelector('.drawer-body') || inner;
+                    // Update cache with fresh data
+                    setCachedResponse(url, html);
 
-                        let swapped = false;
-                        const doSwap = () => {
-                            if (swapped) return;
-                            swapped = true;
+                    const incoming = RouteCtx.getDrawerFromHTML(html);
+                    const now = RouteCtx.getMain();
+                    if (incoming && now && !RouteCtx.equal(now, incoming)) {
+                        console.warn('[trains] REFRESH descartado por contexto');
+                        return;
+                    }
 
-                            const tpl = document.createElement('template');
-                            tpl.innerHTML = html;
+                    inner.classList.add('is-fading');
+                    const animEl = panel.querySelector('.drawer-body') || inner;
 
-                            if (tpl.content.firstChild) {
-                                bodyEl.innerHTML = html;
-                                if (window.htmx) htmx.process(bodyEl);
-                                enrichBodyBindings();
-                                panel.dataset.trainsLoaded = '1';
-                                panel.dataset.trainsCtx = url;
-                            } else {
-                                bodyEl.innerHTML = '<p>Error al cargar los trenes.</p>';
-                            }
-
-                            requestAnimationFrame(() => inner.classList.remove('is-fading'));
-                        };
-
+                    // Wait for fade animation
+                    await new Promise(resolve => {
+                        const timeout = setTimeout(resolve, 320);
                         const onEnd = (ev) => {
                             if (ev.propertyName !== 'opacity') return;
+                            clearTimeout(timeout);
                             animEl.removeEventListener('transitionend', onEnd);
-                            doSwap();
+                            resolve();
                         };
                         animEl.addEventListener('transitionend', onEnd, { once: true });
-
-                        setTimeout(() => {
-                            try { animEl.removeEventListener('transitionend', onEnd); } catch(_) {}
-                            doSwap();
-                        }, 320);
-                    })
-                    .catch(() => {
-                        body.innerHTML = '<p>Error al cargar los trenes.</p>';
-                        panel.querySelector('.drawer-inner')?.classList.remove('is-fading');
-                    })
-                    .finally(() => {
-                        if (indicator) indicator.style.opacity = '';
-                        bodyEl.querySelectorAll('#update-route-train-list').forEach(b => b.disabled = false);
-                        refreshing = false;
                     });
+
+                    const tpl = document.createElement('template');
+                    tpl.innerHTML = html;
+
+                    if (tpl.content.firstChild) {
+                        bodyEl.innerHTML = html;
+                        if (window.htmx) htmx.process(bodyEl);
+                        enrichBodyBindings();
+                        panel.dataset.trainsLoaded = '1';
+                        panel.dataset.trainsCtx = url;
+                    } else {
+                        bodyEl.innerHTML = '<p>Error al cargar los trenes.</p>';
+                    }
+
+                    requestAnimationFrame(() => inner.classList.remove('is-fading'));
+                } catch (err) {
+                    console.debug('[trains] refreshNow() FAILED:', err);
+                    body.innerHTML = '<p>Error al cargar los trenes.</p>';
+                    panel.querySelector('.drawer-inner')?.classList.remove('is-fading');
+                } finally {
+                    if (indicator) indicator.style.opacity = '';
+                    bodyEl.querySelectorAll('#update-route-train-list').forEach(b => b.disabled = false);
+                    refreshing = false;
+                }
             }
 
             panel.__closeTrainsPanel   = closePanel;

@@ -1,5 +1,6 @@
 # app/viewkit.py
 import re
+import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -113,6 +114,44 @@ def get_opposite_route_id(route_id: str) -> str | None:
 
 
 templates.env.globals["get_opposite_route_id"] = get_opposite_route_id
+
+
+# --- Shared utilities ---
+
+_ws_re = re.compile(r"\s+")
+_nonword_re = re.compile(r"[^\w]+")
+
+
+def normalize_text(
+    s: str, strip_nonword: bool = False, strip_whitespace_chars: bool = False
+) -> str:
+    s = (s or "").strip().lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    if strip_whitespace_chars:
+        s = "".join(c for c in s if not unicodedata.category(c).startswith("Z"))
+    if strip_nonword:
+        s = _nonword_re.sub(" ", s)
+        s = _ws_re.sub(" ", s).strip()
+    return s
+
+
+def safe_get_field(obj: Any, name: str, default: Any = None) -> Any:
+    if obj is None:
+        return default
+    try:
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+    except Exception:
+        return default
+
+
+def normalize_status(s: str | None) -> str | None:
+    if not s:
+        return None
+    s = str(s).strip().upper()
+    return s if s in {"STOPPED_AT", "IN_TRANSIT_TO", "INCOMING_AT"} else None
 
 
 def render(request: Request, name: str, ctx: dict | None = None):

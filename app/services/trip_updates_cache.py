@@ -92,6 +92,11 @@ class TripUpdatesCache:
 
         self._resolved_by_trip_id: dict[str, TripResolvedCtx] = {}
 
+        # Cache for direction inference by (route_id, observed_stops)
+        self._direction_infer_cache: dict[
+            tuple[str, tuple], tuple[tuple[int, int], tuple[int, int]]
+        ] = {}
+
     # ---------------------- Helpers: enrichment ----------------------
 
     def _enrich_from_live_trains(self, it: TripUpdateItem) -> None:
@@ -99,14 +104,14 @@ class TripUpdatesCache:
             from app.services.live_trains_cache import get_live_trains_cache
 
             ltc = get_live_trains_cache()
-            for t in ltc.list_all():  # N ~ 200-300 => coste despreciable
-                if (getattr(t, "trip_id", "") or "") == (it.trip_id or ""):
-                    if not getattr(it, "route_id", None) and getattr(t, "route_id", None):
-                        it.route_id = t.route_id
-                    did_t = str(getattr(t, "direction_id", "") or "")
-                    if not getattr(it, "direction_id", None) and did_t in ("0", "1"):
-                        it.direction_id = did_t
-                    break
+            # O(1) dict lookup instead of O(n) linear search
+            t = ltc.get_by_trip_id(it.trip_id)
+            if t:
+                if not getattr(it, "route_id", None) and getattr(t, "route_id", None):
+                    it.route_id = t.route_id
+                did_t = str(getattr(t, "direction_id", "") or "")
+                if not getattr(it, "direction_id", None) and did_t in ("0", "1"):
+                    it.direction_id = did_t
         except Exception:
             pass
 
@@ -484,6 +489,17 @@ class TripUpdatesCache:
             self._infer_direction_from_single_stop(it)
             return
 
+        # Check cache first
+        cache_key = (rid, tuple(obs))
+        cached = self._direction_infer_cache.get(cache_key)
+        if cached is not None:
+            s0, s1 = cached
+            if s0 > s1:
+                it.direction_id = "0"
+            elif s1 > s0:
+                it.direction_id = "1"
+            return
+
         from app.services.routes_repo import get_repo as get_routes_repo
 
         repo = get_routes_repo()
@@ -504,6 +520,9 @@ class TripUpdatesCache:
 
         s0 = score_dir("0")
         s1 = score_dir("1")
+
+        # Cache the result
+        self._direction_infer_cache[cache_key] = (s0, s1)
 
         if s0 > s1:
             it.direction_id = "0"

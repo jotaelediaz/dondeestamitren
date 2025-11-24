@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -25,16 +26,45 @@ from app.services.gtfs_static_manager import STORE_ROOT
 from app.services.live_trains_cache import get_live_trains_cache
 
 scheduler: BackgroundScheduler | None = None
-last_activity_ts: float = time.time()
-jobs_paused: bool = False
+
+
+class AppState:
+    """Thread-safe state management for global variables."""
+
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._last_activity_ts = time.time()
+        self._jobs_paused = False
+
+    @property
+    def last_activity_ts(self) -> float:
+        with self._lock:
+            return self._last_activity_ts
+
+    @last_activity_ts.setter
+    def last_activity_ts(self, value: float):
+        with self._lock:
+            self._last_activity_ts = value
+
+    @property
+    def jobs_paused(self) -> bool:
+        with self._lock:
+            return self._jobs_paused
+
+    @jobs_paused.setter
+    def jobs_paused(self, value: bool):
+        with self._lock:
+            self._jobs_paused = value
+
+
+_app_state = AppState()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 class ActivityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        global last_activity_ts
-        last_activity_ts = time.time()
+        _app_state.last_activity_ts = time.time()
         return await call_next(request)
 
 
@@ -83,25 +113,24 @@ def build_scheduler() -> BackgroundScheduler:
     if mode == "adaptive":
 
         def idle_manager():
-            global jobs_paused
             try:
-                idle = time.time() - last_activity_ts
+                idle = time.time() - _app_state.last_activity_ts
                 idle_limit = int(getattr(settings, "IDLE_SLEEP_SECONDS", 600))
 
                 should_pause = idle > idle_limit
-                if should_pause and not jobs_paused:
+                if should_pause and not _app_state.jobs_paused:
                     with suppress(Exception):
                         s.pause_job("refresh_trains")
                     with suppress(Exception):
                         s.pause_job("refresh_trip_updates")
-                    jobs_paused = True
+                    _app_state.jobs_paused = True
                     log.info("Polling pausado por inactividad (idle=%.0fs)", idle)
-                elif (not should_pause) and jobs_paused:
+                elif (not should_pause) and _app_state.jobs_paused:
                     with suppress(Exception):
                         s.resume_job("refresh_trains")
                     with suppress(Exception):
                         s.resume_job("refresh_trip_updates")
-                    jobs_paused = False
+                    _app_state.jobs_paused = False
                     log.info("Polling reanudado por actividad reciente")
             except Exception:
                 log.exception("idle_manager toggle error")

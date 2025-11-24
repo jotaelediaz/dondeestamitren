@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from app.viewkit import normalize_status, safe_get_field
+
 # ---------------- Models & helpers ----------------
 
 
@@ -12,24 +14,6 @@ class VPInfo:
     stop_id: str | None
     current_status: str | None  # "STOPPED_AT" | "IN_TRANSIT_TO" | "INCOMING_AT"
     ts_unix: int | None
-
-
-def _norm_status(s: str | None) -> str | None:
-    if not s:
-        return None
-    s = str(s).strip().upper()
-    return s if s in {"STOPPED_AT", "IN_TRANSIT_TO", "INCOMING_AT"} else None
-
-
-def _fld(obj, name, default=None):
-    if obj is None:
-        return default
-    try:
-        if isinstance(obj, dict):
-            return obj.get(name, default)
-        return getattr(obj, name, default)
-    except Exception:
-        return default
 
 
 def _normalize_stop_id(stop) -> str:
@@ -102,7 +86,7 @@ def _select_eta_pivot_and_delay_s(
     if not isinstance(sched_pivot, int):
         return int(now_ts) + min_ahead_s, min_ahead_s
 
-    st = _norm_status(getattr(vp, "current_status", None) if vp else None)
+    st = normalize_status(getattr(vp, "current_status", None) if vp else None)
     vp_sid = getattr(vp, "stop_id", None) if vp else None
 
     if isinstance(tu_pivot_eta_ts, int):
@@ -193,22 +177,28 @@ def build_rt_arrival_times_from_vm(
 
     now_epoch = int(datetime.now(ZoneInfo(tz_name)).timestamp())
 
-    unified = _fld(vm, "unified", {}) or {}
-    route_obj = _fld(vm, "route")
-    trip_obj = _fld(vm, "trip")
+    unified = safe_get_field(vm, "unified", {}) or {}
+    route_obj = safe_get_field(vm, "route")
+    trip_obj = safe_get_field(vm, "trip")
 
-    trip_id = _fld(unified, "trip_id") or _fld(trip_obj, "trip_id") or _fld(trip_obj, "id")
-    route_id = _fld(unified, "route_id") or _fld(route_obj, "route_id")
-    direction_id = _fld(unified, "direction_id") or _fld(route_obj, "direction_id") or ""
+    trip_id = (
+        safe_get_field(unified, "trip_id")
+        or safe_get_field(trip_obj, "trip_id")
+        or safe_get_field(trip_obj, "id")
+    )
+    route_id = safe_get_field(unified, "route_id") or safe_get_field(route_obj, "route_id")
+    direction_id = (
+        safe_get_field(unified, "direction_id") or safe_get_field(route_obj, "direction_id") or ""
+    )
 
-    kind = _fld(vm, "kind")
-    train = _fld(vm, "train") if kind == "live" else None
-    current_sid = _fld(train, "stop_id")
-    current_status = _fld(train, "current_status")
+    kind = safe_get_field(vm, "kind")
+    train = safe_get_field(vm, "train") if kind == "live" else None
+    current_sid = safe_get_field(train, "stop_id")
+    current_status = safe_get_field(train, "current_status")
     vp = VPInfo(
         stop_id=str(current_sid) if current_sid else None,
         current_status=str(current_status) if current_status else None,
-        ts_unix=_fld(train, "ts_unix"),
+        ts_unix=safe_get_field(train, "ts_unix"),
     )
 
     srepo = get_scheduled_repo()
@@ -230,15 +220,15 @@ def build_rt_arrival_times_from_vm(
 
     if sch:
         with suppress(Exception):
-            ymd = int(_fld(sch, "service_date", 0) or 0)
-        calls = _fld(sch, "ordered_calls") or _fld(sch, "calls") or []
+            ymd = int(safe_get_field(sch, "service_date", 0) or 0)
+        calls = safe_get_field(sch, "ordered_calls") or safe_get_field(sch, "calls") or []
         for c in calls:
-            sid = str(_fld(c, "stop_id") or "")
+            sid = str(safe_get_field(c, "stop_id") or "")
             if not sid:
                 continue
             order_sids.append(sid)
-            arr_s = _fld(c, "arrival_time")
-            dep_s = _fld(c, "departure_time")
+            arr_s = safe_get_field(c, "arrival_time")
+            dep_s = safe_get_field(c, "departure_time")
             arr_ep = dep_ep = None
             with suppress(Exception):
                 if isinstance(arr_s, int) and hasattr(sch, "_date_time_to_epoch"):
@@ -267,20 +257,24 @@ def build_rt_arrival_times_from_vm(
     tu_map: dict[str, dict] = {}
     next_sid_hint = None
     if tu:
-        stus = list(_fld(tu, "stop_updates") or _fld(tu, "stop_time_updates") or [])
+        stus = list(
+            safe_get_field(tu, "stop_updates") or safe_get_field(tu, "stop_time_updates") or []
+        )
         with suppress(Exception):
-            stus.sort(key=lambda s: (_fld(s, "stop_sequence") or 0, _epoch_from_stu(s) or 0))
+            stus.sort(
+                key=lambda s: (safe_get_field(s, "stop_sequence") or 0, _epoch_from_stu(s) or 0)
+            )
         for s in stus:
-            rel = str(_fld(s, "schedule_relationship") or "SCHEDULED").upper()
+            rel = str(safe_get_field(s, "schedule_relationship") or "SCHEDULED").upper()
             if rel == "CANCELED":
                 continue
-            sid = str(_fld(s, "stop_id") or "")
+            sid = str(safe_get_field(s, "stop_id") or "")
             if not sid:
                 continue
             ep = _epoch_from_stu(s)
-            delay = _fld(s, "departure_delay")
+            delay = safe_get_field(s, "departure_delay")
             if delay is None:
-                delay = _fld(s, "arrival_delay")
+                delay = safe_get_field(s, "arrival_delay")
             delay_s = (
                 int(delay)
                 if isinstance(delay, int | float)
@@ -322,7 +316,7 @@ def build_rt_arrival_times_from_vm(
     )
 
     last_idx = len(order_sids) - 1
-    st = _norm_status(_fld(vp, "current_status"))
+    st = normalize_status(safe_get_field(vp, "current_status"))
     getattr(vp, "stop_id", None) if vp else None
     if isinstance(current_idx, int) and current_idx >= last_idx and st == "STOPPED_AT":
         pivot_idx = len(order_sids)
@@ -412,16 +406,20 @@ def _scheduled_arrival_epoch_for_stop(
     if not stop_id:
         return None
 
-    trip_obj = _fld(vm, "trip")
-    unified = _fld(vm, "unified", {}) or {}
+    trip_obj = safe_get_field(vm, "trip")
+    unified = safe_get_field(vm, "unified", {}) or {}
     trip_id = (
-        _fld(unified, "trip_id")
-        or _fld(trip_obj, "trip_id")
-        or _fld(trip_obj, "id")
-        or _fld(vm, "trip_id")
+        safe_get_field(unified, "trip_id")
+        or safe_get_field(trip_obj, "trip_id")
+        or safe_get_field(trip_obj, "id")
+        or safe_get_field(vm, "trip_id")
     )
     if not trip_id:
-        return _fld(vm, "next_epoch") if isinstance(_fld(vm, "next_epoch"), int) else None
+        return (
+            safe_get_field(vm, "next_epoch")
+            if isinstance(safe_get_field(vm, "next_epoch"), int)
+            else None
+        )
 
     srepo = get_scheduled_repo()
     sch = None
@@ -435,7 +433,7 @@ def _scheduled_arrival_epoch_for_stop(
     if not sch:
         return None
 
-    calls = _fld(sch, "ordered_calls") or _fld(sch, "calls") or []
+    calls = safe_get_field(sch, "ordered_calls") or safe_get_field(sch, "calls") or []
     if not calls:
         return None
 
@@ -444,24 +442,27 @@ def _scheduled_arrival_epoch_for_stop(
 
     service_date = None
     with suppress(Exception):
-        service_date = int(_fld(sch, "service_date", 0) or 0)
+        service_date = int(safe_get_field(sch, "service_date", 0) or 0)
 
     tz = ZoneInfo(tz_name)
 
     for call in calls:
-        cid = _normalize_stop_id(_fld(call, "stop_id"))
+        cid = _normalize_stop_id(safe_get_field(call, "stop_id"))
         if cid != stop_id:
             continue
 
-        arr_epoch = _fld(call, "arrival_epoch")
+        arr_epoch = safe_get_field(call, "arrival_epoch")
         if isinstance(arr_epoch, int):
             return int(arr_epoch)
 
-        dep_epoch = _fld(call, "departure_epoch")
+        dep_epoch = safe_get_field(call, "departure_epoch")
         if isinstance(dep_epoch, int):
             return int(dep_epoch)
 
-        for raw_time in (_fld(call, "arrival_time"), _fld(call, "departure_time")):
+        for raw_time in (
+            safe_get_field(call, "arrival_time"),
+            safe_get_field(call, "departure_time"),
+        ):
             if not isinstance(raw_time, int | float):
                 continue
             if service_date:

@@ -1,20 +1,12 @@
 # app/routers/prefs_api.py
-import unicodedata
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 
 from app.core.user_prefs import clear_cookie, set_cookie
 from app.services.routes_repo import get_repo as get_routes_repo
+from app.viewkit import normalize_text
 
 router = APIRouter(prefix="/prefs", tags=["prefs"])
-
-
-def _norm(s: str) -> str:
-    s = (s or "").strip().lower()
-    s = "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
-    s = "".join(c for c in s if not unicodedata.category(c).startswith("Z"))
-    return s
 
 
 @router.post("/nucleus")
@@ -47,12 +39,18 @@ async def set_nucleus(request: Request):
         except Exception:
             pass
 
-    v = _norm(raw_slug or "")
+    v = normalize_text(raw_slug or "", strip_whitespace_chars=True)
 
     repo = get_routes_repo()
     nuclei = repo.list_nuclei() or []
-    valid_slugs = {_norm(n.get("slug") or ""): (n.get("slug") or "") for n in nuclei}
-    valid_names = {_norm(n.get("name") or ""): (n.get("slug") or "") for n in nuclei}
+    valid_slugs = {
+        normalize_text(n.get("slug") or "", strip_whitespace_chars=True): (n.get("slug") or "")
+        for n in nuclei
+    }
+    valid_names = {
+        normalize_text(n.get("name") or "", strip_whitespace_chars=True): (n.get("slug") or "")
+        for n in nuclei
+    }
 
     slug = valid_slugs.get(v) or valid_names.get(v)
 

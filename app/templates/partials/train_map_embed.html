@@ -9,7 +9,7 @@
 {% set map_route_id_final = map_route_id or train_obj.route_id %}
 {% set map_dir_final = map_direction_id or train_obj.direction_id %}
 
-<div class="train-map-container train-details-padding">
+<div class="train-map-container">
     <div id="{{ map_element_id | default('train-detail-map') }}"
          data-train-map="true"
          role="region"

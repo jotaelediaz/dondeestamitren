@@ -53,6 +53,7 @@ class LiveTrainsCache:
         self._by_short: dict[str, list[TrainPosition]] = {}
         self._by_nucleus: dict[str, list[TrainPosition]] = {}
         self._by_nucleus_short: dict[tuple[str, str], list[TrainPosition]] = {}
+        self._by_trip_id: dict[str, TrainPosition] = {}
 
         self._entries: dict[str, _TrainEntry] = {}
         self._last_fetch_s: float = 0.0
@@ -70,6 +71,9 @@ class LiveTrainsCache:
         self._last_fetch_took_s: float = 0.0
 
         self._by_number: dict[str, list[str]] = {}
+
+        # Cache for route lookups by (short_name, stop_id)
+        self._route_lookup_cache: dict[tuple[str, str], tuple[str, str, str] | None] = {}
 
     # ---------------- Platform ----------------
     _PLATFORM_RE = re.compile(r"PLATF\.\(\s*([^)]+?)\s*\)", re.IGNORECASE)
@@ -182,13 +186,34 @@ class LiveTrainsCache:
         self._ensure_stop_nucleus_index()
         return self._stop_to_nucleus.get(stop_id)
 
-    @staticmethod
-    def _fill_route_from_short_and_stop(tp):
-        rrepo = get_lines_repo()
+    def _fill_route_from_short_and_stop(self, tp):
         short = (getattr(tp, "route_short_name", "") or "").strip().lower()
         if not short:
             return
         stop_id = (getattr(tp, "stop_id", "") or "").strip()
+        tdir = str(getattr(tp, "direction_id", "")).strip()
+        num = self._extract_train_number(tp)
+
+        # Check cache first
+        cache_key = (short, stop_id, tdir, num)
+        cached = self._route_lookup_cache.get(cache_key)
+        if cached is not None:
+            # cached = (route_id, nucleus_slug, direction_id, direction_source, dir_confidence)
+            route_id, nucleus_slug, dir_id, dir_source, dir_conf = cached
+            if route_id:
+                tp.route_id = route_id
+            if nucleus_slug:
+                tp.nucleus_slug = nucleus_slug
+            if dir_id and tdir not in ("0", "1"):
+                try:
+                    tp.direction_id = dir_id
+                    tp.direction_source = dir_source
+                    tp.dir_confidence = dir_conf
+                except Exception:
+                    pass
+            return
+
+        rrepo = get_lines_repo()
 
         # Candidates (short_name [+ stop_id])
         candidates = []
@@ -204,15 +229,15 @@ class LiveTrainsCache:
                 candidates.append((rid, did, lv))
 
         if not candidates:
+            # Cache empty result
+            self._route_lookup_cache[cache_key] = (None, None, None, None, None)
             return
 
-        tdir = str(getattr(tp, "direction_id", "")).strip()
         if tdir in ("0", "1"):
             filtered = [c for c in candidates if (c[1] or "") == tdir]
             if filtered:
                 candidates = filtered
 
-        num = LiveTrainsCache._extract_train_number(tp)
         if isinstance(num, int):
             parity = "even" if (num % 2 == 0) else "odd"
 
@@ -228,18 +253,34 @@ class LiveTrainsCache:
                 rid, did, lv, pdid, pstatus = max(pool, key=lambda c: (len(c[2].stations), c[0]))
                 tp.route_id = rid
                 tp.nucleus_slug = (lv.nucleus_id or "").strip() or getattr(tp, "nucleus_slug", None)
+                dir_id = None
+                dir_source = None
+                dir_conf = None
                 if tdir not in ("0", "1"):
                     try:
                         tp.direction_id = pdid
                         tp.direction_source = "parity_map"
                         tp.dir_confidence = "high" if pstatus == "final" else "med"
+                        dir_id = pdid
+                        dir_source = "parity_map"
+                        dir_conf = "high" if pstatus == "final" else "med"
                     except Exception:
                         pass
+                # Cache the result
+                self._route_lookup_cache[cache_key] = (
+                    tp.route_id,
+                    tp.nucleus_slug,
+                    dir_id,
+                    dir_source,
+                    dir_conf,
+                )
                 return
 
         rid, did, lv = max(candidates, key=lambda c: (len(c[2].stations), c[0]))
         tp.route_id = rid
         tp.nucleus_slug = (lv.nucleus_id or "").strip() or getattr(tp, "nucleus_slug", None)
+        # Cache the result (no direction info)
+        self._route_lookup_cache[cache_key] = (tp.route_id, tp.nucleus_slug, None, None, None)
 
     # ---------------- Parity helpers ----------------
 
@@ -517,6 +558,7 @@ class LiveTrainsCache:
         by_short: defaultdict[str, list[TrainPosition]] = defaultdict(list)
         by_nucleus: defaultdict[str, list[TrainPosition]] = defaultdict(list)
         by_nucleus_short: defaultdict[tuple[str, str], list[TrainPosition]] = defaultdict(list)
+        by_trip_id: dict[str, TrainPosition] = {}
 
         for tp in items:
             tid = getattr(tp, "train_id", None)
@@ -526,6 +568,7 @@ class LiveTrainsCache:
             route_id = (getattr(tp, "route_id", None) or "").strip()
             nucleus = (getattr(tp, "nucleus_slug", None) or "").strip().lower()
             short = (getattr(tp, "route_short_name", None) or "").strip().lower()
+            trip_id = (getattr(tp, "trip_id", None) or "").strip()
             if route_id:
                 by_route[route_id].append(tp)
                 if nucleus:
@@ -536,6 +579,8 @@ class LiveTrainsCache:
                 by_short[short].append(tp)
                 if nucleus:
                     by_nucleus_short[(nucleus, short)].append(tp)
+            if trip_id:
+                by_trip_id[trip_id] = tp
 
         self._items_sorted = sorted(items, key=lambda t: (t.route_short_name, t.train_id))
         self._by_route = {
@@ -553,6 +598,7 @@ class LiveTrainsCache:
             key: sorted(lst, key=lambda t: t.train_id) for key, lst in by_nucleus_short.items()
         }
         self._by_number = dict(by_num)
+        self._by_trip_id = by_trip_id
 
     # -------- Public API --------
     def refresh(self) -> tuple[int, float]:
@@ -624,6 +670,9 @@ class LiveTrainsCache:
 
     def get_by_id(self, train_id: str) -> TrainPosition | None:
         return self._by_id.get(train_id)
+
+    def get_by_trip_id(self, trip_id: str) -> TrainPosition | None:
+        return self._by_trip_id.get((trip_id or "").strip())
 
     def get_by_nucleus(self, nucleus_slug: str) -> list[TrainPosition]:
         s = (nucleus_slug or "").strip().lower()

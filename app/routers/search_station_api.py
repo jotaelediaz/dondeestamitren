@@ -1,32 +1,18 @@
 # app/routers/search_stations_api.py
 from __future__ import annotations
 
-import re
-import unicodedata
-
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
+from app.viewkit import normalize_text
 
 router = APIRouter(tags=["api:search"], prefix="/api")
 
-_ws_re = re.compile(r"\s+")
-_nonword_re = re.compile(r"[^\w]+")
-
-
-def _norm(s: str) -> str:
-    s = (s or "").strip().lower()
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")  # Strip accents
-    s = _nonword_re.sub(" ", s)
-    s = _ws_re.sub(" ", s).strip()
-    return s
-
 
 def _tokens(q: str) -> list[str]:
-    return [t for t in _norm(q).split(" ") if t]
+    return [t for t in normalize_text(q, strip_nonword=True).split(" ") if t]
 
 
 def _score_match(name_norm: str, id_norm: str, query_terms: list[str]) -> tuple[int, int, int]:
@@ -76,8 +62,8 @@ def search_stations(
             sid = getattr(st, "station_id", "") or getattr(st, "id", "")
             name = getattr(st, "name", "") or getattr(st, "station_name", "")
 
-            name_norm = _norm(name)
-            id_norm = _norm(sid)
+            name_norm = normalize_text(name, strip_nonword=True)
+            id_norm = normalize_text(sid, strip_nonword=True)
 
             score = _score_match(name_norm, id_norm, terms)
             if score[0] == 0:

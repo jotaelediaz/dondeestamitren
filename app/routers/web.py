@@ -1,6 +1,5 @@
 # app/routers/web.py
 import re
-import unicodedata
 from collections import defaultdict
 from contextlib import suppress
 from math import atan2, cos, radians, sin, sqrt
@@ -17,20 +16,15 @@ from app.services.shapes_repo import get_repo as get_shapes_repo
 from app.services.stations_repo import get_repo as get_stations_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.train_services_index import build_train_detail_vm
-from app.viewkit import hhmm_local, mk_nucleus, render
+from app.viewkit import hhmm_local, mk_nucleus, normalize_text, render
 from app.viewmodels.train_detail import build_train_detail_view
 
 router = APIRouter(tags=["web"])
 
 
-def _norm(s: str) -> str:
-    s = (s or "").strip().lower()
-    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
-
-
 def _matches_station(qnorm: str, st) -> bool:
-    return (qnorm in _norm(getattr(st, "name", ""))) or (
-        qnorm in _norm(getattr(st, "station_id", ""))
+    return (qnorm in normalize_text(getattr(st, "name", ""))) or (
+        qnorm in normalize_text(getattr(st, "station_id", ""))
     )
 
 
@@ -144,7 +138,7 @@ def _filter_sort_stations(
     limit: int,
 ) -> list:
     if q:
-        qnorm = _norm(q)
+        qnorm = normalize_text(q)
         stations = [st for st in stations if _matches_station(qnorm, st)]
 
     if lat is not None and lon is not None:
@@ -158,7 +152,7 @@ def _filter_sort_stations(
         stations.sort(key=_dist)
     else:
         stations.sort(
-            key=lambda st: (_norm(getattr(st, "name", "")), getattr(st, "station_id", ""))
+            key=lambda st: (normalize_text(getattr(st, "name", "")), getattr(st, "station_id", ""))
         )
 
     return stations[: max(1, int(limit or 50))]

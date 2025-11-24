@@ -5,10 +5,19 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<meta name="mobile-web-app-capable" content="yes">
 	<meta name="apple-mobile-web-app-title" content="Mi Tren">
+	<meta name="description" content="{% block meta_description %}Consulta en tiempo real la ubicación de trenes de Cercanías en toda España. Horarios, retrasos y seguimiento de tu tren.{% endblock %}">
+	<meta name="keywords" content="cercanías, trenes, tiempo real, horarios, retrasos, renfe, gtfs, madrid, seguimiento, ubicación, rodalies">
+	<meta name="author" content="dondeestamitren">
+	<meta name="robots" content="index, follow">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="¿Dónde Está Mi Tren?">
+	<meta property="og:title" content="{% block og_title %}{{ self.title() }}{% endblock %}">
+	<meta property="og:description" content="{% block og_description %}{{ self.meta_description() }}{% endblock %}">
+	<meta property="og:locale" content="es_ES">
 	<link href="{{ request.url_for('static', path='img/favicon.svg') }}" rel="shortcut icon">
 	<link href="{{ request.url_for('static', path='img/favicon.png') }}" rel="shortcut icon">
 	<link rel="apple-touch-icon" sizes="144x144" href="{{ request.url_for('static', path='img/favicon_apple.png') }}">
-	<title hx-head="re-eval">{% block title %}{% endblock %}</title>
+	<title hx-head="re-eval">{% block title %}Dónde Está Mi Tren{% endblock %}</title>
 	
 	<link rel="preload" href="{{ request.url_for('static', path='fonts/Sora-VariableFont_wght.woff2') }}" as="font" type="font/woff2" crossorigin>
 	<link rel="preload" href="{{ request.url_for('static', path='fonts/Rubik-VariableFont_wght.woff2') }}" as="font" type="font/woff2" crossorigin>

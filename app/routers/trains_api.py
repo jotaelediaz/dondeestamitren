@@ -15,7 +15,7 @@ from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.shapes_repo import get_repo as get_shapes_repo
 from app.services.stops_repo import get_repo as get_stops_repo
 from app.services.train_services_index import build_train_detail_vm
-from app.viewkit import hhmm_local
+from app.viewkit import hhmm_local, safe_get_field
 from app.viewmodels.train_detail import build_train_detail_view
 
 router = APIRouter(prefix="/api", tags=["trains"])
@@ -74,14 +74,6 @@ def _train_as_dict(train) -> dict[str, Any] | None:
     if isinstance(platform_map, dict) and platform_map:
         info["platform_by_stop"] = platform_map
     return info
-
-
-def _fld(obj: Any, name: str, default: Any = None) -> Any:
-    if obj is None:
-        return default
-    if isinstance(obj, dict):
-        return obj.get(name, default)
-    return getattr(obj, name, default)
 
 
 def _route_geojson_from_vm(vm: dict[str, Any], train_obj: Any) -> tuple[dict | None, dict | None]:
@@ -157,8 +149,8 @@ def _route_geojson_from_vm(vm: dict[str, Any], train_obj: Any) -> tuple[dict | N
 
 
 def _train_type_label_text(status_view: Any) -> str:
-    label = _fld(status_view, "train_type_label", "")
-    seen_age = _fld(status_view, "seen_age_seconds")
+    label = safe_get_field(status_view, "train_type_label", "")
+    seen_age = safe_get_field(status_view, "seen_age_seconds")
     if label == "seen_age":
         return f"Visto hace {seen_age or 0} s"
     mapping = {
@@ -171,7 +163,7 @@ def _train_type_label_text(status_view: Any) -> str:
 
 
 def _status_descriptor_text(status_view: Any) -> str:
-    descriptor = _fld(status_view, "status_descriptor", "")
+    descriptor = safe_get_field(status_view, "status_descriptor", "")
     mapping = {
         "scheduled": "Programado",
         "unknown": "Estado desconocido",
@@ -183,13 +175,13 @@ def _status_descriptor_text(status_view: Any) -> str:
 
 
 def _compute_origin_display_time(schedule_view: Any, status_view: Any) -> str:
-    origin_time = _fld(schedule_view, "origin_time")
-    sched_origin = _fld(schedule_view, "scheduled_origin_time")
+    origin_time = safe_get_field(schedule_view, "origin_time")
+    sched_origin = safe_get_field(schedule_view, "scheduled_origin_time")
     origin_display_time = origin_time or sched_origin or "--:--"
-    is_live = bool(_fld(status_view, "is_live_train"))
-    flow_state = _fld(status_view, "train_flow_state")
+    is_live = bool(safe_get_field(status_view, "is_live_train"))
+    flow_state = safe_get_field(status_view, "train_flow_state")
     is_live_at_origin = is_live and flow_state == "origin"
-    origin_delay_minutes = _fld(schedule_view, "origin_delay_minutes")
+    origin_delay_minutes = safe_get_field(schedule_view, "origin_delay_minutes")
     if not is_live:
         return sched_origin or origin_display_time
     if is_live_at_origin and origin_delay_minutes is not None and origin_delay_minutes < 0:
@@ -221,17 +213,17 @@ def _platform_info_for_stop(
     live_platform_value: str | None,
     live_platform_stop_id: str | None,
 ) -> dict[str, Any]:
-    stop_habitual = _fld(stop, "habitual_platform")
-    if not _fld(stop, "habitual_publishable"):
+    stop_habitual = safe_get_field(stop, "habitual_platform")
+    if not safe_get_field(stop, "habitual_publishable"):
         stop_habitual = None
     split_marker = " ó "
     if stop_habitual and split_marker in stop_habitual:
         stop_habitual = stop_habitual.split(split_marker, 1)[0].strip()
 
-    platform_src = _fld(stop, "platform_src")
+    platform_src = safe_get_field(stop, "platform_src")
     habitual_platform = stop_habitual
-    show_plat = _fld(stop, "platform") or habitual_platform or "?"
-    live_plat = _fld(stop, "platform") if platform_src == "live" else None
+    show_plat = safe_get_field(stop, "platform") or habitual_platform or "?"
+    live_plat = safe_get_field(stop, "platform") if platform_src == "live" else None
 
     if (
         live_platform_value
@@ -272,18 +264,18 @@ def _serialize_stop_view(
     live_platform_stop_id: str | None,
     train_current_stop_id: str | None,
 ) -> dict[str, Any]:
-    stop = _fld(stop_view, "stop") or {}
-    stop_id = str(_fld(stop, "stop_id") or "")
-    stop_name = _fld(stop, "stop_name") or _fld(stop, "name")
-    normalized_status = str(_fld(stop_view, "normalized_status") or "").upper()
-    status_class = _fld(stop_view, "status_class") or ""
-    station_position = _fld(stop_view, "station_position") or ""
-    is_next_stop = bool(_fld(stop_view, "is_next_stop"))
+    stop = safe_get_field(stop_view, "stop") or {}
+    stop_id = str(safe_get_field(stop, "stop_id") or "")
+    stop_name = safe_get_field(stop, "stop_name") or safe_get_field(stop, "name")
+    normalized_status = str(safe_get_field(stop_view, "normalized_status") or "").upper()
+    status_class = safe_get_field(stop_view, "status_class") or ""
+    station_position = safe_get_field(stop_view, "station_position") or ""
+    is_next_stop = bool(safe_get_field(stop_view, "is_next_stop"))
     is_current_stop = (
         train_current_stop_id and stop_id and str(train_current_stop_id) == stop_id
     ) or normalized_status == "CURRENT"
-    scheduled_time = _fld(stop_view, "scheduled_time")
-    rt_arrival = _fld(stop_view, "rt_arrival_time") or {}
+    scheduled_time = safe_get_field(stop_view, "scheduled_time")
+    rt_arrival = safe_get_field(stop_view, "rt_arrival_time") or {}
 
     is_passed_station = normalized_status == "PASSED"
     has_rt_data = bool(rt_arrival)
@@ -312,7 +304,7 @@ def _serialize_stop_view(
 
     return {
         "stop_id": stop_id,
-        "station_id": _fld(stop, "station_id"),
+        "station_id": safe_get_field(stop, "station_id"),
         "name": stop_name,
         "status_class": status_class,
         "station_position": station_position,
@@ -337,15 +329,15 @@ def _serialize_stop_view(
 
 def _detail_payload(detail_view: Any, vm: dict[str, Any]) -> dict[str, Any]:
     train_service: dict[str, Any] = vm.get("unified") or {}
-    status_view = _fld(detail_view, "status") or {}
-    schedule_view = _fld(detail_view, "schedule") or {}
+    status_view = safe_get_field(detail_view, "status") or {}
+    schedule_view = safe_get_field(detail_view, "schedule") or {}
     kind = vm.get("kind")
-    flow_state = _fld(status_view, "train_flow_state")
+    flow_state = safe_get_field(status_view, "train_flow_state")
     train_status_key, train_status_class = _train_status_meta(train_service, kind)
     origin_display_time = _compute_origin_display_time(schedule_view, status_view)
     destination_display_time = (
-        _fld(schedule_view, "destination_time")
-        or _fld(schedule_view, "scheduled_destination_time")
+        safe_get_field(schedule_view, "destination_time")
+        or safe_get_field(schedule_view, "scheduled_destination_time")
         or "--:--"
     )
 
@@ -356,7 +348,7 @@ def _detail_payload(detail_view: Any, vm: dict[str, Any]) -> dict[str, Any]:
     train_current_stop_id = train_service.get("current_stop_id")
 
     stops_payload = []
-    for stop_view in _fld(detail_view, "stops") or []:
+    for stop_view in safe_get_field(detail_view, "stops") or []:
         stops_payload.append(
             _serialize_stop_view(
                 stop_view,
@@ -378,36 +370,38 @@ def _detail_payload(detail_view: Any, vm: dict[str, Any]) -> dict[str, Any]:
     return {
         "train_flow_state": flow_state,
         "train_type": {
-            "label": _fld(status_view, "train_type_label"),
+            "label": safe_get_field(status_view, "train_type_label"),
             "text": _train_type_label_text(status_view),
-            "is_live": bool(_fld(status_view, "is_live_train")),
+            "is_live": bool(safe_get_field(status_view, "is_live_train")),
             "flow_state": flow_state,
-            "live_badge_class": _fld(status_view, "live_badge_class"),
+            "live_badge_class": safe_get_field(status_view, "live_badge_class"),
         },
         "status_descriptor_text": _status_descriptor_text(status_view),
-        "status_icon": _fld(status_view, "train_status_icon"),
-        "status_station_name": _fld(status_view, "station_name"),
-        "show_through_label": bool(_fld(status_view, "show_through_label")),
+        "status_icon": safe_get_field(status_view, "train_status_icon"),
+        "status_station_name": safe_get_field(status_view, "station_name"),
+        "show_through_label": bool(safe_get_field(status_view, "show_through_label")),
         "schedule": {
             "origin": {
                 "display": origin_display_time,
-                "scheduled": _fld(schedule_view, "scheduled_origin_time"),
-                "state": _fld(schedule_view, "origin_time_state") or "on-time",
-                "show_scheduled": bool(_fld(schedule_view, "show_origin_schedule_time")),
-                "rt": _fld(schedule_view, "origin_time"),
+                "scheduled": safe_get_field(schedule_view, "scheduled_origin_time"),
+                "state": safe_get_field(schedule_view, "origin_time_state") or "on-time",
+                "show_scheduled": bool(safe_get_field(schedule_view, "show_origin_schedule_time")),
+                "rt": safe_get_field(schedule_view, "origin_time"),
             },
             "destination": {
                 "display": destination_display_time,
-                "scheduled": _fld(schedule_view, "scheduled_destination_time"),
-                "state": _fld(schedule_view, "destination_time_state") or "on-time",
-                "show_scheduled": bool(_fld(schedule_view, "show_destination_schedule_time")),
-                "rt": _fld(schedule_view, "destination_time"),
+                "scheduled": safe_get_field(schedule_view, "scheduled_destination_time"),
+                "state": safe_get_field(schedule_view, "destination_time_state") or "on-time",
+                "show_scheduled": bool(
+                    safe_get_field(schedule_view, "show_destination_schedule_time")
+                ),
+                "rt": safe_get_field(schedule_view, "destination_time"),
             },
         },
         "train_status_key": train_status_key,
         "train_status_class": train_status_class,
-        "stop_count": _fld(detail_view, "stop_count"),
-        "rt_updated_iso": _fld(detail_view, "rt_updated_iso"),
+        "stop_count": safe_get_field(detail_view, "stop_count"),
+        "rt_updated_iso": safe_get_field(detail_view, "rt_updated_iso"),
         "stops": stops_payload,
         "debug": debug_info,
     }
@@ -616,11 +610,11 @@ def live_train_position(
 
         if vm.get("kind") == "live":
             for stop in (vm.get("trip") or {}).get("stops") or []:
-                sid = _fld(stop, "stop_id")
-                epoch = _fld(stop, "passed_at_epoch")
+                sid = safe_get_field(stop, "stop_id")
+                epoch = safe_get_field(stop, "passed_at_epoch")
                 if sid is None or epoch is None:
                     continue
-                delay_s = _fld(stop, "passed_delay_s")
+                delay_s = safe_get_field(stop, "passed_delay_s")
                 rt_arrival_times[str(sid)] = {
                     "epoch": epoch,
                     "hhmm": stop.get("passed_at_hhmm") if isinstance(stop, dict) else None,
@@ -635,9 +629,9 @@ def live_train_position(
         detail_view = build_train_detail_view(
             vm, rt_arrival_times, repo, last_seen_stop_id=train_last_stop_id
         )
-        status_view = _fld(detail_view, "status") or {}
-        schedule_view = _fld(detail_view, "schedule") or {}
-        stop_count = _fld(detail_view, "stop_count")
+        status_view = safe_get_field(detail_view, "status") or {}
+        schedule_view = safe_get_field(detail_view, "schedule") or {}
+        stop_count = safe_get_field(detail_view, "stop_count")
         live_platform_value = (vm.get("unified") or {}).get("platform")
         live_platform_stop_id = (vm.get("unified") or {}).get("next_stop_id")
         if str((vm.get("unified") or {}).get("current_status", "")).upper() == "STOPPED_AT":
@@ -645,7 +639,7 @@ def live_train_position(
                 "current_stop_id"
             ) or live_platform_stop_id
         train_current_stop_id = (vm.get("unified") or {}).get("current_stop_id")
-        for stop_view in _fld(detail_view, "stops") or []:
+        for stop_view in safe_get_field(detail_view, "stops") or []:
             stops_payload.append(
                 _serialize_stop_view(
                     stop_view,
@@ -662,41 +656,41 @@ def live_train_position(
         stops_payload = []
         stop_count = None
 
-    flow_state = _fld(status_view, "train_flow_state")
+    flow_state = safe_get_field(status_view, "train_flow_state")
     train_status_key, _ = _train_status_meta(vm.get("unified") or {}, vm.get("kind"))
     payload["status"] = {
         "key": train_status_key,
         "flow_state": flow_state,
         "train_type": {
-            "label": _fld(status_view, "train_type_label"),
-            "is_live": bool(_fld(status_view, "is_live_train")),
-            "live_badge_class": _fld(status_view, "live_badge_class"),
+            "label": safe_get_field(status_view, "train_type_label"),
+            "is_live": bool(safe_get_field(status_view, "is_live_train")),
+            "live_badge_class": safe_get_field(status_view, "live_badge_class"),
         },
     }
 
     origin_display_time = _compute_origin_display_time(schedule_view, status_view)
     destination_display_time = (
-        _fld(schedule_view, "destination_time")
-        or _fld(schedule_view, "scheduled_destination_time")
+        safe_get_field(schedule_view, "destination_time")
+        or safe_get_field(schedule_view, "scheduled_destination_time")
         or "--:--"
     )
     payload["schedule"] = {
         "origin": {
             "display": origin_display_time,
-            "scheduled": _fld(schedule_view, "scheduled_origin_time"),
-            "state": _fld(schedule_view, "origin_time_state") or "on-time",
-            "show_scheduled": bool(_fld(schedule_view, "show_origin_schedule_time")),
-            "rt": _fld(schedule_view, "origin_time"),
+            "scheduled": safe_get_field(schedule_view, "scheduled_origin_time"),
+            "state": safe_get_field(schedule_view, "origin_time_state") or "on-time",
+            "show_scheduled": bool(safe_get_field(schedule_view, "show_origin_schedule_time")),
+            "rt": safe_get_field(schedule_view, "origin_time"),
         },
         "destination": {
             "display": destination_display_time,
-            "scheduled": _fld(schedule_view, "scheduled_destination_time"),
-            "state": _fld(schedule_view, "destination_time_state") or "on-time",
-            "show_scheduled": bool(_fld(schedule_view, "show_destination_schedule_time")),
-            "rt": _fld(schedule_view, "destination_time"),
+            "scheduled": safe_get_field(schedule_view, "scheduled_destination_time"),
+            "state": safe_get_field(schedule_view, "destination_time_state") or "on-time",
+            "show_scheduled": bool(safe_get_field(schedule_view, "show_destination_schedule_time")),
+            "rt": safe_get_field(schedule_view, "destination_time"),
         },
-        "rt_updated_iso": _fld(schedule_view, "rt_updated_iso")
-        or _fld(detail_view, "rt_updated_iso"),
+        "rt_updated_iso": safe_get_field(schedule_view, "rt_updated_iso")
+        or safe_get_field(detail_view, "rt_updated_iso"),
     }
     payload["stops"] = {"count": stop_count, "items": stops_payload}
     return JSONResponse(jsonable_encoder(payload))
@@ -756,6 +750,32 @@ def upcoming_services_for_stop(
     )
 
     cache = get_live_trains_cache()
+    from app.services.train_services_index import build_train_detail_vm
+
+    # Pre-compute train details to avoid N+1 queries
+    nucleus_slug = (getattr(stop, "nucleus_id", None) or "").lower()
+    train_details_cache: dict[str, dict] = {}
+
+    for pred in predictions:
+        train = None
+        if pred.train_id:
+            train = cache.get_by_id(str(pred.train_id))
+        elif pred.vehicle_id:
+            train = cache.get_by_id(str(pred.vehicle_id))
+        if train:
+            identifier = str(
+                getattr(train, "train_id", None)
+                or getattr(train, "vehicle_id", None)
+                or getattr(train, "label", "")
+            )
+            if identifier and identifier not in train_details_cache:
+                try:
+                    train_details_cache[identifier] = build_train_detail_vm(
+                        nucleus_slug, identifier, tz_name=tz
+                    )
+                except Exception:
+                    train_details_cache[identifier] = {}
+
     services: list[dict[str, Any]] = []
     for pred in predictions:
         train = None
@@ -763,34 +783,28 @@ def upcoming_services_for_stop(
             train = cache.get_by_id(str(pred.train_id))
         elif pred.vehicle_id:
             train = cache.get_by_id(str(pred.vehicle_id))
-        # Enrich with current/next/progress if available via train_services_index
-        from app.services.train_services_index import build_train_detail_vm
 
         train_info = _train_as_dict(train)
         if train:
-            try:
-                nucleus_slug = (getattr(stop, "nucleus_id", None) or "").lower()
-                identifier = str(
-                    getattr(train, "train_id", None)
-                    or getattr(train, "vehicle_id", None)
-                    or getattr(train, "label", "")
+            identifier = str(
+                getattr(train, "train_id", None)
+                or getattr(train, "vehicle_id", None)
+                or getattr(train, "label", "")
+            )
+            detail_vm = train_details_cache.get(identifier, {})
+            enriched = detail_vm.get("unified") or {}
+            if isinstance(enriched, dict):
+                if train_info is None:
+                    train_info = {}
+                train_info.update(
+                    {
+                        "current_stop_id": enriched.get("current_stop_id"),
+                        "current_stop_name": enriched.get("current_stop_name"),
+                        "next_stop_id": enriched.get("next_stop_id"),
+                        "next_stop_name": enriched.get("next_stop_name"),
+                        "next_stop_progress_pct": enriched.get("next_stop_progress_pct"),
+                    }
                 )
-                detail_vm = build_train_detail_vm(nucleus_slug, identifier, tz_name=tz)
-                enriched = detail_vm.get("unified") or {}
-                if isinstance(enriched, dict):
-                    if train_info is None:
-                        train_info = {}
-                    train_info.update(
-                        {
-                            "current_stop_id": enriched.get("current_stop_id"),
-                            "current_stop_name": enriched.get("current_stop_name"),
-                            "next_stop_id": enriched.get("next_stop_id"),
-                            "next_stop_name": enriched.get("next_stop_name"),
-                            "next_stop_progress_pct": enriched.get("next_stop_progress_pct"),
-                        }
-                    )
-            except Exception:
-                pass
         platform_info = None
         nucleus_slug = getattr(stop, "nucleus_id", "") or ""
         raw_stop_dir = getattr(stop, "direction_id", None)
