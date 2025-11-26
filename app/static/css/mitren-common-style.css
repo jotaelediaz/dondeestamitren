@@ -991,6 +991,11 @@ ul.chip-list {
 .line-link--a, .line-link--b { display: flex; }
 .line-link--a[hidden], .line-link--b[hidden] { display: none !important; }
 
+[hidden],
+.is-hidden {
+    display: none !important;
+}
+
 /* - Route Maps - */
 
 .grid-route-map {
@@ -2814,6 +2819,35 @@ ul.chip-list {
         var(--jotaele-text-subtle) var(--next_stop_progress),
         var(--line-color) var(--next_stop_progress)
     ) !important;
+}
+
+.grid-route-map.train-status--enroute .grid-route-map-station.current-stop .route-line-fragment::after,
+.grid-route-map.train-status--arriving .grid-route-map-station.current-stop .route-line-fragment::after {
+    content: '';
+    position: absolute;
+    top: var(--next_stop_progress);
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: calc(var(--icon-dot-size) * 1.2);
+    height: calc(var(--icon-dot-size) * 1.2);
+    background: red;
+    border-radius: 50%;
+    z-index: 10;
+    pointer-events: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3),
+                0 0 8px rgba(255, 0, 0, 0.6);
+    animation: trainPulse 2s ease-in-out infinite;
+}
+
+@keyframes trainPulse {
+    0%, 100% {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3),
+                    0 0 8px rgba(255, 0, 0, 0.6);
+    }
+    50% {
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4),
+                    0 0 12px rgba(255, 0, 0, 0.8);
+    }
 }
 
 /* - Scroll target highlight - */

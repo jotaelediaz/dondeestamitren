@@ -214,6 +214,10 @@
         const currentStopId = segment?.from_stop?.id ?? payload.current_stop_id ?? null;
         const nextStopName = segment?.to_stop?.name ?? payload.next_stop_name ?? null;
         const currentStopName = segment?.from_stop?.name ?? payload.current_stop_name ?? null;
+
+        // Debug logging
+        console.log(`[Train Indicator] Payload: current=${currentStopId}, next=${nextStopId}, status=${statusKey}`);
+
         const stops = rawStops.map((stop) => {
             const sid = stop?.stop_id ?? stop?.stopId;
             const isNext = stop?.is_next_stop ?? stop?.is_next ?? (nextStopId && sid && String(sid) === String(nextStopId));
@@ -319,6 +323,12 @@
         const isCurrent = stop.is_current_stop ?? stop.is_current ?? false;
         if (isNext) classes.push('next-stop');
         if (isCurrent) classes.push('current-stop');
+
+        // Debug logging
+        if (isNext || isCurrent) {
+            console.log(`[Train Indicator] Stop ${stopId}: current=${isCurrent}, next=${isNext}`);
+        }
+
         el.className = classes.join(' ').trim();
         if (stop.station_id) el.dataset.stationId = stop.station_id;
         if (stop.stop_id) el.dataset.stopId = stop.stop_id;
@@ -842,7 +852,9 @@
         if (st.progressTimer) return;
         st.progressTimer = setInterval(() => {
             const val = inferProgressAt(st, Date.now());
-            if (val !== null) updateTrainProgressUI(panel, val);
+            if (val !== null) {
+                updateTrainProgressUI(panel, val);
+            }
         }, TRAIN_PROGRESS_TICK);
     }
 
