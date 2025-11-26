@@ -551,6 +551,7 @@ def live_train_position(
                 "iso": vm.get("train_seen_iso"),
                 "age_s": vm.get("train_seen_age"),
             },
+            "is_ghost_train": unified.get("is_ghost_train", False),
         },
         "position": {
             "lat": float(lat) if has_position else None,

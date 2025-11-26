@@ -32,6 +32,7 @@ class TrainStatusView:
     seen_at_destination: bool
     live_badge_class: str
     show_through_label: bool = False
+    is_ghost_train: bool = False
 
 
 @dataclass
@@ -344,6 +345,9 @@ def _build_status_view(
     elif is_seen_stale:
         live_badge_class = "is-semi-stale"
 
+    # Determine if train is in ghost mode (live but without recent updates)
+    is_ghost_train = is_live_train and is_seen_stale and not seen_at_destination
+
     return TrainStatusView(
         train_type_label=train_type_label,
         train_flow_state=train_flow_state,
@@ -356,6 +360,7 @@ def _build_status_view(
         seen_at_destination=seen_at_destination,
         live_badge_class=live_badge_class,
         show_through_label=False,
+        is_ghost_train=is_ghost_train,
     )
 
 

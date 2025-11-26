@@ -2821,6 +2821,52 @@ ul.chip-list {
     ) !important;
 }
 
+/* - Ghost train mode (estimated position) - */
+
+.grid-route-map.ghost-train {
+    /* Subtle opacity to indicate estimated position */
+    opacity: 0.85;
+}
+
+.grid-route-map.ghost-train .route-line-fragment {
+    /* Dashed line pattern to indicate estimated route */
+    background: repeating-linear-gradient(
+        to bottom,
+        var(--line-color) 0px,
+        var(--line-color) 8px,
+        transparent 8px,
+        transparent 12px
+    ) !important;
+}
+
+.grid-route-map.ghost-train .route-dot {
+    /* Slightly faded dots for ghost mode */
+    opacity: 0.7;
+    border-style: dashed;
+}
+
+/* Ghost train with progress gradient */
+.grid-route-map.ghost-train.train-status--enroute .grid-route-map-station.current-stop .route-line-fragment,
+.grid-route-map.ghost-train.train-status--arriving .grid-route-map-station.current-stop .route-line-fragment {
+    /* Dashed gradient for ghost train progress */
+    background: repeating-linear-gradient(
+        to bottom,
+        var(--jotaele-text-subtle) 0px,
+        var(--jotaele-text-subtle) 8px,
+        transparent 8px,
+        transparent 12px
+    ) 0 0 / 100% var(--next_stop_progress),
+    repeating-linear-gradient(
+        to bottom,
+        var(--line-color) 0px,
+        var(--line-color) 8px,
+        transparent 8px,
+        transparent 12px
+    ) 0 var(--next_stop_progress) / 100% calc(100% - var(--next_stop_progress)) !important;
+}
+
+/* - Train position indicator - */
+
 .grid-route-map.train-status--enroute .grid-route-map-station.current-stop .route-line-fragment::after,
 .grid-route-map.train-status--arriving .grid-route-map-station.current-stop .route-line-fragment::after {
     content: '';

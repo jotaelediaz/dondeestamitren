@@ -1751,6 +1751,15 @@ def build_train_detail_vm(
         vm["destination_stop_id"] = dest_stop_id
         vm["destination_name"] = dest_name
 
+        # Determine if train is in ghost mode (live but without recent updates)
+        # Ghost train = stale (>60s), not at destination
+        train_seen_age = vm.get("train_seen_age")
+        is_seen_stale = isinstance(train_seen_age, int | float) and train_seen_age > 60
+        seen_at_destination = (
+            current_stop_id and dest_stop_id and str(current_stop_id) == str(dest_stop_id)
+        )
+        is_ghost_train = is_seen_stale and not seen_at_destination
+
         vm["unified"] = {
             "kind": "live",
             "id": getattr(live_obj, "train_id", None)
@@ -1779,6 +1788,7 @@ def build_train_detail_vm(
             "current_stop_name": current_stop_name,
             "next_stop_id": next_stop_id_val,
             "next_stop_name": next_stop_name_val,
+            "is_ghost_train": is_ghost_train,
         }
         return vm
 

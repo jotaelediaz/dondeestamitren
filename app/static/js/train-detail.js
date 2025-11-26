@@ -293,6 +293,7 @@
             seen_iso: train?.seen?.iso ?? payload.train_seen_iso ?? null,
             rt_updated_iso: schedule.rt_updated_iso,
             position,
+            is_ghost_train: Boolean(payload.train?.is_ghost_train || payload.is_estimated),
             interpolation: {
                 anchor_progress: numberOrNull(interpolation.anchor_progress) ?? progressPct ?? 0,
                 anchor_ts: numberOrNull(interpolation.anchor_ts) ?? numberOrNull(position?.ts_unix),
@@ -517,8 +518,13 @@
 
         const map = panel.querySelector('[data-train-progress-map]');
         if (map) {
-            const base = Array.from(map.classList).filter((cls) => !cls.startsWith('train-status--'));
+            const base = Array.from(map.classList).filter((cls) => !cls.startsWith('train-status--') && cls !== 'ghost-train');
             if (model.status_class) base.push(model.status_class);
+
+            // Add ghost-train class if train is in ghost mode
+            const isGhostTrain = Boolean(model.is_ghost_train || model.is_estimated);
+            if (isGhostTrain) base.push('ghost-train');
+
             map.className = base.join(' ').trim();
             if (trainStatusKey) map.dataset.trainStatus = String(trainStatusKey).toLowerCase();
         }
