@@ -540,6 +540,16 @@ def live_train_position(
             # Already at 100%, target is now
             interpolation_target_ts = pos_ts
 
+    # Determine segment endpoints, ensuring they're different
+    from_stop_id = unified.get("current_stop_id") or getattr(train_obj, "current_stop_id", None)
+    to_stop_id = getattr(train_obj, "next_stop_id", None) or unified.get("next_stop_id")
+
+    # Fallback to stop_id only if it's different from next_stop_id
+    if not from_stop_id:
+        fallback_stop_id = getattr(train_obj, "stop_id", None)
+        if fallback_stop_id and str(fallback_stop_id) != str(to_stop_id or ""):
+            from_stop_id = fallback_stop_id
+
     payload: dict[str, Any] = {
         "train": {
             "id": getattr(train_obj, "train_id", None),
@@ -562,14 +572,12 @@ def live_train_position(
         },
         "segment": {
             "from_stop": {
-                "id": unified.get("current_stop_id")
-                or getattr(train_obj, "current_stop_id", None)
-                or getattr(train_obj, "stop_id", None),
+                "id": from_stop_id,
                 "name": unified.get("current_stop_name")
                 or getattr(train_obj, "current_stop_name", None),
             },
             "to_stop": {
-                "id": getattr(train_obj, "next_stop_id", None) or unified.get("next_stop_id"),
+                "id": to_stop_id,
                 "name": unified.get("next_stop_name") or getattr(train_obj, "next_stop_name", None),
             },
             "dep_epoch": seg_dep_epoch,

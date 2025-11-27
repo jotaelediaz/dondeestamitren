@@ -36,7 +36,22 @@
     }
 
     // ------------------ Train detail anchor scroll ------------------
-    function scrollTrainDetailToAnchor() {
+
+    // Track user scroll interaction to avoid interrupting manual exploration
+    let lastUserScrollTime = 0;
+    let lastAutoScrolledStopId = null;
+    const USER_SCROLL_COOLDOWN_MS = 10000; // Don't autoscroll for 10s after user scrolls
+
+    function markUserScrolled() {
+        lastUserScrollTime = Date.now();
+    }
+
+    function isUserRecentlyScrolled() {
+        return (Date.now() - lastUserScrollTime) < USER_SCROLL_COOLDOWN_MS;
+    }
+
+    function scrollTrainDetailToAnchor(options = {}) {
+        const { force = false, reason = 'manual' } = options;
         const scrollContainer = document.querySelector('.grouped-lists-scroll');
         const gridContainer = scrollContainer?.querySelector('.grid-route-map');
 
@@ -61,6 +76,19 @@
                 return;
             }
             targetId = targetElement.id || '';
+
+            // For automatic scrolls (train moved), check if user is manually exploring
+            if (reason === 'train-update' && !force) {
+                if (isUserRecentlyScrolled()) {
+                    console.debug('[Autoscroll] Skipping: user scrolled recently');
+                    return;
+                }
+
+                // Don't scroll if we already scrolled to this stop
+                if (lastAutoScrolledStopId === targetId) {
+                    return;
+                }
+            }
         } else {
             return;
         }
@@ -91,6 +119,12 @@
 
         targetElement.classList.add('scroll-target');
 
+        // Remember we scrolled to this stop (for automatic scrolls)
+        if (reason === 'train-update') {
+            lastAutoScrolledStopId = targetId;
+            console.debug(`[Autoscroll] Following train to ${targetId}`);
+        }
+
         setTimeout(function() {
             targetElement.classList.remove('scroll-target');
         }, 2000);
@@ -100,31 +134,53 @@
         if (trainDetailScrollHandlersBound) return;
         trainDetailScrollHandlersBound = true;
 
-        const scheduleScroll = (delay = 400) => {
-            setTimeout(scrollTrainDetailToAnchor, delay);
+        const scheduleScroll = (delay = 400, reason = 'manual') => {
+            setTimeout(() => scrollTrainDetailToAnchor({ reason }), delay);
         };
 
         const handleHtmx = (evt) => {
             const target = evt?.detail?.target;
             if (!target) return;
             if (target.id === 'content' || (typeof target.closest === 'function' && target.closest('#content'))) {
-                scheduleScroll(400);
+                scheduleScroll(400, 'page-load');
             }
         };
 
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', function handleDomContentLoaded() {
                 document.removeEventListener('DOMContentLoaded', handleDomContentLoaded);
-                scheduleScroll(500);
+                scheduleScroll(500, 'page-load');
             });
         } else {
-            scheduleScroll(500);
+            scheduleScroll(500, 'page-load');
         }
 
         document.addEventListener('htmx:afterSettle', handleHtmx);
         document.addEventListener('htmx:afterSwap', handleHtmx);
-        window.addEventListener('popstate', () => scheduleScroll(400));
-        window.addEventListener('hashchange', () => scheduleScroll(400));
+        window.addEventListener('popstate', () => scheduleScroll(400, 'navigation'));
+        window.addEventListener('hashchange', () => scheduleScroll(400, 'navigation'));
+
+        // Detect user manual scrolling (with retry if container not yet loaded)
+        function bindScrollDetection() {
+            const scrollContainer = document.querySelector('.grouped-lists-scroll');
+            if (scrollContainer && !scrollContainer.dataset.scrollListenerBound) {
+                scrollContainer.dataset.scrollListenerBound = 'true';
+                let scrollTimeout;
+                scrollContainer.addEventListener('scroll', () => {
+                    // Debounce: only mark as user scroll if they stop scrolling
+                    clearTimeout(scrollTimeout);
+                    scrollTimeout = setTimeout(() => {
+                        markUserScrolled();
+                    }, 150); // Wait 150ms after scroll stops
+                }, { passive: true });
+                console.debug('[Autoscroll] Scroll detection bound');
+            }
+        }
+
+        // Try immediately and retry after delays (in case DOM not ready)
+        bindScrollDetection();
+        setTimeout(bindScrollDetection, 500);
+        setTimeout(bindScrollDetection, 1000);
     }
 
     bindTrainDetailScrollHandlers();
@@ -217,6 +273,11 @@
 
         // Debug logging
         console.log(`[Train Indicator] Payload: current=${currentStopId}, next=${nextStopId}, status=${statusKey}`);
+
+        // Validate that current and next stops are different (unless both are null)
+        if (currentStopId && nextStopId && String(currentStopId) === String(nextStopId)) {
+            console.warn(`[Train Indicator] WARNING: current_stop_id and next_stop_id are the same (${currentStopId}). This indicates a backend data issue.`);
+        }
 
         const stops = rawStops.map((stop) => {
             const sid = stop?.stop_id ?? stop?.stopId;
@@ -517,7 +578,9 @@
             if (txt) txt.textContent = model.next_stop_name || model.current_stop_name || statusMeta.descriptor || '';
         }
 
-        const map = panel.querySelector('[data-train-progress-map]');
+        // Find route-map: it's not inside panel, but in parent container
+        const contentArea = panel.closest('.train-details-content-area') || document;
+        const map = contentArea.querySelector('[data-train-progress-map]');
         if (map) {
             const base = Array.from(map.classList).filter((cls) => !cls.startsWith('train-status--') && cls !== 'ghost-train');
             if (model.status_class) base.push(model.status_class);
@@ -526,8 +589,26 @@
             const isGhostTrain = Boolean(model.is_ghost_train || model.is_estimated);
             if (isGhostTrain) base.push('ghost-train');
 
+            const oldStatus = map.dataset.trainStatus;
+            const newStatus = String(trainStatusKey).toLowerCase();
+
+            // Debug: Log status changes and class updates
+            if (oldStatus !== newStatus) {
+                console.log(`[Status Change] ${oldStatus || 'undefined'} → ${newStatus}, class: ${model.status_class || 'none'}`);
+            }
+
+            // Find which stations have current-stop and next-stop classes
+            const currentStopEl = map.querySelector('.current-stop');
+            const nextStopEl = map.querySelector('.next-stop');
+            const currentStopId = currentStopEl?.dataset?.stopId || 'none';
+            const nextStopId = nextStopEl?.dataset?.stopId || 'none';
+
+            console.log(`[Route Map] status=${newStatus}, current=${model.current_stop_id || 'none'} (DOM: ${currentStopId}), next=${model.next_stop_id || 'none'} (DOM: ${nextStopId}), progress=${model.progress_pct}%`);
+
             map.className = base.join(' ').trim();
-            if (trainStatusKey) map.dataset.trainStatus = String(trainStatusKey).toLowerCase();
+            if (trainStatusKey) map.dataset.trainStatus = newStatus;
+        } else {
+            console.warn('[Route Map] Could not find route-map element');
         }
 
         const progress = model.progress_pct;
@@ -537,6 +618,25 @@
 
         (model.stops || []).forEach((stop) => updateStopRow(panel, stop));
         updateTrainDetailDebug(panel, model);
+
+        // Auto-scroll to follow train as it moves (only for live trains)
+        const st = panel.__trainAuto;
+        if (st && model.train_kind === 'live') {
+            const currentNextStopId = model.next_stop_id;
+            const previousNextStopId = st.trackedNextStopId;
+
+            // If next_stop changed, the train moved to a new segment
+            if (currentNextStopId && previousNextStopId && String(currentNextStopId) !== String(previousNextStopId)) {
+                console.debug(`[Autoscroll] Train advanced: ${previousNextStopId} → ${currentNextStopId}`);
+                // Schedule autoscroll with a small delay to let DOM updates settle
+                setTimeout(() => {
+                    scrollTrainDetailToAnchor({ reason: 'train-update' });
+                }, 200);
+            }
+
+            // Update tracked stop
+            st.trackedNextStopId = currentNextStopId;
+        }
     }
 
     function stopTrainDetailAuto(panel) {
@@ -576,10 +676,24 @@
             disableBoostForStopLinks(panel);
             const animVal = inferProgressAt(st, Date.now());
             if (animVal !== null) updateTrainProgressUI(panel, animVal);
-        }
 
-        if (model.train_kind) panel.dataset.trainKind = model.train_kind;
-        if (model.status_key) panel.dataset.trainStatus = model.status_key;
+            // After HTML swap, immediately sync status attributes to prevent stale values
+            // The swapped HTML might have old data-train-status baked in from server render
+            if (model.train_kind) panel.dataset.trainKind = model.train_kind;
+            const statusKey = String(model.status_key || 'UNKNOWN').toLowerCase();
+            if (model.status_key) {
+                panel.dataset.trainStatus = statusKey;
+                // Also update the route-map's status immediately to keep them in sync
+                // Note: route-map is outside panel, search in parent container
+                const contentArea = panel.closest('.train-details-content-area') || document;
+                const map = contentArea.querySelector('[data-train-progress-map]');
+                if (map) map.dataset.trainStatus = statusKey;
+            }
+        } else {
+            // No HTML swap, just update attributes normally
+            if (model.train_kind) panel.dataset.trainKind = model.train_kind;
+            if (model.status_key) panel.dataset.trainStatus = model.status_key;
+        }
 
         updateTrainDetailUI(panel, model);
         updateServerProgressLabel(panel, serverProgressForLabel);
@@ -692,6 +806,7 @@
                 serverProgress: null,
                 lastStopId: null,
                 progressTimer: null,
+                trackedNextStopId: null, // For autoscroll tracking
             };
         }
 
