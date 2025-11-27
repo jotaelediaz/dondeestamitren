@@ -617,6 +617,44 @@
         }
 
         (model.stops || []).forEach((stop) => updateStopRow(panel, stop));
+
+        // Update current-stop and next-stop classes even if model.stops is empty
+        if (model.current_stop_id || model.next_stop_id) {
+            const contentArea = panel.closest('.train-details-content-area') || document;
+            const routeMap = contentArea.querySelector('[data-train-progress-map]');
+
+            if (routeMap) {
+                routeMap.querySelectorAll('.current-stop, .next-stop').forEach(el => {
+                    el.classList.remove('current-stop', 'next-stop');
+                });
+
+                // Add current-stop class to the correct element
+                if (model.current_stop_id) {
+                    const currentStopEl = routeMap.querySelector(`[data-stop-id="${model.current_stop_id}"]`);
+                    if (currentStopEl) {
+                        currentStopEl.classList.add('current-stop');
+                        if (!currentStopEl.classList.contains('current-station')) {
+                            currentStopEl.classList.remove('passed-station', 'future-station');
+                            currentStopEl.classList.add('current-station');
+                        }
+                    }
+                }
+
+                // Add next-stop class to the correct element
+                if (model.next_stop_id) {
+                    const nextStopEl = routeMap.querySelector(`[data-stop-id="${model.next_stop_id}"]`);
+                    if (nextStopEl) {
+                        nextStopEl.classList.add('next-stop');
+                        if (model.current_stop_id !== model.next_stop_id &&
+                            !nextStopEl.classList.contains('future-station')) {
+                            nextStopEl.classList.remove('passed-station', 'current-station');
+                            nextStopEl.classList.add('future-station');
+                        }
+                    }
+                }
+            }
+        }
+
         updateTrainDetailDebug(panel, model);
 
         // Auto-scroll to follow train as it moves (only for live trains)
