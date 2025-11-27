@@ -1760,6 +1760,18 @@ def build_train_detail_vm(
         )
         is_ghost_train = is_seen_stale and not seen_at_destination
 
+        # If train is "arriving" but progress shows it's already at the station (>=95%),
+        # treat it as "stopped" for better visual accuracy
+        current_status = getattr(live_obj, "current_status", None)
+        if (
+            str(current_status).upper() == "INCOMING_AT"
+            and isinstance(progress_pct, int | float)
+            and progress_pct >= 95
+        ):
+            current_status = "STOPPED_AT"
+            # When stopped at station, progress should be 0 (not 95%)
+            progress_pct = 0
+
         vm["unified"] = {
             "kind": "live",
             "id": getattr(live_obj, "train_id", None)
@@ -1774,7 +1786,7 @@ def build_train_detail_vm(
             "destination_name": dest_name,
             "status_text": status_text,
             "platform": vm["platform"],
-            "current_status": getattr(live_obj, "current_status", None),
+            "current_status": current_status,
             "lat": getattr(live_obj, "lat", None),
             "lon": getattr(live_obj, "lon", None),
             "trip_id": trip_id,

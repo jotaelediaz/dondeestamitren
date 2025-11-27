@@ -220,8 +220,9 @@
 
         const stops = rawStops.map((stop) => {
             const sid = stop?.stop_id ?? stop?.stopId;
-            const isNext = stop?.is_next_stop ?? stop?.is_next ?? (nextStopId && sid && String(sid) === String(nextStopId));
-            const isCurrent = stop?.is_current_stop ?? stop?.is_current ?? (currentStopId && sid && String(sid) === String(currentStopId));
+            // Always recalculate based on current backend data to prevent stale classes
+            const isNext = nextStopId && sid && String(sid) === String(nextStopId);
+            const isCurrent = currentStopId && sid && String(sid) === String(currentStopId);
             return { ...stop, is_next_stop: !!isNext, is_current_stop: !!isCurrent };
         });
         const segmentDep = segment?.dep_epoch

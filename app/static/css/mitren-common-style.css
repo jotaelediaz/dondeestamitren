@@ -2608,7 +2608,7 @@ ul.chip-list {
 .arrival-hour-sched {
     color: var(--jotaele-black);
     font-weight: 400;
-    font-size: 0.85rem;
+    font-size: 1rem;
 }
 
 .arrival-hour-sched.train-arrival-time--late {
@@ -2894,6 +2894,17 @@ ul.chip-list {
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4),
                     0 0 12px rgba(255, 0, 0, 0.8);
     }
+}
+
+/* When train is stopped at station, make the station dot itself red with pulse effect */
+.grid-route-map.train-status--stopped .grid-route-map-station.current-stop .route-dot {
+    background: red;
+    border-color: red;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3),
+                0 0 8px rgba(255, 0, 0, 0.6);
+    animation: trainPulse 2s ease-in-out infinite;
+    transform: scale(1.2);
+    z-index: 10;
 }
 
 /* - Scroll target highlight - */
