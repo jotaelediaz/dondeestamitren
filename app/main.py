@@ -24,7 +24,7 @@ from app.routers.web_admin import router as web_admin_router
 from app.routers.web_alpha import router as web_alpha_router
 from app.services.gtfs_static_manager import STORE_ROOT
 from app.services.live_trains_cache import get_live_trains_cache
-from app.services.ws_manager import broadcast_trains_sync, set_event_loop
+from app.services.ws_manager import broadcast_train_sync, broadcast_trains_sync, set_event_loop
 
 scheduler: BackgroundScheduler | None = None
 
@@ -88,32 +88,132 @@ def build_scheduler() -> BackgroundScheduler:
 
         # Broadcast to WebSocket subscribers
         try:
+            from app.routers.trains_api import _detail_payload
+            from app.services.eta_projector import build_rt_arrival_times_from_vm
+            from app.services.routes_repo import get_repo as get_routes_repo
+            from app.services.train_services_index import build_train_detail_vm
             from app.services.ws_manager import get_ws_manager
+            from app.viewkit import hhmm_local, safe_get_field
+            from app.viewmodels.train_detail import build_train_detail_view
 
             manager = get_ws_manager()
 
             # Get nuclei with active subscribers
-            active_nuclei = list(manager._by_nucleus.keys())
+            active_nuclei = manager.active_nuclei_blocking()
 
             for nucleus in active_nuclei:
                 trains = cache.get_by_nucleus(nucleus)
                 if trains:
                     # Convert trains to dicts for JSON serialization
                     trains_data = []
+                    train_subs = set()
+                    try:
+                        train_subs = manager.trains_for_nucleus_blocking(nucleus)
+                    except Exception:
+                        train_subs = set()
+                    train_subs_norm = {str(x) for x in train_subs}
+
                     for t in trains:
-                        trains_data.append(
-                            {
-                                "train_id": getattr(t, "train_id", None),
-                                "route_id": getattr(t, "route_id", None),
-                                "route_short_name": getattr(t, "route_short_name", None),
-                                "direction_id": getattr(t, "direction_id", None),
-                                "stop_id": getattr(t, "stop_id", None),
-                                "current_status": getattr(t, "current_status", None),
-                                "lat": getattr(t, "lat", None),
-                                "lon": getattr(t, "lon", None),
-                                "timestamp": getattr(t, "timestamp", None),
-                            }
-                        )
+                        # Basic payload for list view
+                        payload = {
+                            "train_id": getattr(t, "train_id", None),
+                            "label": getattr(t, "label", None),
+                            "route_id": getattr(t, "route_id", None),
+                            "route_short_name": getattr(t, "route_short_name", None),
+                            "direction_id": getattr(t, "direction_id", None),
+                            "stop_id": getattr(t, "stop_id", None),
+                            "current_status": getattr(t, "current_status", None),
+                            "lat": getattr(t, "lat", None),
+                            "lon": getattr(t, "lon", None),
+                            "timestamp": getattr(t, "timestamp", None),
+                        }
+                        trains_data.append(payload)
+
+                        # For subscribed trains, build complete detail payload
+                        tid = payload.get("train_id")
+                        if tid and str(tid) in train_subs_norm:
+                            try:
+                                # Build complete train detail view model
+                                vm = build_train_detail_vm(
+                                    nucleus, str(tid), tz_name="Europe/Madrid"
+                                )
+
+                                if vm.get("kind") == "live":
+                                    # Build RT arrival times
+                                    rt_info = (
+                                        build_rt_arrival_times_from_vm(vm, tz_name="Europe/Madrid")
+                                        or {}
+                                    )
+                                    rt_arrival_times = {
+                                        str(sid): {
+                                            "epoch": rec.get("epoch"),
+                                            "hhmm": (
+                                                hhmm_local(rec.get("epoch"), "Europe/Madrid")
+                                                if rec.get("epoch")
+                                                else rec.get("hhmm")
+                                            ),
+                                            "delay_s": rec.get("delay_s"),
+                                            "delay_min": rec.get("delay_min"),
+                                        }
+                                        for sid, rec in (rt_info or {}).items()
+                                    }
+
+                                    # Add passed stops
+                                    for stop in (vm.get("trip") or {}).get("stops") or []:
+                                        sid = safe_get_field(stop, "stop_id")
+                                        epoch = safe_get_field(stop, "passed_at_epoch")
+                                        if sid is None or epoch is None:
+                                            continue
+                                        delay_s = safe_get_field(stop, "passed_delay_s")
+                                        rt_arrival_times[str(sid)] = {
+                                            "epoch": epoch,
+                                            "hhmm": (
+                                                stop.get("passed_at_hhmm")
+                                                if isinstance(stop, dict)
+                                                else None
+                                            ),
+                                            "delay_s": delay_s,
+                                            "delay_min": (
+                                                int(delay_s / 60)
+                                                if isinstance(delay_s, int)
+                                                else None
+                                            ),
+                                            "is_passed": True,
+                                            "ts": epoch,
+                                        }
+
+                                    # Build detail view
+                                    repo = get_routes_repo()
+                                    train_obj = vm.get("train")
+                                    train_last_stop_id = getattr(train_obj, "stop_id", None)
+                                    detail_view = build_train_detail_view(
+                                        vm,
+                                        rt_arrival_times,
+                                        repo,
+                                        last_seen_stop_id=train_last_stop_id,
+                                    )
+
+                                    # Build complete payload
+                                    detail_payload_data = _detail_payload(detail_view, vm)
+
+                                    # Construct complete message for train detail subscribers
+                                    complete_payload = {
+                                        **payload,
+                                        "train_detail": detail_payload_data,
+                                        "unified": vm.get("unified"),
+                                    }
+
+                                    broadcast_train_sync(nucleus, complete_payload)
+                                else:
+                                    # Not live, send basic payload
+                                    broadcast_train_sync(nucleus, payload)
+                            except Exception as detail_error:
+                                log.debug(
+                                    "Error building train detail for %s: %s", tid, detail_error
+                                )
+                                # Fallback to basic payload
+                                broadcast_train_sync(nucleus, payload)
+
                     broadcast_trains_sync(nucleus, trains_data)
         except Exception as e:
             log.debug("WebSocket broadcast error: %s", e)

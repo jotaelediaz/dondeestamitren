@@ -717,12 +717,11 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
     order_sids = [sid for (_i, sid, _c) in order]
 
     current_sid = None
-    current_status_str = None
     with suppress(Exception):
         if (vm.get("kind") == "live") and vm.get("train"):
             train_obj = vm["train"]
             current_sid = getattr(train_obj, "current_stop_id", None)
-            current_status_str = getattr(train_obj, "current_status", None)
+            getattr(train_obj, "current_status", None)
             if not current_sid:
                 raw_stop_id = getattr(train_obj, "stop_id", None)
                 raw_status = getattr(train_obj, "current_status", None)

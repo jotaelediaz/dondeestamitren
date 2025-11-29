@@ -46,9 +46,14 @@
         reconnectDelay: 1000,
         listeners: new Map(),
         connected: false,
+        lastStationId: null,
+        lastTrainId: null,
+        fallbackTimer: null,
+        fallbackPollMs: 30000,
 
         connect(nucleus) {
             if (!nucleus) return;
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) return;
             this.nucleus = nucleus.toLowerCase();
 
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -60,8 +65,15 @@
                 this.socket.onopen = () => {
                     console.debug('[ws] Connected to', url);
                     this.connected = true;
+                    this.stopFallbackPolling();
                     this.reconnectAttempts = 0;
                     this.emit('connected', { nucleus: this.nucleus });
+                    if (this.lastStationId) {
+                        this.subscribe(this.lastStationId);
+                    }
+                    if (this.lastTrainId) {
+                        this.subscribeTrain(this.lastTrainId);
+                    }
                 };
 
                 this.socket.onmessage = (event) => {
@@ -88,6 +100,7 @@
                     } else {
                         console.debug('[ws] Max reconnect attempts reached, falling back to polling');
                         this.emit('fallback', {});
+                        this.startFallbackPolling();
                     }
                 };
 
@@ -106,6 +119,7 @@
                 this.socket = null;
             }
             this.connected = false;
+            this.stopFallbackPolling();
         },
 
         send(data) {
@@ -117,7 +131,14 @@
         },
 
         subscribe(stationId) {
+            this.lastStationId = stationId || null;
             return this.send({ type: 'subscribe', station_id: stationId });
+        },
+
+        subscribeTrain(trainId) {
+            if (!trainId) return false;
+            this.lastTrainId = trainId;
+            return this.send({ type: 'subscribe_train', train_id: trainId });
         },
 
         ping() {
@@ -143,11 +164,54 @@
             for (const cb of this.listeners.get(event)) {
                 try { cb(data); } catch (e) { console.debug('[ws] Listener error:', e); }
             }
-        }
+        },
+
+        startFallbackPolling() {
+            if (this.fallbackTimer) return;
+            this.fallbackTimer = setInterval(() => triggerGlobalTrainsRefresh('ws-fallback'), this.fallbackPollMs);
+        },
+
+        stopFallbackPolling() {
+            if (!this.fallbackTimer) return;
+            clearInterval(this.fallbackTimer);
+            this.fallbackTimer = null;
+        },
     };
+
+    function triggerGlobalTrainsRefresh(reason = 'ws') {
+        // Refresh trains drawer if open
+        const drawer = document.getElementById('drawer');
+        const isTrainsOpen = drawer && drawer.classList.contains('open') && drawer.dataset.mode === 'trains';
+        if (isTrainsOpen && typeof drawer.__refreshTrainsPanel === 'function') {
+            try {
+                drawer.__refreshTrainsPanel();
+            } catch (err) {
+                console.debug('[ws] Refresh trains drawer failed', err);
+            }
+        }
+
+        // Refresh any visible train detail panels
+        const panels = document.querySelectorAll('[data-train-api]');
+        panels.forEach(panel => {
+            if (window.TrainDetail && typeof window.TrainDetail.forceRefresh === 'function') {
+                try {
+                    window.TrainDetail.forceRefresh(panel);
+                } catch (err) {
+                    console.debug('[ws] TrainDetail forceRefresh failed', err);
+                }
+            }
+        });
+    }
 
     // Auto-connect WebSocket when page has nucleus info
     function initWebSocket() {
+        // Skip if we're on a train detail page - it has its own dedicated WebSocket
+        const isTrainDetailPage = document.querySelector('[data-train-detail]');
+        if (isTrainDetailPage) {
+            console.debug('[ws] Skipping general WebSocket init - train detail page has dedicated connection');
+            return;
+        }
+
         // Try to get nucleus from various sources
         const nucleusEl = document.querySelector('[data-nucleus]');
         const nucleus = nucleusEl?.dataset.nucleus ||
@@ -166,20 +230,50 @@
         }
     }
 
+    function subscribeTrainDetails() {
+        const panels = document.querySelectorAll('[data-train-detail][data-train-id]');
+        panels.forEach(panel => {
+            const tid = panel.dataset.trainId;
+            if (!tid) return;
+            wsManager.subscribeTrain(tid);
+        });
+    }
+
     // Handle train updates from WebSocket
     wsManager.on('trains_update', (data) => {
         console.debug('[ws] Trains update:', data.count, 'trains for', data.nucleus);
         // Dispatch custom event that other components can listen to
         window.dispatchEvent(new CustomEvent('trains-ws-update', { detail: data }));
+        triggerGlobalTrainsRefresh('ws-update');
+    });
+
+    wsManager.on('train_update', (data) => {
+        if (!data || !data.train_id) return;
+        console.debug('[ws] Train update:', data.train_id, 'for', data.nucleus);
+        const panels = document.querySelectorAll('[data-train-detail][data-train-id]');
+        panels.forEach(panel => {
+            const pid = panel.dataset.trainId;
+            if (!pid || String(pid) !== String(data.train_id)) return;
+            if (window.TrainDetail && typeof window.TrainDetail.forceRefresh === 'function') {
+                try {
+                    window.TrainDetail.forceRefresh(panel);
+                } catch (err) {
+                    console.debug('[ws] TrainDetail forceRefresh failed', err);
+                }
+            }
+        });
     });
 
     // Handle connection status
     wsManager.on('connected', () => {
         console.debug('[ws] WebSocket connected, real-time updates enabled');
+        wsManager.stopFallbackPolling();
+        subscribeTrainDetails();
     });
 
     wsManager.on('fallback', () => {
         console.debug('[ws] Falling back to HTTP polling');
+        triggerGlobalTrainsRefresh('ws-fallback');
     });
 
 // ------------------ Safe HTML Swap ------------------
@@ -2685,7 +2779,6 @@
 
 
     function init(root = document) {
-        console.debug('[init] init(root=)', root);
         root.querySelectorAll('form.search-box, form.search-station-box').forEach(enhanceSearchBox);
         bindSideSheet(root);
         bindReverseToggleDelegated();
@@ -2705,6 +2798,7 @@
         // Initialize WebSocket for real-time updates
         if (root === document) {
             initWebSocket();
+            subscribeTrainDetails();
         }
     }
 
@@ -2743,6 +2837,7 @@
 
                 if (node.matches?.('[data-train-detail]') || node.querySelector?.('[data-train-detail]')) {
                     if (window.TrainDetail) window.TrainDetail.bindAutoRefresh(node);
+                    subscribeTrainDetails();
                 }
             });
         }

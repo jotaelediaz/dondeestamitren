@@ -959,22 +959,45 @@ def _build_trip_rows(
     current_stop_id: str | None = None
     next_stop_id: str | None = effective_next_stop_id
     live_seq_val = seq_by_sid.get(str(live_sid)) if live_sid else None
+    prev_from_live = sid_by_seq.get(live_seq_val - 1) if live_seq_val is not None else None
+    next_after_live = sid_by_seq.get(live_seq_val + 1) if live_seq_val is not None else None
+    if next_after_live is None:
+        next_after_live = next_stop_after_live
+    speed_kmh = getattr(live_obj, "speed_kmh", None)
+    is_slow_train = isinstance(speed_kmh, int | float) and speed_kmh < 5
 
     if live_status == "STOPPED_AT" and live_sid:
         dist_m = _distance_to_stop(live_sid)
         # If Renfe reports STOPPED_AT too soon and we're far from the stop, keep it as "approaching"
         if dist_m is not None and dist_m > 300:
             next_stop_id = live_sid if next_stop_id is None else next_stop_id
-            if current_stop_id is None and live_seq_val is not None and live_seq_val > 0:
-                current_stop_id = sid_by_seq.get(live_seq_val - 1)
+            if current_stop_id is None and prev_from_live:
+                current_stop_id = prev_from_live
         else:
             current_stop_id = live_sid
-            if next_stop_id is None and live_seq_val is not None:
-                next_stop_id = sid_by_seq.get(live_seq_val + 1)
+            if next_stop_id is None:
+                next_stop_id = next_after_live
     elif live_status in {"IN_TRANSIT_TO", "INCOMING_AT"} and live_sid:
-        next_stop_id = live_sid if next_stop_id is None else next_stop_id
-        if live_seq_val is not None and live_seq_val > 0:
-            current_stop_id = sid_by_seq.get(live_seq_val - 1)
+        tu_seq_ahead_of_live = (
+            tu_next_seq is not None and live_seq_val is not None and tu_next_seq > live_seq_val
+        )
+
+        if tu_seq_ahead_of_live:
+            current_stop_id = live_sid
+            next_stop_id = tu_next_stop_id or next_after_live or next_stop_id or live_sid
+        else:
+            next_stop_id = tu_next_stop_id or live_sid or next_stop_after_live or next_stop_id
+            current_stop_id = prev_from_live
+
+        if (
+            live_status == "IN_TRANSIT_TO"
+            and is_slow_train
+            and live_sid
+            and current_stop_id is None
+        ):
+            current_stop_id = live_sid
+            if next_stop_id in (None, live_sid):
+                next_stop_id = tu_next_stop_id or next_after_live
 
     if current_stop_id is None:
         cur_row = next((r for r in rows if (r.get("status") or "").upper() == "CURRENT"), None)
@@ -1002,12 +1025,52 @@ def _build_trip_rows(
             if fut:
                 next_stop_id = fut.get("stop_id")
 
+    # ANTI-BACKTRACK VALIDATION: Prevent train position from going backwards
+    # Use stop_pass_records to validate against last confirmed position
+    from app.services.train_pass_recorder import get_last_seq
+
+    train_id_for_recording = getattr(live_obj, "train_id", None) if live_obj else None
+    if train_id_for_recording:
+        # Try to get service key for this train
+        service_key_candidate = None
+        if trip_id:
+            service_key_candidate = f"{_service_date_str(tz_name)}:{trip_id}"
+
+        if service_key_candidate:
+            last_confirmed_seq = get_last_seq(service_key_candidate)
+
+            if last_confirmed_seq > 0 and current_stop_id:
+                current_seq = seq_by_sid.get(str(current_stop_id))
+
+                if current_seq is not None and current_seq < last_confirmed_seq:
+                    # BACKTRACK DETECTED: current position is behind last confirmed stop
+                    # Restore to last confirmed position
+                    restored_stop_id = sid_by_seq.get(last_confirmed_seq)
+
+                    if restored_stop_id:
+                        import logging
+
+                        log = logging.getLogger("train_services")
+                        log.warning(
+                            "BACKTRACK PREVENTED for train %s: attempted current=%s (seq=%d) "
+                            "is behind last_confirmed_seq=%d. Restoring to stop_id=%s",
+                            train_id_for_recording,
+                            current_stop_id,
+                            current_seq,
+                            last_confirmed_seq,
+                            restored_stop_id,
+                        )
+
+                        current_stop_id = restored_stop_id
+
+                        # Recalculate next_stop_id coherently
+                        next_candidate = sid_by_seq.get(last_confirmed_seq + 1)
+                        if next_candidate:
+                            next_stop_id = next_candidate
+
     if current_stop_id and next_stop_id and str(current_stop_id) == str(next_stop_id):
         seq_current = seq_by_sid.get(str(current_stop_id))
-        if seq_current is not None:
-            next_stop_id = sid_by_seq.get(seq_current + 1)
-        else:
-            next_stop_id = None
+        next_stop_id = sid_by_seq.get(seq_current + 1) if seq_current is not None else None
 
     progress_val = _progress_for_segment(
         stop_meta,

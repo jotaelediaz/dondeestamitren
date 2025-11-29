@@ -1,6 +1,7 @@
 # app/routers/trains_api.py
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Any
@@ -14,7 +15,7 @@ from app.services.live_trains_cache import get_live_trains_cache
 from app.services.routes_repo import get_repo as get_routes_repo
 from app.services.shapes_repo import get_repo as get_shapes_repo
 from app.services.stops_repo import get_repo as get_stops_repo
-from app.services.train_services_index import build_train_detail_vm
+from app.services.train_services_index import _haversine_m, _latlon, build_train_detail_vm
 from app.services.ws_manager import get_ws_manager
 from app.viewkit import hhmm_local, safe_get_field
 from app.viewmodels.train_detail import build_train_detail_view
@@ -519,26 +520,42 @@ def live_train_position(
     interpolation_anchor_progress = progress_val if isinstance(progress_val, int | float) else None
     interpolation_target_ts = seg_arr_epoch if isinstance(seg_arr_epoch, int | float) else None
 
-    # Estimate target_ts when not available from schedule
+    # Estimate target_ts when not available from schedule using spatial/temporal hints
     if interpolation_target_ts is None and interpolation_anchor_progress is not None:
         remaining_pct = 100 - interpolation_anchor_progress
-        if remaining_pct > 0:
-            # Estimate based on train speed or default segment time
-            speed_kmh = getattr(train_obj, "speed_kmh", None)
-            if isinstance(speed_kmh, int | float) and speed_kmh > 5:
-                # Estimate ~2km per segment on average, calculate time to complete
-                avg_segment_km = 2.0
-                remaining_km = avg_segment_km * (remaining_pct / 100)
-                time_to_arrival_s = (remaining_km / speed_kmh) * 3600
-                interpolation_target_ts = pos_ts + time_to_arrival_s
-            else:
-                # Default: assume 2 minutes for full segment, scale by remaining
-                default_segment_seconds = 120
-                time_to_arrival_s = default_segment_seconds * (remaining_pct / 100)
-                interpolation_target_ts = pos_ts + time_to_arrival_s
-        else:
-            # Already at 100%, target is now
+        if remaining_pct <= 0:
             interpolation_target_ts = pos_ts
+        else:
+            # Prefer scheduled/ETA delta if segment times are known
+            if (
+                isinstance(seg_dep_epoch, int | float)
+                and isinstance(seg_arr_epoch, int | float)
+                and seg_arr_epoch > seg_dep_epoch
+            ):
+                now_ts = pos_ts or time.time()
+                elapsed = max(0.0, float(now_ts) - float(seg_dep_epoch))
+                total = float(seg_arr_epoch) - float(seg_dep_epoch)
+                remaining = max(0.0, total - elapsed)
+                interpolation_target_ts = now_ts + remaining
+            else:
+                # Distance-based estimate if positions are available
+                lat_cur, lon_cur = _latlon(train_obj)
+                to_lat = to_row.get("lat") if to_row else None
+                to_lon = to_row.get("lon") if to_row else None
+                dist_m = None
+                if None not in (lat_cur, lon_cur, to_lat, to_lon):
+                    dist_m = _haversine_m(
+                        float(lat_cur), float(lon_cur), float(to_lat), float(to_lon)
+                    )
+                speed_kmh = getattr(train_obj, "speed_kmh", None)
+                if isinstance(speed_kmh, int | float) and speed_kmh > 5 and dist_m:
+                    time_to_arrival_s = max(5.0, (float(dist_m) / max(speed_kmh, 1e-3)) * 3.6)
+                    interpolation_target_ts = pos_ts + time_to_arrival_s
+                else:
+                    # Conservative default: ~3 min per step, escalating remaining percentage
+                    default_segment_seconds = 180
+                    time_to_arrival_s = default_segment_seconds * (remaining_pct / 100)
+                    interpolation_target_ts = pos_ts + time_to_arrival_s
 
     # Determine segment endpoints, ensuring they're different
     from_stop_id = unified.get("current_stop_id") or getattr(train_obj, "current_stop_id", None)
@@ -974,13 +991,16 @@ async def websocket_trains(websocket: WebSocket, nucleus: str):
 
     Messages from client:
     - {"type": "subscribe", "station_id": "12345"} - Subscribe to specific station
+    - {"type": "subscribe_train", "train_id": "TR123"} - Subscribe to a specific train
     - {"type": "ping"} - Keep-alive ping
 
     Messages to client:
     - {"type": "trains_update", "data": [...]} - Train positions updated
+    - {"type": "train_update", "train_id": "...", "data": {...}} - Specific train update
     - {"type": "arrivals_update", "station_id": "...", "data": [...]} - Arrivals for station
     - {"type": "pong"} - Response to ping
     - {"type": "subscribed", "nucleus": "...", "station_id": "..."} - Subscription confirmed
+    - {"type": "subscribed_train", "nucleus": "...", "train_id": "..."} - Train sub confirmed
     - {"type": "error", "message": "..."} - Error message
     """
     manager = get_ws_manager()
@@ -1004,7 +1024,7 @@ async def websocket_trains(websocket: WebSocket, nucleus: str):
         # Listen for messages
         while True:
             try:
-                data = await websocket.receive_json()
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=60)
                 msg_type = (data.get("type") or "").strip().lower()
 
                 if msg_type == "ping":
@@ -1034,6 +1054,27 @@ async def websocket_trains(websocket: WebSocket, nucleus: str):
                         },
                     )
 
+                elif msg_type == "subscribe_train":
+                    train_id = str(data.get("train_id") or "").strip()
+                    if not train_id:
+                        await manager.send_to_connection(
+                            websocket,
+                            {
+                                "type": "error",
+                                "message": "train_id is required for subscribe_train",
+                            },
+                        )
+                    else:
+                        await manager.subscribe_train(websocket, nucleus_norm, train_id)
+                        await manager.send_to_connection(
+                            websocket,
+                            {
+                                "type": "subscribed_train",
+                                "nucleus": nucleus_norm,
+                                "train_id": train_id,
+                            },
+                        )
+
                 else:
                     await manager.send_to_connection(
                         websocket,
@@ -1043,6 +1084,17 @@ async def websocket_trains(websocket: WebSocket, nucleus: str):
                         },
                     )
 
+            except WebSocketDisconnect:
+                break
+            except TimeoutError:
+                await manager.send_to_connection(
+                    websocket,
+                    {
+                        "type": "error",
+                        "message": "Connection timed out waiting for messages.",
+                    },
+                )
+                break
             except Exception as e:
                 # JSON parse error or other issue
                 if "disconnect" in str(e).lower():

@@ -62,7 +62,7 @@
 		
 		<div class="train-details-content-area">
 			<div class="app-block-padding app-block-vertical-padding train-details-panel-wrapper">
-				<div class="train-details-panel" data-train-detail data-train-api="{{ position_api or '' }}" data-train-kind="{{ kind }}" data-train-id="{{ train_service.train_label }}" style="--line-color: {{ route.color_bg }}">
+				<div class="train-details-panel" data-train-detail data-train-api="{{ position_api or '' }}" data-train-kind="{{ kind }}" data-train-id="{{ train_service.train_label }}" data-nucleus="{{ nucleus.slug }}" style="--line-color: {{ route.color_bg }}">
 					<div class="train-details-header">
 						<a href="/routes/{{ nucleus.slug }}/{{ train_service.route_id }}" class="train-details-route-link train-details-preheader">
 							<div class="line-chip-icon cercanias-logo-icon">

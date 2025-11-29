@@ -80,7 +80,7 @@
             // For automatic scrolls (train moved), check if user is manually exploring
             if (reason === 'train-update' && !force) {
                 if (isUserRecentlyScrolled()) {
-                    console.debug('[Autoscroll] Skipping: user scrolled recently');
+                    // [Autoscroll] Skipping: user scrolled recently');
                     return;
                 }
 
@@ -173,7 +173,7 @@
                         markUserScrolled();
                     }, 150); // Wait 150ms after scroll stops
                 }, { passive: true });
-                console.debug('[Autoscroll] Scroll detection bound');
+                // [Autoscroll] Scroll detection bound');
             }
         }
 
@@ -271,7 +271,7 @@
         const nextStopName = segment?.to_stop?.name ?? payload.next_stop_name ?? null;
         const currentStopName = segment?.from_stop?.name ?? payload.current_stop_name ?? null;
 
-        console.log(`[Train Indicator] Payload: current=${currentStopId}, next=${nextStopId}, status=${statusKey}`);
+        // [Train Indicator]: current=${currentStopId}, next=${nextStopId}, status=${statusKey}`);
 
         if (currentStopId && nextStopId && String(currentStopId) === String(nextStopId)) {
             console.warn(`[Train Indicator] WARNING: current_stop_id and next_stop_id are the same (${currentStopId}). Attempting to fix...`);
@@ -610,7 +610,7 @@
             const newStatus = String(trainStatusKey).toLowerCase();
 
             if (oldStatus !== newStatus) {
-                console.log(`[Status Change] ${oldStatus || 'undefined'} → ${newStatus}, class: ${model.status_class || 'none'}`);
+                console.log(`[Status Change] ${oldStatus || 'undefined'} → ${newStatus}`);
             }
 
             const currentStopEl = map.querySelector('.current-stop');
@@ -618,7 +618,7 @@
             const currentStopId = currentStopEl?.dataset?.stopId || 'none';
             const nextStopId = nextStopEl?.dataset?.stopId || 'none';
 
-            console.log(`[Route Map] status=${newStatus}, current=${model.current_stop_id || 'none'} (DOM: ${currentStopId}), next=${model.next_stop_id || 'none'} (DOM: ${nextStopId}), progress=${model.progress_pct}%`);
+            // [Route Map] status=${newStatus}, current=${model.current_stop_id || 'none'}, next=${model.next_stop_id || 'none'}, progress=${model.progress_pct}%`);
 
             map.className = base.join(' ').trim();
             if (trainStatusKey) map.dataset.trainStatus = newStatus;
@@ -704,6 +704,8 @@
         st.running = false;
         st.inFlight = false;
         if (st.progressTimer) { clearInterval(st.progressTimer); st.progressTimer = null; }
+        if (st.progressAnimationFrame) { cancelAnimationFrame(st.progressAnimationFrame); st.progressAnimationFrame = null; }
+        disconnectTrainWebSocket(panel);
     }
 
     function scheduleTrainDetailTick(panel, ms) {
@@ -770,6 +772,182 @@
         return TRAIN_DETAIL_INTERVALS.base;
     }
 
+    function connectTrainWebSocket(panel) {
+        const st = panel?.__trainAuto;
+        if (!st || !st.running) return;
+
+        const nucleus = panel.dataset.nucleus;
+        const trainId = panel.dataset.trainId;
+
+        if (!nucleus || !trainId) {
+            console.warn('[train-detail-ws] Missing nucleus or trainId, falling back to HTTP polling');
+            st.useFallbackPolling = true;
+            if (document.hidden) scheduleTrainDetailTick(panel, st.baseInterval);
+            else refreshTrainDetail(panel);
+            return;
+        }
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/ws/trains/${nucleus}`;
+
+        console.info(`[WS] Connecting to train ${trainId}`);
+
+        try {
+            const ws = new WebSocket(wsUrl);
+            st.ws = ws;
+
+            ws.onopen = () => {
+                console.info(`[WS] Connected to train ${trainId}`);
+                st.wsConnected = true;
+                st.errors = 0;
+
+                // Subscribe to this specific train
+                ws.send(JSON.stringify({
+                    type: 'subscribe_train',
+                    train_id: trainId
+                }));
+
+                // Ping every 30s to keep connection alive
+                if (st.pingTimer) clearInterval(st.pingTimer);
+                st.pingTimer = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 30000);
+
+                // Do initial HTTP fetch for immediate data
+                refreshTrainDetail(panel);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+
+                    if (message.type === 'train_update' && message.train_id === trainId) {
+                        // Received update for our train
+
+                        // Extract the complete payload
+                        const payload = message.data || {};
+
+                        // Check if we have complete train_detail data
+                        if (payload.train_detail || payload.unified) {
+                            // Build complete payload structure expected by applyTrainDetailPayload
+                            const completePayload = {
+                                train: {
+                                    kind: 'live',
+                                    id: payload.train_id,
+                                    vehicle_id: payload.vehicle_id,
+                                    route_id: payload.route_id,
+                                    direction_id: payload.direction_id,
+                                    seen: payload.train_detail?.schedule?.rt_updated_iso ? {
+                                        iso: payload.train_detail.schedule.rt_updated_iso,
+                                        age_s: null
+                                    } : null,
+                                    is_ghost_train: payload.unified?.is_ghost_train || false,
+                                },
+                                position: {
+                                    lat: payload.lat,
+                                    lon: payload.lon,
+                                    heading: null,
+                                    ts_unix: payload.timestamp,
+                                    available: !!(payload.lat && payload.lon),
+                                },
+                                segment: {
+                                    from_stop: {
+                                        id: payload.unified?.current_stop_id,
+                                        name: payload.unified?.current_stop_name,
+                                    },
+                                    to_stop: {
+                                        id: payload.unified?.next_stop_id,
+                                        name: payload.unified?.next_stop_name,
+                                    },
+                                    progress_pct: payload.unified?.next_stop_progress_pct,
+                                },
+                                status: {
+                                    key: payload.train_detail?.train_status_key || 'UNKNOWN',
+                                    flow_state: payload.train_detail?.train_flow_state,
+                                    train_type: payload.train_detail?.train_type || {},
+                                },
+                                schedule: payload.train_detail?.schedule || {},
+                                stops: {
+                                    count: payload.train_detail?.stop_count,
+                                    items: payload.train_detail?.stops || [],
+                                },
+                            };
+
+                            applyTrainDetailPayload(panel, completePayload);
+                        } else {
+                            // Incomplete data, fallback to HTTP fetch
+                            console.warn('[WS] Incomplete data, fetching via HTTP');
+                            refreshTrainDetail(panel);
+                        }
+                    } else if (message.type === 'error') {
+                        console.error('[WS] Server error:', message.message);
+                    }
+                    // Silently ignore: subscribed_train, pong
+                } catch (err) {
+                    console.error('[WS] Error processing message:', err);
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('[WS] Connection error:', error);
+                st.wsConnected = false;
+            };
+
+            ws.onclose = () => {
+                st.wsConnected = false;
+                st.ws = null;
+
+                if (st.pingTimer) {
+                    clearInterval(st.pingTimer);
+                    st.pingTimer = null;
+                }
+
+                // Attempt reconnection if still running
+                if (st.running && !document.hidden) {
+                    console.info('[WS] Reconnecting in 5s...');
+                    if (st.wsReconnectTimer) clearTimeout(st.wsReconnectTimer);
+                    st.wsReconnectTimer = setTimeout(() => {
+                        connectTrainWebSocket(panel);
+                    }, 5000);
+                }
+
+                // Use HTTP polling as fallback while reconnecting
+                if (st.running) {
+                    scheduleTrainDetailTick(panel, st.baseInterval);
+                }
+            };
+
+        } catch (err) {
+            console.error('[WS] Failed to create WebSocket:', err);
+            st.useFallbackPolling = true;
+            refreshTrainDetail(panel);
+        }
+    }
+
+    function disconnectTrainWebSocket(panel) {
+        const st = panel?.__trainAuto;
+        if (!st) return;
+
+        if (st.ws) {
+            st.ws.close();
+            st.ws = null;
+        }
+
+        if (st.pingTimer) {
+            clearInterval(st.pingTimer);
+            st.pingTimer = null;
+        }
+
+        if (st.wsReconnectTimer) {
+            clearTimeout(st.wsReconnectTimer);
+            st.wsReconnectTimer = null;
+        }
+
+        st.wsConnected = false;
+    }
+
     async function refreshTrainDetail(panel) {
         const st = panel?.__trainAuto;
         if (!st || !st.running) return;
@@ -814,12 +992,17 @@
             const payload = await resp.json();
             const model = applyTrainDetailPayload(panel, payload);
             st.errors = 0;
-            const base = nextTrainDetailInterval(model, panel);
-            const jitter = Math.floor(Math.random() * 500);
-            scheduleTrainDetailTick(panel, base + jitter);
+
+            // If using WebSocket, don't schedule next poll (WebSocket will push updates)
+            // Only schedule if using fallback polling or WebSocket is not connected
+            if (st.useFallbackPolling || !st.wsConnected) {
+                const base = nextTrainDetailInterval(model, panel);
+                const jitter = Math.floor(Math.random() * 500);
+                scheduleTrainDetailTick(panel, base + jitter);
+            }
         } catch (err) {
             if (err.name === 'AbortError') {
-                console.debug('[train-detail] Request aborted');
+                // [HTTP] Request aborted');
                 return;
             }
 
@@ -860,6 +1043,11 @@
                 lastStatus: null,
                 progressTimer: null,
                 trackedNextStopId: null, // For autoscroll tracking
+                ws: null, // WebSocket connection
+                wsConnected: false,
+                wsReconnectTimer: null,
+                useFallbackPolling: false,
+                progressAnimationFrame: null, // For smooth progress transitions
             };
         }
 
@@ -872,8 +1060,14 @@
         st.running = true;
         st.errors = 0;
 
-        if (document.hidden) scheduleTrainDetailTick(panel, st.baseInterval);
-        else refreshTrainDetail(panel);
+        // Try WebSocket first, fallback to HTTP polling if needed
+        if (!st.useFallbackPolling) {
+            connectTrainWebSocket(panel);
+        } else {
+            if (document.hidden) scheduleTrainDetailTick(panel, st.baseInterval);
+            else refreshTrainDetail(panel);
+        }
+
         ensureProgressTimer(panel);
     }
 
@@ -941,6 +1135,71 @@
         return val;
     }
 
+    /**
+     * Smoothly animate progress bar from one value to another
+     * @param {HTMLElement} panel - The train detail panel
+     * @param {number} fromProgress - Starting progress (0-100)
+     * @param {number} toProgress - Target progress (0-100)
+     * @param {number} durationMs - Animation duration in milliseconds
+     */
+    function smoothProgressTransition(panel, fromProgress, toProgress, durationMs) {
+        const st = panel?.__trainAuto;
+        if (!st) return;
+
+        // Cancel any existing animation
+        if (st.progressAnimationFrame) {
+            cancelAnimationFrame(st.progressAnimationFrame);
+            st.progressAnimationFrame = null;
+        }
+
+        const startTime = performance.now();
+        const delta = toProgress - fromProgress;
+
+        // Easing function: ease-out cubic for natural deceleration
+        const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+        function animate(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / durationMs, 1);
+
+            // Apply easing
+            const easedProgress = easeOutCubic(progress);
+            const currentValue = fromProgress + (delta * easedProgress);
+
+            // Update the visual progress directly
+            updateVisualProgress(panel, currentValue);
+
+            if (progress < 1) {
+                // Continue animation
+                st.progressAnimationFrame = requestAnimationFrame(animate);
+            } else {
+                // Animation complete
+                st.progressAnimationFrame = null;
+                updateVisualProgress(panel, toProgress);
+            }
+        }
+
+        st.progressAnimationFrame = requestAnimationFrame(animate);
+    }
+
+    /**
+     * Update the visual progress bar without affecting state
+     * @param {HTMLElement} panel - The train detail panel
+     * @param {number} progressPct - Progress percentage (0-100)
+     */
+    function updateVisualProgress(panel, progressPct) {
+        if (!panel) return;
+
+        const routeMap = panel.querySelector('.route-map');
+        if (!routeMap) return;
+
+        const trainMarker = routeMap.querySelector('.route-map__train-marker');
+        if (!trainMarker) return;
+
+        const clampedProgress = Math.max(0, Math.min(100, progressPct));
+        trainMarker.style.setProperty('--train-progress', `${clampedProgress}%`);
+    }
+
     function updateProgressInference(panel, model) {
         const st = panel?.__trainAuto;
         if (!st) return null;
@@ -980,16 +1239,26 @@
         const currentInferred = inferProgressAt(st, nowMs);
         if (Number.isFinite(currentInferred) && Number.isFinite(anchorProgress)) {
             if (segmentChanged) {
-                anchorProgress = anchorProgress;
-                console.log(`[Progress] Segment changed, reset to server value: ${anchorProgress}%`);
+                // Segment changed - accept server value but check for animation need
+                const jumpSize = Math.abs(anchorProgress - (currentInferred || 0));
+
+                if (jumpSize > 40 && !isStopped) {
+                    // Very large jump (>40%): animate rapidly or warn
+                    console.warn(`[Progress] Large jump on segment change: ${currentInferred}% → ${anchorProgress}%`);
+                    smoothProgressTransition(panel, currentInferred || 0, anchorProgress, 150);
+                } else if (jumpSize > 15 && !isStopped) {
+                    // Medium jump (15-40%): smooth animation
+                    smoothProgressTransition(panel, currentInferred || 0, anchorProgress, 300);
+                }
+                // Small jumps (<15%) or stopped train: direct update (no animation needed)
             } else {
+                // Same segment - apply GPS corrections with smoothing
                 const diff = anchorProgress - currentInferred;
                 if (diff > 0) {
                     anchorProgress = currentInferred + diff * 0.5;
                 } else if (diff < -5) {
                     const smoothed = currentInferred + diff * 0.3;
                     anchorProgress = Math.max(smoothed, currentInferred - 3);
-                    console.log(`[Progress] GPS correction limited: ${currentInferred}% → ${anchorProgress}%`);
                 } else {
                     anchorProgress = currentInferred;
                 }
@@ -1074,9 +1343,27 @@
         document.addEventListener('visibilitychange', () => {
             const panels = document.querySelectorAll('[data-train-detail]');
             panels.forEach((panel) => {
-                if (!panel.__trainAuto) return;
-                if (document.hidden) stopTrainDetailAuto(panel);
-                else startTrainDetailAuto(panel);
+                const st = panel.__trainAuto;
+                if (!st) return;
+
+                // When page hidden: pause HTTP polling but KEEP WebSocket connected
+                // When page visible: resume if not already running
+                if (document.hidden) {
+                    // Only stop HTTP polling timer, keep WebSocket alive
+                    if (st.timerId) {
+                        clearTimeout(st.timerId);
+                        st.timerId = null;
+                    }
+                } else {
+                    // Resume auto-refresh if it was running
+                    if (st.running && !st.wsConnected && !st.timerId) {
+                        // WebSocket not connected, restart HTTP polling
+                        scheduleTrainDetailTick(panel, st.baseInterval || TRAIN_DETAIL_INTERVALS.base);
+                    } else if (!st.running) {
+                        // Was fully stopped, restart everything
+                        startTrainDetailAuto(panel);
+                    }
+                }
             });
         }, { passive: true });
     }
@@ -1098,6 +1385,12 @@
         startAuto: startTrainDetailAuto,
         stopAuto: stopTrainDetailAuto,
         scrollToAnchor: scrollTrainDetailToAnchor,
+        forceRefresh(panel) {
+            if (!panel) return;
+            // Ensure auto refresh is running to reuse existing logic/timers
+            startTrainDetailAuto(panel);
+            refreshTrainDetail(panel);
+        },
     };
 
     document.addEventListener('DOMContentLoaded', () => bindTrainDetailAutoRefresh());
