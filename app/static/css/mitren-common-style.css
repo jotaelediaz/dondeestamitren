@@ -2286,7 +2286,6 @@ ul.chip-list {
     border-radius: 14px;
     box-shadow: 0 0 0 1px var(--jotaele-background-accent);
     padding: calc(var(--app-margin) * 1) calc(var(--app-margin) * 1);
-    opacity: 0.8;
 }
 
 .train-details-panel .train-details-header .train-details-preheader {

@@ -599,7 +599,7 @@ def _build_trip_rows(
 
     live_sid = str(getattr(live_obj, "stop_id", "") or "") if live_obj else None
     live_status = _norm_status(getattr(live_obj, "current_status", None) if live_obj else None)
-    is_in_transit = live_status == "IN_TRANSIT_TO"
+    is_in_transit = live_status in {"IN_TRANSIT_TO", "INCOMING_AT"}
 
     cur_seq = None
     if live_sid:
@@ -814,7 +814,7 @@ def _build_trip_rows(
         else:
             seq_val = _to_int(c.get("seq"))
             if is_in_transit and live_sid and sid == live_sid:
-                status = "PASSED"
+                status = "NEXT"
             elif live_sid and sid == live_sid:
                 status = "CURRENT"
             elif (
@@ -945,25 +945,54 @@ def _build_trip_rows(
             return None
         return rrepo.get_stop_name(str(sid_val)) or str(sid_val)
 
+    def _distance_to_stop(sid_val: str | None) -> float | None:
+        if not sid_val:
+            return None
+        meta = stop_meta.get(str(sid_val)) or {}
+        lat_stop = meta.get("lat")
+        lon_stop = meta.get("lon")
+        lat_cur, lon_cur = _latlon(live_obj)
+        if None in (lat_stop, lon_stop, lat_cur, lon_cur):
+            return None
+        return _haversine_m(float(lat_cur), float(lon_cur), float(lat_stop), float(lon_stop))
+
     current_stop_id: str | None = None
     next_stop_id: str | None = effective_next_stop_id
     live_seq_val = seq_by_sid.get(str(live_sid)) if live_sid else None
 
-    if live_status in {"STOPPED_AT", "INCOMING_AT"} and live_sid:
-        current_stop_id = live_sid
-        if next_stop_id is None and live_seq_val is not None:
-            next_stop_id = sid_by_seq.get(live_seq_val + 1)
-    elif live_status == "IN_TRANSIT_TO" and live_sid:
-        current_stop_id = live_sid
-        if next_stop_id is None and live_seq_val is not None:
-            next_stop_id = sid_by_seq.get(live_seq_val + 1)
-        if next_stop_id is None and live_seq_val is None and effective_next_seq is not None:
-            next_stop_id = sid_by_seq.get(int(effective_next_seq))
+    if live_status == "STOPPED_AT" and live_sid:
+        dist_m = _distance_to_stop(live_sid)
+        # If Renfe reports STOPPED_AT too soon and we're far from the stop, keep it as "approaching"
+        if dist_m is not None and dist_m > 300:
+            next_stop_id = live_sid if next_stop_id is None else next_stop_id
+            if current_stop_id is None and live_seq_val is not None and live_seq_val > 0:
+                current_stop_id = sid_by_seq.get(live_seq_val - 1)
+        else:
+            current_stop_id = live_sid
+            if next_stop_id is None and live_seq_val is not None:
+                next_stop_id = sid_by_seq.get(live_seq_val + 1)
+    elif live_status in {"IN_TRANSIT_TO", "INCOMING_AT"} and live_sid:
+        next_stop_id = live_sid if next_stop_id is None else next_stop_id
+        if live_seq_val is not None and live_seq_val > 0:
+            current_stop_id = sid_by_seq.get(live_seq_val - 1)
 
     if current_stop_id is None:
         cur_row = next((r for r in rows if (r.get("status") or "").upper() == "CURRENT"), None)
         if cur_row:
             current_stop_id = cur_row.get("stop_id")
+        if current_stop_id is None and next_stop_id:
+            next_seq = seq_by_sid.get(str(next_stop_id))
+            if next_seq is not None and next_seq > 0:
+                current_stop_id = sid_by_seq.get(next_seq - 1)
+        if current_stop_id is None:
+            passed_rows = [r for r in rows if (r.get("status") or "").upper() == "PASSED"]
+            if passed_rows:
+                passed_with_seq = [(r, seq_by_sid.get(str(r.get("stop_id")))) for r in passed_rows]
+                valid_passed = [(r, s) for r, s in passed_with_seq if s is not None]
+                if valid_passed:
+                    valid_passed.sort(key=lambda x: x[1], reverse=True)
+                    current_stop_id = valid_passed[0][0].get("stop_id")
+
     if next_stop_id is None:
         next_row = next((r for r in rows if (r.get("status") or "").upper() == "NEXT"), None)
         if next_row:
@@ -972,6 +1001,13 @@ def _build_trip_rows(
             fut = next((r for r in rows if (r.get("status") or "").upper() == "FUTURE"), None)
             if fut:
                 next_stop_id = fut.get("stop_id")
+
+    if current_stop_id and next_stop_id and str(current_stop_id) == str(next_stop_id):
+        seq_current = seq_by_sid.get(str(current_stop_id))
+        if seq_current is not None:
+            next_stop_id = sid_by_seq.get(seq_current + 1)
+        else:
+            next_stop_id = None
 
     progress_val = _progress_for_segment(
         stop_meta,

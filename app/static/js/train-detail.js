@@ -266,22 +266,43 @@
             : ((payload.train_detail && payload.train_detail.stops) || payload.detail?.stops || []);
         const statusObj = payload.status || {};
         const statusKey = (statusObj.key || payload.status || payload.train_detail?.train_status_key || '').toString().toUpperCase() || 'UNKNOWN';
-        const nextStopId = segment?.to_stop?.id ?? payload.next_stop_id ?? null;
-        const currentStopId = segment?.from_stop?.id ?? payload.current_stop_id ?? null;
+        let nextStopId = segment?.to_stop?.id ?? payload.next_stop_id ?? null;
+        let currentStopId = segment?.from_stop?.id ?? payload.current_stop_id ?? null;
         const nextStopName = segment?.to_stop?.name ?? payload.next_stop_name ?? null;
         const currentStopName = segment?.from_stop?.name ?? payload.current_stop_name ?? null;
 
-        // Debug logging
         console.log(`[Train Indicator] Payload: current=${currentStopId}, next=${nextStopId}, status=${statusKey}`);
 
-        // Validate that current and next stops are different (unless both are null)
         if (currentStopId && nextStopId && String(currentStopId) === String(nextStopId)) {
-            console.warn(`[Train Indicator] WARNING: current_stop_id and next_stop_id are the same (${currentStopId}). This indicates a backend data issue.`);
+            console.warn(`[Train Indicator] WARNING: current_stop_id and next_stop_id are the same (${currentStopId}). Attempting to fix...`);
+
+            const currentIndex = rawStops.findIndex(s => String(s?.stop_id ?? s?.stopId) === String(currentStopId));
+            if (currentIndex !== -1 && currentIndex + 1 < rawStops.length) {
+                const nextStop = rawStops[currentIndex + 1];
+                nextStopId = nextStop?.stop_id ?? nextStop?.stopId ?? null;
+                console.log(`[Train Indicator] Fixed next_stop_id to: ${nextStopId}`);
+            } else {
+                nextStopId = null;
+                console.warn(`[Train Indicator] Could not fix next_stop_id, invalidated to null`);
+            }
+        }
+
+        if (statusKey === 'INCOMING_AT') {
+            if (!nextStopId && currentStopId) {
+                nextStopId = currentStopId;
+            }
+            if (nextStopId && rawStops.length > 0) {
+                const nextIdx = rawStops.findIndex(s => String(s?.stop_id ?? s?.stopId) === String(nextStopId));
+                if (nextIdx > 0) {
+                    currentStopId = rawStops[nextIdx - 1]?.stop_id ?? rawStops[nextIdx - 1]?.stopId ?? null;
+                } else {
+                    currentStopId = null;
+                }
+            }
         }
 
         const stops = rawStops.map((stop) => {
             const sid = stop?.stop_id ?? stop?.stopId;
-            // Always recalculate based on current backend data to prevent stale classes
             const isNext = nextStopId && sid && String(sid) === String(nextStopId);
             const isCurrent = currentStopId && sid && String(sid) === String(currentStopId);
             return { ...stop, is_next_stop: !!isNext, is_current_stop: !!isCurrent };
@@ -483,11 +504,8 @@
         const current = model?.current_stop_name || model?.current_stop_id || '—';
         const next = model?.next_stop_name || model?.next_stop_id || '—';
 
-        // Update debug list elements (separate from main UI elements)
-        // The debug list is outside the panel, in the parent content area
         const scope = panel.closest('.train-details-content-area') || panel;
 
-        // Support both new and old attribute names for backwards compatibility
         const debugStatus = scope.querySelector('[data-debug-status]')
             || scope.querySelector('li[data-train-status-text]');
         const debugCurrent = scope.querySelector('[data-debug-current]')
@@ -578,7 +596,6 @@
             if (txt) txt.textContent = model.next_stop_name || model.current_stop_name || statusMeta.descriptor || '';
         }
 
-        // Find route-map: it's not inside panel, but in parent container
         const contentArea = panel.closest('.train-details-content-area') || document;
         const map = contentArea.querySelector('[data-train-progress-map]');
         if (map) {
@@ -592,12 +609,10 @@
             const oldStatus = map.dataset.trainStatus;
             const newStatus = String(trainStatusKey).toLowerCase();
 
-            // Debug: Log status changes and class updates
             if (oldStatus !== newStatus) {
                 console.log(`[Status Change] ${oldStatus || 'undefined'} → ${newStatus}, class: ${model.status_class || 'none'}`);
             }
 
-            // Find which stations have current-stop and next-stop classes
             const currentStopEl = map.querySelector('.current-stop');
             const nextStopEl = map.querySelector('.next-stop');
             const currentStopId = currentStopEl?.dataset?.stopId || 'none';
@@ -618,61 +633,65 @@
 
         (model.stops || []).forEach((stop) => updateStopRow(panel, stop));
 
-        // Update current-stop and next-stop classes even if model.stops is empty
         if (model.current_stop_id || model.next_stop_id) {
             const contentArea = panel.closest('.train-details-content-area') || document;
             const routeMap = contentArea.querySelector('[data-train-progress-map]');
 
             if (routeMap) {
-                routeMap.querySelectorAll('.current-stop, .next-stop').forEach(el => {
+                const allStations = Array.from(routeMap.querySelectorAll('.grid-route-map-station[data-stop-id]'));
+
+                const currentIndex = allStations.findIndex(el =>
+                    el.dataset.stopId === String(model.current_stop_id)
+                );
+                const nextIndex = allStations.findIndex(el =>
+                    el.dataset.stopId === String(model.next_stop_id)
+                );
+
+                allStations.forEach(el => {
                     el.classList.remove('current-stop', 'next-stop');
                 });
 
-                // Add current-stop class to the correct element
-                if (model.current_stop_id) {
-                    const currentStopEl = routeMap.querySelector(`[data-stop-id="${model.current_stop_id}"]`);
-                    if (currentStopEl) {
-                        currentStopEl.classList.add('current-stop');
-                        if (!currentStopEl.classList.contains('current-station')) {
-                            currentStopEl.classList.remove('passed-station', 'future-station');
-                            currentStopEl.classList.add('current-station');
-                        }
-                    }
-                }
+                allStations.forEach((el, index) => {
+                    const isOrigin = el.classList.contains('origin-station');
+                    const isDestination = el.classList.contains('destination-station');
 
-                // Add next-stop class to the correct element
-                if (model.next_stop_id) {
-                    const nextStopEl = routeMap.querySelector(`[data-stop-id="${model.next_stop_id}"]`);
-                    if (nextStopEl) {
-                        nextStopEl.classList.add('next-stop');
-                        if (model.current_stop_id !== model.next_stop_id &&
-                            !nextStopEl.classList.contains('future-station')) {
-                            nextStopEl.classList.remove('passed-station', 'current-station');
-                            nextStopEl.classList.add('future-station');
+                    if (currentIndex !== -1 && index === currentIndex) {
+                        el.classList.add('current-stop');
+                        el.classList.remove('passed-station', 'future-station');
+                        el.classList.add('current-station');
+                    } else if (nextIndex !== -1 && index === nextIndex) {
+                        el.classList.add('next-stop');
+                        if (!isDestination) {
+                            el.classList.remove('passed-station', 'current-station');
+                            el.classList.add('future-station');
+                        }
+                    } else if (currentIndex !== -1 && index < currentIndex) {
+                        el.classList.remove('current-station', 'future-station');
+                        el.classList.add('passed-station');
+                    } else if (currentIndex !== -1 && index > currentIndex) {
+                        el.classList.remove('passed-station', 'current-station');
+                        if (!isDestination) {
+                            el.classList.add('future-station');
                         }
                     }
-                }
+                });
             }
         }
 
         updateTrainDetailDebug(panel, model);
 
-        // Auto-scroll to follow train as it moves (only for live trains)
         const st = panel.__trainAuto;
         if (st && model.train_kind === 'live') {
             const currentNextStopId = model.next_stop_id;
             const previousNextStopId = st.trackedNextStopId;
 
-            // If next_stop changed, the train moved to a new segment
             if (currentNextStopId && previousNextStopId && String(currentNextStopId) !== String(previousNextStopId)) {
                 console.debug(`[Autoscroll] Train advanced: ${previousNextStopId} → ${currentNextStopId}`);
-                // Schedule autoscroll with a small delay to let DOM updates settle
                 setTimeout(() => {
                     scrollTrainDetailToAnchor({ reason: 'train-update' });
                 }, 200);
             }
 
-            // Update tracked stop
             st.trackedNextStopId = currentNextStopId;
         }
     }
@@ -715,20 +734,15 @@
             const animVal = inferProgressAt(st, Date.now());
             if (animVal !== null) updateTrainProgressUI(panel, animVal);
 
-            // After HTML swap, immediately sync status attributes to prevent stale values
-            // The swapped HTML might have old data-train-status baked in from server render
             if (model.train_kind) panel.dataset.trainKind = model.train_kind;
             const statusKey = String(model.status_key || 'UNKNOWN').toLowerCase();
             if (model.status_key) {
                 panel.dataset.trainStatus = statusKey;
-                // Also update the route-map's status immediately to keep them in sync
-                // Note: route-map is outside panel, search in parent container
                 const contentArea = panel.closest('.train-details-content-area') || document;
                 const map = contentArea.querySelector('[data-train-progress-map]');
                 if (map) map.dataset.trainStatus = statusKey;
             }
         } else {
-            // No HTML swap, just update attributes normally
             if (model.train_kind) panel.dataset.trainKind = model.train_kind;
             if (model.status_key) panel.dataset.trainStatus = model.status_key;
         }
@@ -804,10 +818,9 @@
             const jitter = Math.floor(Math.random() * 500);
             scheduleTrainDetailTick(panel, base + jitter);
         } catch (err) {
-            // Don't count aborted requests as errors
             if (err.name === 'AbortError') {
                 console.debug('[train-detail] Request aborted');
-                return; // Don't reschedule - the new request will handle it
+                return;
             }
 
             st.errors = Math.min(st.errors + 1, 6);
@@ -843,6 +856,8 @@
                 inferredProgress: null,
                 serverProgress: null,
                 lastStopId: null,
+                lastCurrentStopId: null,
+                lastStatus: null,
                 progressTimer: null,
                 trackedNextStopId: null, // For autoscroll tracking
             };
@@ -933,8 +948,10 @@
         const nowMs = Date.now();
         const serverProgress = numberOrNull(model?.server_progress ?? model?.progress_pct);
         const nextStopId = model?.next_stop_id || null;
-
+        const currentStopId = model?.current_stop_id || null;
         const statusKey = String(model?.status_key || '').toUpperCase();
+        const prevStatus = st.lastStatus;
+
         const isStopped = statusKey === 'STOPPED_AT';
 
         const interp = model?.interpolation || {};
@@ -943,44 +960,75 @@
         const targetTsSec = numberOrNull(interp.target_ts);
         const isTrainStopped = Boolean(interp.is_stopped);
 
-        // Detect segment change (different next stop)
-        const segmentChanged = st.lastStopId && nextStopId && String(st.lastStopId) !== String(nextStopId);
+        const prevNext = st.lastStopId;
+        const prevCurrent = st.lastCurrentStopId;
+        const segmentChanged =
+            (prevNext && nextStopId && String(prevNext) !== String(nextStopId))
+            || (prevCurrent && currentStopId && String(prevCurrent) !== String(currentStopId));
+
+        const progressJumpThreshold = 30; // 30% jump is suspicious
+        const samePairAsBefore =
+            (!prevNext || !nextStopId || String(prevNext) === String(nextStopId)) &&
+            (!prevCurrent || !currentStopId || String(prevCurrent) === String(currentStopId));
+        if (!segmentChanged && !isStopped && Number.isFinite(st.inferredProgress) && Number.isFinite(serverProgress)) {
+            const progressDelta = Math.abs(serverProgress - st.inferredProgress);
+            if (progressDelta > progressJumpThreshold) {
+                console.warn(`[Progress] Large jump detected (${st.inferredProgress}% → ${serverProgress}%) without segment change. May indicate data issue.`);
+            }
+        }
 
         const currentInferred = inferProgressAt(st, nowMs);
         if (Number.isFinite(currentInferred) && Number.isFinite(anchorProgress)) {
             if (segmentChanged) {
-                // Segment changed: use server value directly without smoothing
-                // The train moved to a new segment, so progress resets
                 anchorProgress = anchorProgress;
+                console.log(`[Progress] Segment changed, reset to server value: ${anchorProgress}%`);
             } else {
                 const diff = anchorProgress - currentInferred;
                 if (diff > 0) {
-                    // Server ahead: catch up gradually
                     anchorProgress = currentInferred + diff * 0.5;
                 } else if (diff < -5) {
-                    // Server significantly behind without segment change: possible GPS correction
-                    anchorProgress = currentInferred + diff * 0.3;
+                    const smoothed = currentInferred + diff * 0.3;
+                    anchorProgress = Math.max(smoothed, currentInferred - 3);
+                    console.log(`[Progress] GPS correction limited: ${currentInferred}% → ${anchorProgress}%`);
                 } else {
-                    // Small difference: keep current to avoid jitter
                     anchorProgress = currentInferred;
                 }
             }
         }
 
         if (isStopped) {
-            st.anchorProgress = 0;
-            st.anchorTs = anchorTsSec ? anchorTsSec * 1000 : nowMs;
-            st.targetTs = st.anchorTs;
-            st.progressSlopePerMs = 0;
-            st.progressCeil = 0;
-            st.serverProgress = Number.isFinite(serverProgress) ? serverProgress : st.serverProgress;
-            st.inferredProgress = 0;
+            const sameCurrent = prevCurrent && currentStopId && String(prevCurrent) === String(currentStopId);
+            const arrivedAtNext = prevNext && currentStopId && String(prevNext) === String(currentStopId);
+
+            if (arrivedAtNext || !sameCurrent) {
+                st.anchorProgress = 0;
+                st.anchorTs = anchorTsSec ? anchorTsSec * 1000 : nowMs;
+                st.targetTs = st.anchorTs;
+                st.progressSlopePerMs = 0;
+                st.progressCeil = 0;
+                st.serverProgress = Number.isFinite(serverProgress) ? serverProgress : st.serverProgress;
+                st.inferredProgress = 0;
+            } else {
+                // Oscillation of status without advancing stop: freeze at current inferred value
+                const frozen = Number.isFinite(currentInferred) ? currentInferred : 0;
+                st.anchorProgress = clampProgress(frozen);
+                st.anchorTs = anchorTsSec ? anchorTsSec * 1000 : nowMs;
+                st.targetTs = st.anchorTs;
+                st.progressSlopePerMs = 0;
+                st.progressCeil = st.anchorProgress;
+                st.serverProgress = Number.isFinite(serverProgress) ? serverProgress : st.serverProgress;
+                st.inferredProgress = st.anchorProgress;
+            }
+
             if (nextStopId) st.lastStopId = String(nextStopId);
-            return 0;
+            if (currentStopId) st.lastCurrentStopId = String(currentStopId);
+            return st.inferredProgress;
         }
 
         const anchorTsMs = anchorTsSec ? anchorTsSec * 1000 : nowMs;
-        const targetTsMs = targetTsSec ? targetTsSec * 1000 : anchorTsMs + (st.baseInterval || TRAIN_DETAIL_INTERVALS.base);
+        // If we don't know target timestamp, assume a conservative segment duration to avoid racing to 100%
+        const fallbackTargetMs = Math.max(st.baseInterval || TRAIN_DETAIL_INTERVALS.base, 120_000);
+        const targetTsMs = targetTsSec ? targetTsSec * 1000 : anchorTsMs + fallbackTargetMs;
 
         st.anchorProgress = clampProgress(anchorProgress);
         st.anchorTs = anchorTsMs;
@@ -1003,6 +1051,8 @@
         const inferredNow = inferProgressAt(st, nowMs);
         st.inferredProgress = inferredNow;
         if (nextStopId) st.lastStopId = String(nextStopId);
+        if (currentStopId) st.lastCurrentStopId = String(currentStopId);
+        if (statusKey) st.lastStatus = statusKey;
         return inferredNow;
     }
 
@@ -1043,7 +1093,6 @@
         });
     }
 
-    // Expose functions globally for use by other scripts and htmx
     window.TrainDetail = {
         bindAutoRefresh: bindTrainDetailAutoRefresh,
         startAuto: startTrainDetailAuto,
@@ -1051,7 +1100,6 @@
         scrollToAnchor: scrollTrainDetailToAnchor,
     };
 
-    // Auto-bind on DOMContentLoaded and htmx events
     document.addEventListener('DOMContentLoaded', () => bindTrainDetailAutoRefresh());
     document.body.addEventListener('htmx:afterSettle', (evt) => {
         const target = evt.detail?.target;

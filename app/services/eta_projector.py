@@ -49,24 +49,6 @@ def _epoch_from_stu(stu):
     return None
 
 
-def _leg_runtime_seconds(
-    arr_by_stop: dict[str, int],
-    dep_by_stop: dict[str, int],
-    prev_sid: str,
-    next_sid: str,
-) -> int | None:
-    a_next = arr_by_stop.get(str(next_sid))
-    d_prev = dep_by_stop.get(str(prev_sid))
-    a_prev = arr_by_stop.get(str(prev_sid))
-    if a_next is None or (d_prev is None and a_prev is None):
-        return None
-    base_prev = d_prev if isinstance(d_prev, int) else a_prev
-    if base_prev is None:
-        return None
-    dt = int(a_next) - int(base_prev)
-    return dt if dt >= 0 else 0
-
-
 # ---------------- ETA calculation ----------------
 
 
@@ -78,7 +60,6 @@ def _select_eta_pivot_and_delay_s(
     sched_departure_by_stop: dict[str, int],
     vp: VPInfo | None,
     tu_pivot_eta_ts: int | None,
-    dwell_buffer_s: int,
     min_ahead_s: int,
 ) -> tuple[int, int]:
     pivot_sid = str(pivot_sid)
@@ -193,8 +174,15 @@ def build_rt_arrival_times_from_vm(
 
     kind = safe_get_field(vm, "kind")
     train = safe_get_field(vm, "train") if kind == "live" else None
-    current_sid = safe_get_field(train, "stop_id")
+    current_sid = safe_get_field(train, "current_stop_id")
     current_status = safe_get_field(train, "current_status")
+
+    if not current_sid and train:
+        raw_stop_id = safe_get_field(train, "stop_id")
+        raw_status = safe_get_field(train, "current_status")
+        normalized_status = normalize_status(raw_status)
+        if normalized_status == "STOPPED_AT":
+            current_sid = raw_stop_id
     vp = VPInfo(
         stop_id=str(current_sid) if current_sid else None,
         current_status=str(current_status) if current_status else None,
@@ -256,7 +244,12 @@ def build_rt_arrival_times_from_vm(
 
     tu_map: dict[str, dict] = {}
     next_sid_hint = None
+    global_delay_s = None
     if tu:
+        global_delay_raw = safe_get_field(tu, "delay")
+        if isinstance(global_delay_raw, int | float):
+            global_delay_s = int(global_delay_raw)
+
         stus = list(
             safe_get_field(tu, "stop_updates") or safe_get_field(tu, "stop_time_updates") or []
         )
@@ -281,7 +274,7 @@ def build_rt_arrival_times_from_vm(
                 else (
                     (int(ep) - int(sched_arrival_by_stop.get(sid, ep)))
                     if isinstance(ep, int) and isinstance(sched_arrival_by_stop.get(sid), int)
-                    else None
+                    else global_delay_s
                 )
             )
             tu_map[sid] = {"epoch": int(ep) if isinstance(ep, int) else None, "delay_s": delay_s}
@@ -290,9 +283,21 @@ def build_rt_arrival_times_from_vm(
 
     index_by_sid = {sid: i for i, sid in enumerate(order_sids)}
     current_idx = index_by_sid.get(str(current_sid)) if current_sid else None
-    pivot_idx = index_by_sid.get(str(next_sid_hint)) if next_sid_hint else None
+
+    next_stop_from_train = safe_get_field(train, "next_stop_id")
+    pivot_idx = None
+    if next_stop_from_train:
+        pivot_idx = index_by_sid.get(str(next_stop_from_train))
+    if pivot_idx is None and next_sid_hint:
+        pivot_idx = index_by_sid.get(str(next_sid_hint))
     if pivot_idx is None and isinstance(current_idx, int) and current_idx + 1 < len(order_sids):
         pivot_idx = current_idx + 1
+    if pivot_idx is None:
+        for i, sid in enumerate(order_sids):
+            sched_ep = sched_arrival_by_stop.get(str(sid))
+            if isinstance(sched_ep, int) and sched_ep >= now_epoch:
+                pivot_idx = i
+                break
     if pivot_idx is None:
         pivot_idx = 0
     pivot_sid = order_sids[pivot_idx]
@@ -304,20 +309,26 @@ def build_rt_arrival_times_from_vm(
             if isinstance(eta_s, int):
                 tu_pivot_eta_ts = now_epoch + int(eta_s)
 
+    tu_pivot_data = tu_map.get(pivot_sid) or {}
+    tu_pivot_delay_s = tu_pivot_data.get("delay_s")
+    if tu_pivot_delay_s is None and global_delay_s is not None:
+        tu_pivot_delay_s = global_delay_s
+
     eta_pivot, delay_pivot_s = _select_eta_pivot_and_delay_s(
         now_ts=now_epoch,
         pivot_sid=pivot_sid,
         sched_arrival_by_stop=sched_arrival_by_stop,
         sched_departure_by_stop=sched_departure_by_stop,
         vp=vp,
-        tu_pivot_eta_ts=tu_pivot_eta_ts or (tu_map.get(pivot_sid) or {}).get("epoch"),
-        dwell_buffer_s=dwell_buffer_s,
+        tu_pivot_eta_ts=tu_pivot_eta_ts or tu_pivot_data.get("epoch"),
         min_ahead_s=min_ahead_s,
     )
 
+    if global_delay_s is not None and delay_pivot_s == min_ahead_s:
+        delay_pivot_s = global_delay_s
+
     last_idx = len(order_sids) - 1
     st = normalize_status(safe_get_field(vp, "current_status"))
-    getattr(vp, "stop_id", None) if vp else None
     if isinstance(current_idx, int) and current_idx >= last_idx and st == "STOPPED_AT":
         pivot_idx = len(order_sids)
 
@@ -378,7 +389,6 @@ def build_rt_arrival_epochs_from_vm(
     info = build_rt_arrival_times_from_vm(
         vm,
         tz_name=tz_name,
-        dwell_buffer_s=dwell_buffer_s,
         min_ahead_s=min_ahead_s,
         downstream_tu_override=downstream_tu_override,
     )
@@ -679,7 +689,7 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
     rt_info_by_sid = build_rt_arrival_times_from_vm(
         vm,
         tz_name=tz_name,
-        downstream_tu_override=False,
+        downstream_tu_override=True,
     )
 
     trip_rows = (vm.get("trip") or {}).get("stops") if vm.get("trip") else None
@@ -707,9 +717,18 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
     order_sids = [sid for (_i, sid, _c) in order]
 
     current_sid = None
+    current_status_str = None
     with suppress(Exception):
         if (vm.get("kind") == "live") and vm.get("train"):
-            current_sid = getattr(vm["train"], "stop_id", None)
+            train_obj = vm["train"]
+            current_sid = getattr(train_obj, "current_stop_id", None)
+            current_status_str = getattr(train_obj, "current_status", None)
+            if not current_sid:
+                raw_stop_id = getattr(train_obj, "stop_id", None)
+                raw_status = getattr(train_obj, "current_status", None)
+                if normalize_status(raw_status) == "STOPPED_AT":
+                    current_sid = raw_stop_id
+
     index_by_sid = {sid: i for i, sid in enumerate(order_sids)}
     current_idx = index_by_sid.get(str(current_sid)) if current_sid else None
 
@@ -721,7 +740,7 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
             next_idx = i
             break
 
-    prev_rt_min_bucket: tuple[int, int] | None = None  # (H, M) mostrados en la fila previa
+    prev_rt_min_bucket: tuple[int, int] | None = None
 
     rows: list[dict] = []
     for i0, sid, _call in order:
@@ -745,7 +764,7 @@ def _build_alpha_stop_rows_for_train_detail(vm: dict, tz_name: str = "Europe/Mad
                 dt = datetime.fromtimestamp(int(rt_epoch), ZoneInfo(tz_name))
                 bucket = (dt.hour, dt.minute)
                 if prev_rt_min_bucket is not None and bucket == prev_rt_min_bucket:
-                    rt_hhmm_final = _fmt_hhmmss(rt_epoch)  # evita “misma hora” aparente
+                    rt_hhmm_final = _fmt_hhmmss(rt_epoch)
                 prev_rt_min_bucket = bucket
             else:
                 prev_rt_min_bucket = None
