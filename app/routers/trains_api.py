@@ -330,6 +330,7 @@ def _serialize_stop_view(
 
 
 def _detail_payload(detail_view: Any, vm: dict[str, Any]) -> dict[str, Any]:
+    """Build the train_detail nested payload (legacy structure for backwards compatibility)."""
     train_service: dict[str, Any] = vm.get("unified") or {}
     status_view = safe_get_field(detail_view, "status") or {}
     schedule_view = safe_get_field(detail_view, "schedule") or {}
@@ -409,32 +410,24 @@ def _detail_payload(detail_view: Any, vm: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@router.get(
-    "/trains/{nucleus}/{identifier}/position",
-    summary="Posición en vivo de un tren por núcleo e identificador",
-)
-def live_train_position(
-    nucleus: str,
-    identifier: str,
-    tz: str = Query(default="Europe/Madrid"),
-    train_id: str | None = Query(default=None, description="Opcional: ID del tren en vivo"),
-):
-    nucleus = (nucleus or "").strip().lower()
-    if not nucleus:
-        raise HTTPException(400, detail="Missing nucleus")
+def build_train_position_payload(
+    nucleus: str, train_id: str, tz: str = "Europe/Madrid"
+) -> dict[str, Any] | None:
+    """
+    Build complete train position payload matching the /position endpoint structure.
+    This function is used by both HTTP endpoint and WebSocket broadcasts.
 
-    if not re.fullmatch(r"\d{3,6}", (identifier or "").strip()):
-        raise HTTPException(400, detail="identifier must be a numeric train number (3–6 digits)")
-
+    Returns None if train not found or not live.
+    """
     cache = get_live_trains_cache()
-    train_obj = cache.get_by_id(str(train_id)) if train_id else None
+    train_obj = cache.get_by_id(str(train_id))
 
-    vm = build_train_detail_vm(nucleus, identifier, tz_name=tz)
+    vm = build_train_detail_vm(nucleus, str(train_id), tz_name=tz)
     if train_obj is None:
         train_obj = vm.get("train")
 
     if vm.get("kind") != "live" or train_obj is None:
-        raise HTTPException(404, detail="Train not found or not live")
+        return None
 
     lat = getattr(train_obj, "lat", None)
     lon = getattr(train_obj, "lon", None)
@@ -490,7 +483,6 @@ def live_train_position(
     )
 
     # Fallback: if no progress but we have segment times, calculate temporal progress
-    # This helps dormant trains (no recent updates) maintain a progress estimate
     if (
         progress_val is None
         and current_status not in ("", "STOPPED_AT")
@@ -504,15 +496,13 @@ def live_train_position(
             temporal_progress = max(0.0, min(1.0, temporal_progress))
             progress_val = int(round(temporal_progress * 100))
 
-    # Build interpolation parameters for deterministic client-side progress
-    # Use the same timestamp logic as _progress_for_segment in train_services_index.py
+    # Build interpolation parameters
     pos_ts = None
     for attr in ("ts_unix", "ts", "timestamp", "last_ts", "last_update_ts"):
         val = getattr(train_obj, attr, None)
         if isinstance(val, int | float):
             pos_ts = val
             break
-    # Fallback to current server time (same as _now_ts in train_services_index.py)
     if pos_ts is None:
         pos_ts = time.time()
 
@@ -520,13 +510,12 @@ def live_train_position(
     interpolation_anchor_progress = progress_val if isinstance(progress_val, int | float) else None
     interpolation_target_ts = seg_arr_epoch if isinstance(seg_arr_epoch, int | float) else None
 
-    # Estimate target_ts when not available from schedule using spatial/temporal hints
+    # Estimate target_ts when not available
     if interpolation_target_ts is None and interpolation_anchor_progress is not None:
         remaining_pct = 100 - interpolation_anchor_progress
         if remaining_pct <= 0:
             interpolation_target_ts = pos_ts
         else:
-            # Prefer scheduled/ETA delta if segment times are known
             if (
                 isinstance(seg_dep_epoch, int | float)
                 and isinstance(seg_arr_epoch, int | float)
@@ -538,7 +527,6 @@ def live_train_position(
                 remaining = max(0.0, total - elapsed)
                 interpolation_target_ts = now_ts + remaining
             else:
-                # Distance-based estimate if positions are available
                 lat_cur, lon_cur = _latlon(train_obj)
                 to_lat = to_row.get("lat") if to_row else None
                 to_lon = to_row.get("lon") if to_row else None
@@ -552,21 +540,88 @@ def live_train_position(
                     time_to_arrival_s = max(5.0, (float(dist_m) / max(speed_kmh, 1e-3)) * 3.6)
                     interpolation_target_ts = pos_ts + time_to_arrival_s
                 else:
-                    # Conservative default: ~3 min per step, escalating remaining percentage
                     default_segment_seconds = 180
                     time_to_arrival_s = default_segment_seconds * (remaining_pct / 100)
                     interpolation_target_ts = pos_ts + time_to_arrival_s
 
-    # Determine segment endpoints, ensuring they're different
+    # Determine segment endpoints
     from_stop_id = unified.get("current_stop_id") or getattr(train_obj, "current_stop_id", None)
     to_stop_id = getattr(train_obj, "next_stop_id", None) or unified.get("next_stop_id")
 
-    # Fallback to stop_id only if it's different from next_stop_id
     if not from_stop_id:
         fallback_stop_id = getattr(train_obj, "stop_id", None)
         if fallback_stop_id and str(fallback_stop_id) != str(to_stop_id or ""):
             from_stop_id = fallback_stop_id
 
+    # Build RT arrival times
+    rt_info = build_rt_arrival_times_from_vm(vm, tz_name=tz) or {}
+    rt_arrival_times = {
+        str(sid): {
+            "epoch": rec.get("epoch"),
+            "hhmm": hhmm_local(rec.get("epoch"), tz) if rec.get("epoch") else rec.get("hhmm"),
+            "delay_s": rec.get("delay_s"),
+            "delay_min": rec.get("delay_min"),
+        }
+        for sid, rec in (rt_info or {}).items()
+    }
+
+    # Add passed stops
+    for stop in (vm.get("trip") or {}).get("stops") or []:
+        sid = safe_get_field(stop, "stop_id")
+        epoch = safe_get_field(stop, "passed_at_epoch")
+        if sid is None or epoch is None:
+            continue
+        delay_s = safe_get_field(stop, "passed_delay_s")
+        rt_arrival_times[str(sid)] = {
+            "epoch": epoch,
+            "hhmm": stop.get("passed_at_hhmm") if isinstance(stop, dict) else None,
+            "delay_s": delay_s,
+            "delay_min": (int(delay_s / 60) if isinstance(delay_s, int) else None),
+            "is_passed": True,
+            "ts": epoch,
+        }
+
+    # Build detail view
+    repo = get_routes_repo()
+    train_last_stop_id = getattr(train_obj, "stop_id", None)
+    detail_view = build_train_detail_view(
+        vm, rt_arrival_times, repo, last_seen_stop_id=train_last_stop_id
+    )
+
+    status_view = safe_get_field(detail_view, "status") or {}
+    schedule_view = safe_get_field(detail_view, "schedule") or {}
+    stop_count = safe_get_field(detail_view, "stop_count")
+
+    live_platform_value = unified.get("platform")
+    live_platform_stop_id = unified.get("next_stop_id")
+    if str(unified.get("current_status", "")).upper() == "STOPPED_AT":
+        live_platform_stop_id = unified.get("current_stop_id") or live_platform_stop_id
+    train_current_stop_id = unified.get("current_stop_id")
+
+    stops_payload = []
+    for stop_view in safe_get_field(detail_view, "stops") or []:
+        stops_payload.append(
+            _serialize_stop_view(
+                stop_view,
+                train_service=unified,
+                kind=vm.get("kind"),
+                live_platform_value=live_platform_value,
+                live_platform_stop_id=live_platform_stop_id,
+                train_current_stop_id=train_current_stop_id,
+            )
+        )
+
+    flow_state = safe_get_field(status_view, "train_flow_state")
+    train_status_key, _ = _train_status_meta(unified, vm.get("kind"))
+
+    origin_display_time = _compute_origin_display_time(schedule_view, status_view)
+    destination_display_time = (
+        safe_get_field(schedule_view, "destination_time")
+        or safe_get_field(schedule_view, "scheduled_destination_time")
+        or "--:--"
+    )
+
+    # Build complete payload with /position structure
     payload: dict[str, Any] = {
         "train": {
             "id": getattr(train_obj, "train_id", None),
@@ -611,115 +666,63 @@ def live_train_position(
                 and str(unified.get("current_status", "")).upper() == "IN_TRANSIT_TO"
             ),
         },
-    }
-    route_geojson, route_stops_geojson = _route_geojson_from_vm(vm, train_obj)
-    if route_geojson:
-        payload["route_geojson"] = route_geojson
-    if route_stops_geojson:
-        payload["route_stops_geojson"] = route_stops_geojson
-
-    status_view: dict[str, Any] = {}
-    schedule_view: dict[str, Any] = {}
-    stops_payload: list[dict[str, Any]] = []
-    stop_count: int | None = None
-    detail_view: Any | None = None
-    try:
-        rt_info = build_rt_arrival_times_from_vm(vm, tz_name=tz) or {}
-        rt_arrival_times = {
-            str(sid): {
-                "epoch": rec.get("epoch"),
-                "hhmm": hhmm_local(rec.get("epoch"), tz) if rec.get("epoch") else rec.get("hhmm"),
-                "delay_s": rec.get("delay_s"),
-                "delay_min": rec.get("delay_min"),
-            }
-            for sid, rec in (rt_info or {}).items()
-        }
-
-        if vm.get("kind") == "live":
-            for stop in (vm.get("trip") or {}).get("stops") or []:
-                sid = safe_get_field(stop, "stop_id")
-                epoch = safe_get_field(stop, "passed_at_epoch")
-                if sid is None or epoch is None:
-                    continue
-                delay_s = safe_get_field(stop, "passed_delay_s")
-                rt_arrival_times[str(sid)] = {
-                    "epoch": epoch,
-                    "hhmm": stop.get("passed_at_hhmm") if isinstance(stop, dict) else None,
-                    "delay_s": delay_s,
-                    "delay_min": (int(delay_s / 60) if isinstance(delay_s, int) else None),
-                    "is_passed": True,
-                    "ts": epoch,
-                }
-
-        repo = get_routes_repo()
-        train_last_stop_id = getattr(train_obj, "stop_id", None)
-        detail_view = build_train_detail_view(
-            vm, rt_arrival_times, repo, last_seen_stop_id=train_last_stop_id
-        )
-        status_view = safe_get_field(detail_view, "status") or {}
-        schedule_view = safe_get_field(detail_view, "schedule") or {}
-        stop_count = safe_get_field(detail_view, "stop_count")
-        live_platform_value = (vm.get("unified") or {}).get("platform")
-        live_platform_stop_id = (vm.get("unified") or {}).get("next_stop_id")
-        if str((vm.get("unified") or {}).get("current_status", "")).upper() == "STOPPED_AT":
-            live_platform_stop_id = (vm.get("unified") or {}).get(
-                "current_stop_id"
-            ) or live_platform_stop_id
-        train_current_stop_id = (vm.get("unified") or {}).get("current_stop_id")
-        for stop_view in safe_get_field(detail_view, "stops") or []:
-            stops_payload.append(
-                _serialize_stop_view(
-                    stop_view,
-                    train_service=vm.get("unified") or {},
-                    kind=vm.get("kind"),
-                    live_platform_value=live_platform_value,
-                    live_platform_stop_id=live_platform_stop_id,
-                    train_current_stop_id=train_current_stop_id,
-                )
-            )
-    except Exception:
-        status_view = {}
-        schedule_view = {}
-        stops_payload = []
-        stop_count = None
-
-    flow_state = safe_get_field(status_view, "train_flow_state")
-    train_status_key, _ = _train_status_meta(vm.get("unified") or {}, vm.get("kind"))
-    payload["status"] = {
-        "key": train_status_key,
-        "flow_state": flow_state,
-        "train_type": {
-            "label": safe_get_field(status_view, "train_type_label"),
-            "is_live": bool(safe_get_field(status_view, "is_live_train")),
-            "live_badge_class": safe_get_field(status_view, "live_badge_class"),
+        "status": {
+            "key": train_status_key,
+            "flow_state": flow_state,
+            "train_type": {
+                "label": safe_get_field(status_view, "train_type_label"),
+                "is_live": bool(safe_get_field(status_view, "is_live_train")),
+                "live_badge_class": safe_get_field(status_view, "live_badge_class"),
+            },
         },
+        "schedule": {
+            "origin": {
+                "display": origin_display_time,
+                "scheduled": safe_get_field(schedule_view, "scheduled_origin_time"),
+                "state": safe_get_field(schedule_view, "origin_time_state") or "on-time",
+                "show_scheduled": bool(safe_get_field(schedule_view, "show_origin_schedule_time")),
+                "rt": safe_get_field(schedule_view, "origin_time"),
+            },
+            "destination": {
+                "display": destination_display_time,
+                "scheduled": safe_get_field(schedule_view, "scheduled_destination_time"),
+                "state": safe_get_field(schedule_view, "destination_time_state") or "on-time",
+                "show_scheduled": bool(
+                    safe_get_field(schedule_view, "show_destination_schedule_time")
+                ),
+                "rt": safe_get_field(schedule_view, "destination_time"),
+            },
+            "rt_updated_iso": safe_get_field(schedule_view, "rt_updated_iso")
+            or safe_get_field(detail_view, "rt_updated_iso"),
+        },
+        "stops": {"count": stop_count, "items": stops_payload},
     }
 
-    origin_display_time = _compute_origin_display_time(schedule_view, status_view)
-    destination_display_time = (
-        safe_get_field(schedule_view, "destination_time")
-        or safe_get_field(schedule_view, "scheduled_destination_time")
-        or "--:--"
-    )
-    payload["schedule"] = {
-        "origin": {
-            "display": origin_display_time,
-            "scheduled": safe_get_field(schedule_view, "scheduled_origin_time"),
-            "state": safe_get_field(schedule_view, "origin_time_state") or "on-time",
-            "show_scheduled": bool(safe_get_field(schedule_view, "show_origin_schedule_time")),
-            "rt": safe_get_field(schedule_view, "origin_time"),
-        },
-        "destination": {
-            "display": destination_display_time,
-            "scheduled": safe_get_field(schedule_view, "scheduled_destination_time"),
-            "state": safe_get_field(schedule_view, "destination_time_state") or "on-time",
-            "show_scheduled": bool(safe_get_field(schedule_view, "show_destination_schedule_time")),
-            "rt": safe_get_field(schedule_view, "destination_time"),
-        },
-        "rt_updated_iso": safe_get_field(schedule_view, "rt_updated_iso")
-        or safe_get_field(detail_view, "rt_updated_iso"),
-    }
-    payload["stops"] = {"count": stop_count, "items": stops_payload}
+    return payload
+
+
+@router.get(
+    "/trains/{nucleus}/{identifier}/position",
+    summary="Posición en vivo de un tren por núcleo e identificador",
+)
+def live_train_position(
+    nucleus: str,
+    identifier: str,
+    tz: str = Query(default="Europe/Madrid"),
+    train_id: str | None = Query(default=None, description="Opcional: ID del tren en vivo"),
+):
+    nucleus = (nucleus or "").strip().lower()
+    if not nucleus:
+        raise HTTPException(400, detail="Missing nucleus")
+
+    if not re.fullmatch(r"\d{3,6}", (identifier or "").strip()):
+        raise HTTPException(400, detail="identifier must be a numeric train number (3–6 digits)")
+
+    # Build payload using shared function
+    payload = build_train_position_payload(nucleus, identifier, tz)
+    if payload is None:
+        raise HTTPException(404, detail="Train not found or not live")
+
     return JSONResponse(jsonable_encoder(payload))
 
 

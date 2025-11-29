@@ -287,19 +287,9 @@
             }
         }
 
-        if (statusKey === 'INCOMING_AT') {
-            if (!nextStopId && currentStopId) {
-                nextStopId = currentStopId;
-            }
-            if (nextStopId && rawStops.length > 0) {
-                const nextIdx = rawStops.findIndex(s => String(s?.stop_id ?? s?.stopId) === String(nextStopId));
-                if (nextIdx > 0) {
-                    currentStopId = rawStops[nextIdx - 1]?.stop_id ?? rawStops[nextIdx - 1]?.stopId ?? null;
-                } else {
-                    currentStopId = null;
-                }
-            }
-        }
+        // REMOVED: Previously attempted to deduce current_stop from next_stop for INCOMING_AT status
+        // This caused incorrect stop positioning as the server already provides correct values
+        // Trust server-provided current_stop_id and next_stop_id instead of inferring
 
         const stops = rawStops.map((stop) => {
             const sid = stop?.stop_id ?? stop?.stopId;
@@ -825,57 +815,13 @@
 
                     if (message.type === 'train_update' && message.train_id === trainId) {
                         // Received update for our train
-
-                        // Extract the complete payload
+                        // Payload now matches /position endpoint structure directly
                         const payload = message.data || {};
 
-                        // Check if we have complete train_detail data
-                        if (payload.train_detail || payload.unified) {
-                            // Build complete payload structure expected by applyTrainDetailPayload
-                            const completePayload = {
-                                train: {
-                                    kind: 'live',
-                                    id: payload.train_id,
-                                    vehicle_id: payload.vehicle_id,
-                                    route_id: payload.route_id,
-                                    direction_id: payload.direction_id,
-                                    seen: payload.train_detail?.schedule?.rt_updated_iso ? {
-                                        iso: payload.train_detail.schedule.rt_updated_iso,
-                                        age_s: null
-                                    } : null,
-                                    is_ghost_train: payload.unified?.is_ghost_train || false,
-                                },
-                                position: {
-                                    lat: payload.lat,
-                                    lon: payload.lon,
-                                    heading: null,
-                                    ts_unix: payload.timestamp,
-                                    available: !!(payload.lat && payload.lon),
-                                },
-                                segment: {
-                                    from_stop: {
-                                        id: payload.unified?.current_stop_id,
-                                        name: payload.unified?.current_stop_name,
-                                    },
-                                    to_stop: {
-                                        id: payload.unified?.next_stop_id,
-                                        name: payload.unified?.next_stop_name,
-                                    },
-                                    progress_pct: payload.unified?.next_stop_progress_pct,
-                                },
-                                status: {
-                                    key: payload.train_detail?.train_status_key || 'UNKNOWN',
-                                    flow_state: payload.train_detail?.train_flow_state,
-                                    train_type: payload.train_detail?.train_type || {},
-                                },
-                                schedule: payload.train_detail?.schedule || {},
-                                stops: {
-                                    count: payload.train_detail?.stop_count,
-                                    items: payload.train_detail?.stops || [],
-                                },
-                            };
-
-                            applyTrainDetailPayload(panel, completePayload);
+                        // Check if we have complete data (matches /position structure)
+                        if (payload.train && payload.segment && payload.status && payload.stops) {
+                            // Payload is already in the correct structure - use it directly!
+                            applyTrainDetailPayload(panel, payload);
                         } else {
                             // Incomplete data, fallback to HTTP fetch
                             console.warn('[WS] Incomplete data, fetching via HTTP');

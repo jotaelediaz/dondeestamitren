@@ -88,13 +88,7 @@ def build_scheduler() -> BackgroundScheduler:
 
         # Broadcast to WebSocket subscribers
         try:
-            from app.routers.trains_api import _detail_payload
-            from app.services.eta_projector import build_rt_arrival_times_from_vm
-            from app.services.routes_repo import get_repo as get_routes_repo
-            from app.services.train_services_index import build_train_detail_vm
             from app.services.ws_manager import get_ws_manager
-            from app.viewkit import hhmm_local, safe_get_field
-            from app.viewmodels.train_detail import build_train_detail_view
 
             manager = get_ws_manager()
 
@@ -129,83 +123,22 @@ def build_scheduler() -> BackgroundScheduler:
                         }
                         trains_data.append(payload)
 
-                        # For subscribed trains, build complete detail payload
+                        # For subscribed trains, build complete payload with /position structure
                         tid = payload.get("train_id")
                         if tid and str(tid) in train_subs_norm:
                             try:
-                                # Build complete train detail view model
-                                vm = build_train_detail_vm(
-                                    nucleus, str(tid), tz_name="Europe/Madrid"
+                                # Build complete payload using shared function
+                                # (matches HTTP /position structure)
+                                from app.routers.trains_api import build_train_position_payload
+
+                                complete_payload = build_train_position_payload(
+                                    nucleus, str(tid), tz="Europe/Madrid"
                                 )
 
-                                if vm.get("kind") == "live":
-                                    # Build RT arrival times
-                                    rt_info = (
-                                        build_rt_arrival_times_from_vm(vm, tz_name="Europe/Madrid")
-                                        or {}
-                                    )
-                                    rt_arrival_times = {
-                                        str(sid): {
-                                            "epoch": rec.get("epoch"),
-                                            "hhmm": (
-                                                hhmm_local(rec.get("epoch"), "Europe/Madrid")
-                                                if rec.get("epoch")
-                                                else rec.get("hhmm")
-                                            ),
-                                            "delay_s": rec.get("delay_s"),
-                                            "delay_min": rec.get("delay_min"),
-                                        }
-                                        for sid, rec in (rt_info or {}).items()
-                                    }
-
-                                    # Add passed stops
-                                    for stop in (vm.get("trip") or {}).get("stops") or []:
-                                        sid = safe_get_field(stop, "stop_id")
-                                        epoch = safe_get_field(stop, "passed_at_epoch")
-                                        if sid is None or epoch is None:
-                                            continue
-                                        delay_s = safe_get_field(stop, "passed_delay_s")
-                                        rt_arrival_times[str(sid)] = {
-                                            "epoch": epoch,
-                                            "hhmm": (
-                                                stop.get("passed_at_hhmm")
-                                                if isinstance(stop, dict)
-                                                else None
-                                            ),
-                                            "delay_s": delay_s,
-                                            "delay_min": (
-                                                int(delay_s / 60)
-                                                if isinstance(delay_s, int)
-                                                else None
-                                            ),
-                                            "is_passed": True,
-                                            "ts": epoch,
-                                        }
-
-                                    # Build detail view
-                                    repo = get_routes_repo()
-                                    train_obj = vm.get("train")
-                                    train_last_stop_id = getattr(train_obj, "stop_id", None)
-                                    detail_view = build_train_detail_view(
-                                        vm,
-                                        rt_arrival_times,
-                                        repo,
-                                        last_seen_stop_id=train_last_stop_id,
-                                    )
-
-                                    # Build complete payload
-                                    detail_payload_data = _detail_payload(detail_view, vm)
-
-                                    # Construct complete message for train detail subscribers
-                                    complete_payload = {
-                                        **payload,
-                                        "train_detail": detail_payload_data,
-                                        "unified": vm.get("unified"),
-                                    }
-
+                                if complete_payload:
                                     broadcast_train_sync(nucleus, complete_payload)
                                 else:
-                                    # Not live, send basic payload
+                                    # Fallback to basic payload if train is not live
                                     broadcast_train_sync(nucleus, payload)
                             except Exception as detail_error:
                                 log.debug(

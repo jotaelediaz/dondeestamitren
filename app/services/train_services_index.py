@@ -813,11 +813,9 @@ def _build_trip_rows(
             status = "SKIPPED"
         else:
             seq_val = _to_int(c.get("seq"))
-            if is_in_transit and live_sid and sid == live_sid:
-                status = "NEXT"
-            elif live_sid and sid == live_sid:
-                status = "CURRENT"
-            elif (
+
+            # Priority 1: Check if this is the TripUpdate's next stop (next service stop)
+            if (
                 effective_next_seq is not None
                 and seq_val is not None
                 and seq_val == effective_next_seq
@@ -826,6 +824,18 @@ def _build_trip_rows(
                 and effective_next_stop_id
                 and sid == effective_next_stop_id
                 and (effective_next_seq is None or seq_val is None)
+            ):
+                status = "NEXT"
+            # Priority 2: Check if stopped at current live_sid
+            elif live_sid and sid == live_sid and not is_in_transit:
+                status = "CURRENT"
+            # Priority 3: If in transit to live_sid and NO TripUpdate override, mark as NEXT
+            # (only if effective_next_stop_id is None or same as live_sid)
+            elif (
+                is_in_transit
+                and live_sid
+                and sid == live_sid
+                and (effective_next_stop_id is None or effective_next_stop_id == live_sid)
             ):
                 status = "NEXT"
             else:
@@ -978,16 +988,17 @@ def _build_trip_rows(
             if next_stop_id is None:
                 next_stop_id = next_after_live
     elif live_status in {"IN_TRANSIT_TO", "INCOMING_AT"} and live_sid:
-        tu_seq_ahead_of_live = (
-            tu_next_seq is not None and live_seq_val is not None and tu_next_seq > live_seq_val
-        )
+        # IMPORTANT: For IN_TRANSIT_TO/INCOMING_AT, live_sid indicates the DESTINATION stop
+        # (where train is heading),
+        # not the origin stop (where it came from). This follows GTFS-RT specification.
 
-        if tu_seq_ahead_of_live:
-            current_stop_id = live_sid
-            next_stop_id = tu_next_stop_id or next_after_live or next_stop_id or live_sid
-        else:
-            next_stop_id = tu_next_stop_id or live_sid or next_stop_after_live or next_stop_id
-            current_stop_id = prev_from_live
+        # TripUpdate is the source of truth for the next scheduled stop where the train will STOP
+        # VehiclePosition.stop_id may indicate the next geographic stop on the route,
+        # even if the train won't stop there
+        # Only use VehiclePosition as fallback if TripUpdate is not available
+        if next_stop_id is None:
+            next_stop_id = live_sid
+        current_stop_id = prev_from_live
 
         if (
             live_status == "IN_TRANSIT_TO"

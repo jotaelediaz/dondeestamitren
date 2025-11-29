@@ -427,7 +427,30 @@ def broadcast_train_sync(nucleus: str, train_data: dict) -> None:
         return
 
     manager = get_ws_manager()
-    train_id = (train_data or {}).get("train_id")
+
+    def _extract_train_id(data: dict[str, Any] | None) -> str | None:
+        """Best-effort extraction of train_id from different payload shapes."""
+        if not isinstance(data, dict):
+            return None
+
+        # Basic payloads already carry train_id at top-level
+        top_id = data.get("train_id")
+        if top_id:
+            return str(top_id)
+
+        train_block = data.get("train")
+        if isinstance(train_block, dict):
+            nested_id = (
+                train_block.get("id")
+                or train_block.get("train_id")
+                or train_block.get("vehicle_id")
+            )
+            if nested_id:
+                return str(nested_id)
+
+        return None
+
+    train_id = _extract_train_id(train_data)
     if not train_id:
         return
 
